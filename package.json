@@ -1,0 +1,34 @@
+{
+  "name": "pelorus-file-manager",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A desktop-first, two-panel browser file manager with a real local terminal.",
+  "scripts": {
+    "dev": "node scripts/dev.js",
+    "dev:backend": "node server/index.js",
+    "dev:frontend": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "postinstall": "node scripts/ensure-node-pty-helper.js",
+    "start": "node server/index.js",
+    "test": "node --test",
+    "test:smoke": "node scripts/runtime-smoke.js"
+  },
+  "dependencies": {
+    "@mdi/font": "^7.4.47",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "bootstrap": "^5.3.8",
+    "node-pty": "^1.1.0",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
+    "vue": "^3.5.42"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.1",
+    "vite": "^7.1.5"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  }
+}
