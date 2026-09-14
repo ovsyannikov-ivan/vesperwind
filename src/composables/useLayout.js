@@ -1,6 +1,6 @@
 import { reactive, watch } from 'vue'
 
-const STORAGE_KEY = 'pelorus:layout:v1'
+const STORAGE_KEY = 'vesperwind:layout:v1'
 
 const defaults = {
   leftVisible: true,

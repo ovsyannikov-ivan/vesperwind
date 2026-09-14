@@ -1,7 +1,9 @@
 import process from 'node:process'
+import path from 'node:path'
 import { io } from 'socket.io-client'
 
-const socket = io('http://127.0.0.1:3001', {
+const backendUrl = process.env.VESPERWIND_BACKEND_URL || 'http://127.0.0.1:3001'
+const socket = io(backendUrl, {
   transports: ['websocket'],
   timeout: 5_000,
 })
@@ -39,7 +41,7 @@ const waitForTerminalMarker = (terminalId) =>
 
       output += payload.data
 
-      if (output.includes('__PELORUS_PTY_OK__')) {
+      if (output.includes('__VESPERWIND_PTY_OK__')) {
         clearTimeout(timer)
         socket.off('terminal:output', onOutput)
         resolve(output)
@@ -49,7 +51,7 @@ const waitForTerminalMarker = (terminalId) =>
     socket.on('terminal:output', onOutput)
     socket.emit('terminal:input', {
       id: terminalId,
-      data: "printf '__PELORUS_PTY_OK__\\n'; pwd\n",
+      data: "printf '__VESPERWIND_PTY_OK__\\n'; pwd\n",
     })
   })
 
@@ -81,6 +83,58 @@ try {
     throw new Error('Filesystem entries are not sorted with folders first')
   }
 
+  const settingsResponse = await emitWithAck('settings:get')
+
+  if (
+    !settingsResponse?.ok ||
+    !Array.isArray(settingsResponse.settings?.filesystem?.hiddenNameSuffixes) ||
+    !Array.isArray(settingsResponse.settings?.editor?.editableFiles) ||
+    !['', 'ru-RU', 'en-GB'].includes(settingsResponse.settings?.appearance?.locale) ||
+    !['system', 'dark', 'light'].includes(settingsResponse.settings?.appearance?.theme)
+  ) {
+    throw new Error(`Settings failed: ${settingsResponse?.error?.message}`)
+  }
+
+  const editorReadResponse = await emitWithAck('filesystem:read-text', {
+    filesystemId: 'local',
+    path: path.join(process.cwd(), 'package.json'),
+  })
+
+  if (!editorReadResponse?.ok || !editorReadResponse.content.includes('vesperwind-file-manager')) {
+    throw new Error(`Editor text read failed: ${editorReadResponse?.error?.message}`)
+  }
+
+  const operationResponse = await emitWithAck('filesystem:operate', {
+    action: 'invalid-smoke-action',
+    sourcePath: rootResponse.root.path,
+    targetDirectory: rootResponse.root.path,
+  })
+
+  if (operationResponse?.ok || operationResponse?.error?.code !== 'EINVAL') {
+    throw new Error('Filesystem operation handler did not return a safe validation error')
+  }
+
+  const deleteGuardResponse = await emitWithAck('filesystem:operate', {
+    action: 'delete',
+    sourcePath: rootResponse.root.path,
+  })
+
+  if (deleteGuardResponse?.ok || deleteGuardResponse?.error?.code !== 'EROOT_OPERATION') {
+    throw new Error('Filesystem root deletion guard is not active')
+  }
+
+  const mediaGuardResponse = await fetch(
+    `${backendUrl}/api/media?path=${encodeURIComponent(rootResponse.root.path)}`,
+  )
+  const mediaGuardBody = await mediaGuardResponse.json()
+
+  if (
+    mediaGuardResponse.status !== 400 ||
+    mediaGuardBody?.error?.code !== 'ENOTFILE'
+  ) {
+    throw new Error('Media endpoint did not reject a directory path')
+  }
+
   const terminalResponse = await emitWithAck('terminal:create', { cols: 80, rows: 24 })
 
   if (!terminalResponse?.ok) {
@@ -95,7 +149,11 @@ try {
         socket: 'connected',
         root: rootResponse.root.path,
         entries: listResponse.entries.length,
-        terminal: terminalOutput.includes('__PELORUS_PTY_OK__') ? 'interactive' : 'failed',
+        fileOperations: 'registered and root-protected',
+        mediaStreaming: 'registered and path-validated',
+        settings: settingsResponse.storagePath,
+        editorFilesystem: 'readable through Socket.io adapter',
+        terminal: terminalOutput.includes('__VESPERWIND_PTY_OK__') ? 'interactive' : 'failed',
       },
       null,
       2,

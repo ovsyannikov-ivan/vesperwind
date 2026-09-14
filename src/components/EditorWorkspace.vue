@@ -1,0 +1,394 @@
+<script setup>
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useEditorLayout } from '../composables/useEditorLayout.js'
+import { useEditorWorkspace } from '../composables/useEditorWorkspace.js'
+import EditorTree from './EditorTree.vue'
+import MonacoEditor from './MonacoEditor.vue'
+import RevertChangesModal from './RevertChangesModal.vue'
+import Splitter from './Splitter.vue'
+import UnsavedChangesModal from './UnsavedChangesModal.vue'
+
+const props = defineProps({
+  visible: {
+    type: Boolean,
+    default: false,
+  },
+})
+
+const emit = defineEmits(['show-files', 'open-file', 'empty'])
+const workspaceElement = ref(null)
+const monacoEditor = ref(null)
+const pendingClose = ref(null)
+const pendingRevert = ref(null)
+const closeBusy = ref(false)
+const closeError = ref('')
+const historyState = ref({ tabId: null, canUndo: false, canRedo: false })
+const { editorLayout, setTreeWidth } = useEditorLayout()
+const {
+  tabs,
+  activeTab,
+  activateTab,
+  updateContent,
+  saveTab,
+  closeTab,
+} = useEditorWorkspace()
+
+const contextKey = (tab) =>
+  `${tab.filesystemId}:${tab.sourcePane}:${tab.sourceRootPath}`
+
+const treeContexts = computed(() => {
+  const contexts = new Map()
+
+  for (const tab of tabs.value) {
+    const key = contextKey(tab)
+
+    if (!contexts.has(key)) {
+      contexts.set(key, {
+        key,
+        filesystemId: tab.filesystemId,
+        sourcePane: tab.sourcePane,
+        sourceRootPath: tab.sourceRootPath,
+        sourceRootName: tab.sourceRootName,
+        filesystemRoot: tab.filesystemRoot,
+        homePath: tab.homePath,
+      })
+    }
+  }
+
+  return [...contexts.values()]
+})
+const activeContextKey = computed(() =>
+  activeTab.value ? contextKey(activeTab.value) : '',
+)
+const treeStyle = computed(() => ({ width: `${editorLayout.treeWidth}px` }))
+const activeTabReady = computed(() =>
+  Boolean(activeTab.value && !activeTab.value.loading && !activeTab.value.error),
+)
+const canUndo = computed(() =>
+  Boolean(
+    activeTabReady.value &&
+      historyState.value.tabId === activeTab.value.id &&
+      historyState.value.canUndo,
+  ),
+)
+const canRedo = computed(() =>
+  Boolean(
+    activeTabReady.value &&
+      historyState.value.tabId === activeTab.value.id &&
+      historyState.value.canRedo,
+  ),
+)
+const canSave = computed(() =>
+  Boolean(activeTabReady.value && activeTab.value.dirty && !activeTab.value.saving),
+)
+const canRevert = computed(() =>
+  Boolean(activeTabReady.value && activeTab.value.dirty && !activeTab.value.saving),
+)
+const editorStatus = computed(() => {
+  if (!activeTab.value) {
+    return ''
+  }
+
+  if (activeTab.value.saving) {
+    return 'Saving…'
+  }
+
+  if (activeTab.value.saveError) {
+    return 'Save failed'
+  }
+
+  return activeTab.value.dirty ? 'Unsaved' : 'Saved'
+})
+
+const resizeTree = (delta) => {
+  setTreeWidth(
+    editorLayout.treeWidth + delta,
+    workspaceElement.value?.clientWidth || window.innerWidth,
+  )
+}
+
+const finishClose = (tabId) => {
+  closeTab(tabId)
+  pendingClose.value = null
+  closeError.value = ''
+
+  if (tabs.value.length === 0) {
+    emit('empty')
+  }
+}
+
+const requestClose = (tab) => {
+  if (tab.dirty) {
+    pendingClose.value = tab
+    closeError.value = ''
+    return
+  }
+
+  finishClose(tab.id)
+}
+
+const cancelClose = () => {
+  if (!closeBusy.value) {
+    pendingClose.value = null
+    closeError.value = ''
+  }
+}
+
+const discardAndClose = () => {
+  if (pendingClose.value && !closeBusy.value) {
+    finishClose(pendingClose.value.id)
+  }
+}
+
+const saveAndClose = async () => {
+  if (!pendingClose.value || closeBusy.value) {
+    return
+  }
+
+  const tabId = pendingClose.value.id
+  closeBusy.value = true
+  closeError.value = ''
+  const response = await saveTab(tabId)
+  closeBusy.value = false
+
+  if (!response?.ok) {
+    closeError.value = response?.error?.message || 'Unable to save this file'
+    return
+  }
+
+  finishClose(tabId)
+}
+
+const updateHistoryState = (state) => {
+  historyState.value = state
+}
+
+const saveActiveTab = () => {
+  if (!canSave.value) {
+    return
+  }
+
+  saveTab(activeTab.value.id)
+}
+
+const undo = () => {
+  if (canUndo.value) {
+    monacoEditor.value?.undo()
+  }
+}
+
+const redo = () => {
+  if (canRedo.value) {
+    monacoEditor.value?.redo()
+  }
+}
+
+const requestRevert = () => {
+  if (canRevert.value) {
+    pendingRevert.value = activeTab.value
+  }
+}
+
+const cancelRevert = () => {
+  pendingRevert.value = null
+}
+
+const confirmRevert = () => {
+  if (!pendingRevert.value) {
+    return
+  }
+
+  monacoEditor.value?.revertToSaved()
+  pendingRevert.value = null
+}
+
+const handleEditorKeydown = (event) => {
+  if (
+    !props.visible ||
+    pendingClose.value ||
+    pendingRevert.value ||
+    document.querySelector('.modal.show')
+  ) {
+    return
+  }
+
+  if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 's') {
+    event.preventDefault()
+    saveActiveTab()
+  }
+}
+
+const handleBeforeUnload = (event) => {
+  if (!tabs.value.some((tab) => tab.dirty)) {
+    return
+  }
+
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', handleEditorKeydown, true)
+  window.addEventListener('beforeunload', handleBeforeUnload)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleEditorKeydown, true)
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+})
+</script>
+
+<template>
+  <div ref="workspaceElement" class="editor-workspace">
+    <aside class="editor-tree-pane" :style="treeStyle">
+      <div class="editor-tree-toolbar">
+        <button class="btn btn-sm toolbar-button" type="button" title="Return to file panels" @click="$emit('show-files')">
+          <i class="mdi mdi-arrow-left" aria-hidden="true" />
+          Files
+        </button>
+        <span v-if="activeTab" class="editor-source-pane">{{ activeTab.sourcePane }}</span>
+      </div>
+
+      <template v-for="context in treeContexts" :key="context.key">
+        <EditorTree
+          v-show="context.key === activeContextKey"
+          :context="context"
+          @open-file="$emit('open-file', $event)"
+        />
+      </template>
+    </aside>
+
+    <Splitter orientation="vertical" @resize="resizeTree" />
+
+    <section class="editor-main">
+      <div class="editor-header">
+        <div class="editor-tabs" role="tablist" aria-label="Open files">
+          <button
+            v-for="tab in tabs"
+            :key="tab.id"
+            class="editor-tab"
+            :class="{ 'is-active': tab.id === activeTab?.id }"
+            type="button"
+            role="tab"
+            :aria-selected="tab.id === activeTab?.id"
+            :title="tab.filePath"
+            @click="activateTab(tab.id)"
+          >
+            <span v-if="tab.dirty" class="editor-dirty-marker" aria-label="Unsaved changes">●</span>
+            <i v-else class="mdi mdi-file-code-outline" aria-hidden="true" />
+            <span class="editor-tab-name">{{ tab.fileName }}</span>
+            <span v-if="tab.saving" class="spinner-border spinner-border-sm editor-tab-spinner" aria-hidden="true" />
+            <span
+              v-else
+              class="editor-tab-close"
+              role="button"
+              tabindex="0"
+              :aria-label="`Close ${tab.fileName}`"
+              @click.stop="requestClose(tab)"
+              @keydown.enter.stop="requestClose(tab)"
+              @keydown.space.prevent.stop="requestClose(tab)"
+            >
+              <i class="mdi mdi-close" aria-hidden="true" />
+            </span>
+          </button>
+        </div>
+
+        <div class="editor-actions" aria-label="Editor actions">
+          <span
+            v-if="activeTab"
+            class="editor-change-status"
+            :class="{
+              'is-dirty': activeTab.dirty && !activeTab.saveError,
+              'is-error': activeTab.saveError,
+            }"
+          >{{ editorStatus }}</span>
+          <button
+            class="btn btn-sm toolbar-button toolbar-command editor-history-button"
+            type="button"
+            title="Undo (Cmd/Ctrl+Z)"
+            aria-label="Undo"
+            :disabled="!canUndo"
+            @click="undo"
+          >
+            <i class="mdi mdi-undo" aria-hidden="true" />
+          </button>
+          <button
+            class="btn btn-sm toolbar-button toolbar-command editor-history-button"
+            type="button"
+            title="Redo (Shift+Cmd/Ctrl+Z)"
+            aria-label="Redo"
+            :disabled="!canRedo"
+            @click="redo"
+          >
+            <i class="mdi mdi-redo" aria-hidden="true" />
+          </button>
+          <button
+            class="btn btn-sm toolbar-button toolbar-command editor-history-button"
+            type="button"
+            title="Revert to the last saved version"
+            aria-label="Revert to saved"
+            :disabled="!canRevert"
+            @click="requestRevert"
+          >
+            <i class="mdi mdi-refresh" aria-hidden="true" />
+          </button>
+          <button
+            class="btn btn-sm toolbar-button toolbar-command editor-save-button"
+            type="button"
+            title="Save (Cmd/Ctrl+S)"
+            :disabled="!canSave"
+            @click="saveActiveTab"
+          >
+            <span v-if="activeTab?.saving" class="spinner-border spinner-border-sm editor-tab-spinner" aria-hidden="true" />
+            <i v-else class="mdi mdi-content-save-outline" aria-hidden="true" />
+            Save
+          </button>
+        </div>
+      </div>
+
+      <div v-if="activeTab?.loading" class="editor-message">
+        <span class="spinner-border spinner-border-sm" aria-hidden="true" />
+        Opening {{ activeTab.fileName }}…
+      </div>
+      <div v-else-if="activeTab?.error" class="editor-message text-danger" role="alert">
+        <i class="mdi mdi-alert-outline" aria-hidden="true" />
+        <span>{{ activeTab.error.message }}</span>
+        <button class="btn btn-sm btn-outline-secondary" type="button" @click="requestClose(activeTab)">Close tab</button>
+      </div>
+      <div v-if="!activeTab" class="editor-message">
+        <i class="mdi mdi-file-document-edit-outline" aria-hidden="true" />
+        Double-click a text file to open it.
+      </div>
+      <div v-if="activeTab?.saveError && !activeTab.loading && !activeTab.error" class="editor-save-error" role="alert">
+        <i class="mdi mdi-alert-outline" aria-hidden="true" />
+        {{ activeTab.saveError.message }}
+      </div>
+      <MonacoEditor
+        ref="monacoEditor"
+        v-show="Boolean(activeTab) && !activeTab.loading && !activeTab.error"
+        :active-tab="activeTab"
+        :tabs="tabs"
+        :visible="visible && Boolean(activeTab) && !activeTab.loading && !activeTab.error"
+        @change="updateContent"
+        @history-state="updateHistoryState"
+      />
+    </section>
+
+    <UnsavedChangesModal
+      :open="Boolean(pendingClose)"
+      :tab="pendingClose"
+      :busy="closeBusy"
+      :error="closeError"
+      @save="saveAndClose"
+      @discard="discardAndClose"
+      @cancel="cancelClose"
+    />
+
+    <RevertChangesModal
+      :open="Boolean(pendingRevert)"
+      :tab="pendingRevert"
+      @confirm="confirmRevert"
+      @cancel="cancelRevert"
+    />
+  </div>
+</template>

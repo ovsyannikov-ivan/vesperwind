@@ -1,4 +1,8 @@
 <script setup>
+const visibilityButtonClass = (visible) => ({
+  'is-active': visible,
+})
+
 defineProps({
   layout: {
     type: Object,
@@ -12,24 +16,74 @@ defineProps({
     type: Boolean,
     required: true,
   },
+  commandAvailability: {
+    type: Object,
+    default: () => ({ copy: false, move: false, delete: false }),
+  },
+  workspaceMode: {
+    type: String,
+    default: 'files',
+  },
+  editorAvailable: {
+    type: Boolean,
+    default: false,
+  },
 })
 
-defineEmits(['toggle-left', 'toggle-right', 'toggle-terminal'])
+defineEmits([
+  'toggle-left',
+  'toggle-right',
+  'toggle-terminal',
+  'open-settings',
+  'copy',
+  'move',
+  'delete',
+  'show-files',
+  'show-editor',
+])
 </script>
 
 <template>
   <header class="app-toolbar">
-    <div class="brand-mark" aria-label="Pelorus file manager">
+    <div class="brand-mark" aria-label="Vesperwind file manager">
       <i class="mdi mdi-compass-outline" aria-hidden="true" />
-      <span>Pelorus</span>
+      <span>Vesperwind</span>
     </div>
 
     <div class="toolbar-divider" />
 
-    <div class="btn-group btn-group-sm" role="group" aria-label="Panel visibility">
+    <div class="btn-group btn-group-sm" role="group" aria-label="Workspace mode">
       <button
-        class="btn toolbar-button"
-        :class="{ 'is-visible': layout.leftVisible }"
+        class="btn toolbar-button toolbar-toggle"
+        :class="visibilityButtonClass(workspaceMode === 'files')"
+        type="button"
+        :aria-pressed="workspaceMode === 'files'"
+        title="Show the two-panel file manager"
+        @click="$emit('show-files')"
+      >
+        <i class="mdi mdi-folder-multiple-outline" aria-hidden="true" />
+        Files
+      </button>
+      <button
+        class="btn toolbar-button toolbar-toggle"
+        :class="visibilityButtonClass(workspaceMode === 'editor')"
+        type="button"
+        :disabled="!editorAvailable"
+        :aria-pressed="workspaceMode === 'editor'"
+        title="Show open editor tabs"
+        @click="$emit('show-editor')"
+      >
+        <i class="mdi mdi-file-document-edit-outline" aria-hidden="true" />
+        Editor
+      </button>
+    </div>
+
+    <div class="toolbar-divider" />
+
+    <div v-if="workspaceMode === 'files'" class="btn-group btn-group-sm" role="group" aria-label="Panel visibility">
+      <button
+        class="btn toolbar-button toolbar-toggle"
+        :class="visibilityButtonClass(layout.leftVisible)"
         type="button"
         :aria-pressed="layout.leftVisible"
         title="Show or hide the left panel"
@@ -39,8 +93,8 @@ defineEmits(['toggle-left', 'toggle-right', 'toggle-terminal'])
         Left
       </button>
       <button
-        class="btn toolbar-button"
-        :class="{ 'is-visible': layout.rightVisible }"
+        class="btn toolbar-button toolbar-toggle"
+        :class="visibilityButtonClass(layout.rightVisible)"
         type="button"
         :aria-pressed="layout.rightVisible"
         title="Show or hide the right panel"
@@ -52,8 +106,8 @@ defineEmits(['toggle-left', 'toggle-right', 'toggle-terminal'])
     </div>
 
     <button
-      class="btn btn-sm toolbar-button ms-1"
-      :class="{ 'is-visible': layout.terminalVisible }"
+      class="btn btn-sm toolbar-button toolbar-toggle ms-1"
+      :class="visibilityButtonClass(layout.terminalVisible)"
       type="button"
       :aria-pressed="layout.terminalVisible"
       title="Show or hide the terminal"
@@ -63,11 +117,59 @@ defineEmits(['toggle-left', 'toggle-right', 'toggle-terminal'])
       Terminal
     </button>
 
+    <div v-if="workspaceMode === 'files'" class="toolbar-divider" />
+
+    <div v-if="workspaceMode === 'files'" class="btn-group btn-group-sm" role="group" aria-label="File operations">
+      <button
+        class="btn toolbar-button toolbar-command"
+        type="button"
+        :disabled="!commandAvailability.copy"
+        aria-keyshortcuts="F5"
+        title="Copy selected item to the other panel (F5)"
+        @click="$emit('copy')"
+      >
+        <i class="mdi mdi-content-copy" aria-hidden="true" />
+        <span class="commander-key">F5</span> Copy
+      </button>
+      <button
+        class="btn toolbar-button toolbar-command"
+        type="button"
+        :disabled="!commandAvailability.move"
+        aria-keyshortcuts="F6"
+        title="Move selected item to the other panel (F6)"
+        @click="$emit('move')"
+      >
+        <i class="mdi mdi-file-move-outline" aria-hidden="true" />
+        <span class="commander-key">F6</span> Move
+      </button>
+      <button
+        class="btn toolbar-button toolbar-command"
+        type="button"
+        :disabled="!commandAvailability.delete"
+        aria-keyshortcuts="F8"
+        title="Delete selected item (F8)"
+        @click="$emit('delete')"
+      >
+        <i class="mdi mdi-delete-outline" aria-hidden="true" />
+        <span class="commander-key">F8</span> Delete
+      </button>
+    </div>
+
+    <button
+      class="btn btn-sm toolbar-button ms-1"
+      type="button"
+      title="Open settings"
+      @click="$emit('open-settings')"
+    >
+      <i class="mdi mdi-cog-outline" aria-hidden="true" />
+      Settings
+    </button>
+
     <div class="toolbar-spacer" />
 
     <div class="active-panel-indicator">
       <span>Active</span>
-      <strong>{{ activePanel }}</strong>
+      <strong>{{ workspaceMode === 'editor' ? 'Editor' : activePanel }}</strong>
     </div>
 
     <div

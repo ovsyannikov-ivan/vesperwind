@@ -1,29 +1,25 @@
-import { socket } from '../socket/socket.js'
-
-const REQUEST_TIMEOUT = 15_000
-
-const request = (eventName, payload = {}) =>
-  new Promise((resolve) => {
-    socket.timeout(REQUEST_TIMEOUT).emit(eventName, payload, (timeoutError, response) => {
-      if (timeoutError) {
-        resolve({
-          ok: false,
-          error: {
-            code: 'ETIMEDOUT',
-            message: 'The backend did not respond',
-          },
-        })
-        return
-      }
-
-      resolve(response)
-    })
-  })
+import { filterVisibleFilesystemEntries } from '../utils/fileVisibility.js'
+import { request } from '../socket/request.js'
+import { useSettings } from './useSettings.js'
 
 export const useFilesystem = () => {
+  const { settings } = useSettings()
   const getRoot = () => request('filesystem:root')
-  const listDirectory = (directoryPath) =>
-    request('filesystem:list', { path: directoryPath })
+  const listDirectory = async (directoryPath) => {
+    const response = await request('filesystem:list', { path: directoryPath })
+
+    if (!response?.ok) {
+      return response
+    }
+
+    return {
+      ...response,
+      entries: filterVisibleFilesystemEntries(
+        response.entries,
+        settings.value.filesystem.hiddenNameSuffixes,
+      ),
+    }
+  }
 
   return {
     getRoot,

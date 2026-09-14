@@ -3,8 +3,10 @@ import os from 'node:os'
 import path from 'node:path'
 
 const configuredRoot = process.env.FILE_MANAGER_ROOT?.trim()
+const metadataConcurrency = 32
 
 export const fileManagerRoot = path.resolve(configuredRoot || os.homedir())
+export const homeDirectory = path.resolve(os.homedir())
 
 const isInside = (rootPath, targetPath) => {
   const relativePath = path.relative(rootPath, targetPath)
@@ -23,7 +25,7 @@ const createOutsideRootError = () => {
   return error
 }
 
-const resolveInsideRoot = (requestedPath) => {
+export const resolveInsideRoot = (requestedPath) => {
   if (typeof requestedPath !== 'string' || requestedPath.length === 0) {
     const error = new TypeError('A directory path is required')
     error.code = 'EINVAL'
@@ -39,7 +41,7 @@ const resolveInsideRoot = (requestedPath) => {
   return resolvedPath
 }
 
-const verifyRealPathInsideRoot = async (resolvedPath) => {
+export const verifyRealPathInsideRoot = async (resolvedPath) => {
   const [realRoot, realTarget] = await Promise.all([
     fs.realpath(fileManagerRoot),
     fs.realpath(resolvedPath),
@@ -63,13 +65,58 @@ const compareEntries = (left, right) => {
   })
 }
 
-const toEntry = (parentPath, entry) => ({
-  name: entry.name,
-  path: path.join(parentPath, entry.name),
-  type: entry.isDirectory() ? 'directory' : 'file',
-  isDirectory: entry.isDirectory(),
-  isSymbolicLink: entry.isSymbolicLink(),
-})
+const mapWithConcurrency = async (items, concurrency, mapper) => {
+  const results = new Array(items.length)
+  let nextIndex = 0
+
+  const worker = async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex
+      nextIndex += 1
+      results[currentIndex] = await mapper(items[currentIndex], currentIndex)
+    }
+  }
+
+  const workerCount = Math.min(concurrency, items.length)
+  await Promise.all(Array.from({ length: workerCount }, () => worker()))
+
+  return results
+}
+
+const readEntryMetadata = async (entryPath, isDirectory) => {
+  try {
+    const stats = await fs.lstat(entryPath)
+
+    return {
+      size: isDirectory ? null : stats.size,
+      modifiedAt: stats.mtime.toISOString(),
+      metadataError: null,
+    }
+  } catch (error) {
+    return {
+      size: null,
+      modifiedAt: null,
+      metadataError: {
+        code: error?.code || 'ESTAT',
+      },
+    }
+  }
+}
+
+const toEntry = async (parentPath, entry) => {
+  const entryPath = path.join(parentPath, entry.name)
+  const isDirectory = entry.isDirectory()
+  const metadata = await readEntryMetadata(entryPath, isDirectory)
+
+  return {
+    name: entry.name,
+    path: entryPath,
+    type: isDirectory ? 'directory' : 'file',
+    isDirectory,
+    isSymbolicLink: entry.isSymbolicLink(),
+    ...metadata,
+  }
+}
 
 export const getRootEntry = async () => {
   const stats = await fs.stat(fileManagerRoot)
@@ -88,6 +135,9 @@ export const getRootEntry = async () => {
     type: 'directory',
     isDirectory: true,
     isSymbolicLink: false,
+    size: null,
+    modifiedAt: stats.mtime.toISOString(),
+    metadataError: null,
   }
 }
 
@@ -97,7 +147,13 @@ export const listDirectory = async (requestedPath) => {
 
   const entries = await fs.readdir(resolvedPath, { withFileTypes: true })
 
-  return entries.sort(compareEntries).map((entry) => toEntry(resolvedPath, entry))
+  const sortedEntries = entries.sort(compareEntries)
+
+  return mapWithConcurrency(
+    sortedEntries,
+    metadataConcurrency,
+    (entry) => toEntry(resolvedPath, entry),
+  )
 }
 
 const errorMessages = {
@@ -119,7 +175,7 @@ export const registerFilesystemHandlers = (socket) => {
   socket.on('filesystem:root', async (_payload, acknowledge) => {
     try {
       const root = await getRootEntry()
-      acknowledge?.({ ok: true, root })
+      acknowledge?.({ ok: true, root, homePath: homeDirectory })
     } catch (error) {
       acknowledge?.({
         ok: false,

@@ -1,10 +1,23 @@
 import { randomUUID } from 'node:crypto'
+import fsSync from 'node:fs'
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 import * as pty from 'node-pty'
+import { sanitizeTerminalEnvironment } from './terminalEnvironment.js'
 
 const MIN_COLUMNS = 2
 const MAX_COLUMNS = 500
 const MIN_ROWS = 1
 const MAX_ROWS = 300
+const DEFAULT_ZSH_PROMPT = '%n@%m %1~ %# '
+const VESPERWIND_ZSH_PROMPT = '%F{green}%n@%m%f %F{blue}%1~%f %# '
+// The final pair styles macOS dataless (cloud placeholder) files as
+// default foreground on bright-black, which maps to a neutral grey in xterm.
+const DEFAULT_LS_COLORS = 'ExGxFxDxxxExExBxBxExExxA'
+const ZSH_STARTUP_FILES = ['.zshenv', '.zprofile', '.zshrc', '.zlogin', '.zlogout']
+let zshStartupDirectoryPromise = null
+let zshStartupDirectory = null
 
 const clampInteger = (value, minimum, maximum, fallback) => {
   const parsedValue = Number.parseInt(value, 10)
@@ -19,6 +32,79 @@ const clampInteger = (value, minimum, maximum, fallback) => {
 const serializeTerminalError = (error) => ({
   code: error?.code || 'ETERMINAL',
   message: error?.message || 'Unable to start the terminal',
+})
+
+const quoteZshValue = (value) => `'${value.replaceAll("'", "'\\''")}'`
+
+const buildZshStartupFile = (originalDirectory, filename) => {
+  const originalFile = path.join(originalDirectory, filename)
+  const sourceUserConfiguration = [
+    `if [[ -r ${quoteZshValue(originalFile)} ]]; then`,
+    '  __vesperwind_zdotdir="$ZDOTDIR"',
+    `  ZDOTDIR=${quoteZshValue(originalDirectory)}`,
+    `  builtin source ${quoteZshValue(originalFile)}`,
+    '  ZDOTDIR="$__vesperwind_zdotdir"',
+    '  unset __vesperwind_zdotdir',
+    'fi',
+  ]
+
+  if (!['.zshrc', '.zlogin'].includes(filename)) {
+    return `${sourceUserConfiguration.join('\n')}\n`
+  }
+
+  return `${sourceUserConfiguration.join('\n')}
+
+if [[ "$PROMPT" == ${quoteZshValue(DEFAULT_ZSH_PROMPT)} ]]; then
+  PROMPT=${quoteZshValue(VESPERWIND_ZSH_PROMPT)}
+fi
+`
+}
+
+const createZshStartupDirectory = async () => {
+  const originalDirectory = process.env.ZDOTDIR || process.env.HOME || os.homedir()
+  const startupDirectory = await fs.mkdtemp(
+    path.join(os.tmpdir(), 'vesperwind-zsh-'),
+  )
+
+  await Promise.all(
+    ZSH_STARTUP_FILES.map((filename) =>
+      fs.writeFile(
+        path.join(startupDirectory, filename),
+        buildZshStartupFile(originalDirectory, filename),
+        { mode: 0o600 },
+      ),
+    ),
+  )
+
+  zshStartupDirectory = startupDirectory
+  return startupDirectory
+}
+
+const getZshStartupDirectory = () => {
+  zshStartupDirectoryPromise ||= createZshStartupDirectory()
+  return zshStartupDirectoryPromise
+}
+
+const createTerminalEnvironment = async (shell) => {
+  const environment = {
+    ...sanitizeTerminalEnvironment(process.env),
+    TERM: 'xterm-256color',
+    COLORTERM: 'truecolor',
+    CLICOLOR: process.env.CLICOLOR || '1',
+    LSCOLORS: process.env.LSCOLORS || DEFAULT_LS_COLORS,
+  }
+
+  if (path.basename(shell) === 'zsh') {
+    environment.ZDOTDIR = await getZshStartupDirectory()
+  }
+
+  return environment
+}
+
+process.once('exit', () => {
+  if (zshStartupDirectory) {
+    fsSync.rmSync(zshStartupDirectory, { recursive: true, force: true })
+  }
 })
 
 export const registerTerminalHandlers = (socket, { cwd }) => {
@@ -38,7 +124,7 @@ export const registerTerminalHandlers = (socket, { cwd }) => {
     session = null
   }
 
-  socket.on('terminal:create', (payload, acknowledge) => {
+  socket.on('terminal:create', async (payload, acknowledge) => {
     if (session) {
       acknowledge?.({ ok: true, id: session.id, reused: true })
       return
@@ -49,16 +135,13 @@ export const registerTerminalHandlers = (socket, { cwd }) => {
     const rows = clampInteger(payload?.rows, MIN_ROWS, MAX_ROWS, 24)
 
     try {
+      const environment = await createTerminalEnvironment(shell)
       const terminalProcess = pty.spawn(shell, ['-l'], {
         name: 'xterm-256color',
         cols: columns,
         rows,
         cwd,
-        env: {
-          ...process.env,
-          TERM: 'xterm-256color',
-          COLORTERM: 'truecolor',
-        },
+        env: environment,
       })
 
       const id = randomUUID()

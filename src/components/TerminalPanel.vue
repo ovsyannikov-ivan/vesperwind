@@ -12,7 +12,10 @@ const props = defineProps({
 const emit = defineEmits(['toggle'])
 const terminalContainer = ref(null)
 const visible = computed(() => props.visible)
-const { status, errorMessage, restart } = useTerminal(terminalContainer, visible)
+const { status, errorMessage, dropActive, restart } = useTerminal(
+  terminalContainer,
+  visible,
+)
 
 const statusLabel = computed(() => {
   const labels = {
@@ -61,6 +64,11 @@ const statusLabel = computed(() => {
         </button>
       </div>
     </header>
-    <div v-show="visible" ref="terminalContainer" class="terminal-container" />
+    <div
+      v-show="visible"
+      ref="terminalContainer"
+      class="terminal-container"
+      :class="{ 'is-drop-target': dropActive }"
+    />
   </section>
 </template>
