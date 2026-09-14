@@ -3,7 +3,9 @@ import { Server } from 'socket.io'
 import {
   CliArgumentError,
   formatHelp,
+  formatSecurityWarning,
   formatVersion,
+  isLoopbackHost,
   resolveRuntimeConfig,
 } from './cli.js'
 
@@ -96,6 +98,10 @@ const startServer = async () => {
       `Vesperwind backend listening on http://${runtimeConfig.host}:${runtimeConfig.port}`,
     )
     console.log(`Filesystem root: ${fileManagerRoot}`)
+
+    if (!isLoopbackHost(runtimeConfig.host)) {
+      console.warn(`\n${formatSecurityWarning(runtimeConfig)}\n`)
+    }
   })
 
   const shutdown = () => {

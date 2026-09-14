@@ -45,6 +45,29 @@ Use `-h`/`--help` for the complete option list and `-v`/`--version` for the
 Vesperwind version. CLI arguments take priority over `FILE_MANAGER_ROOT`, `PORT`,
 and `HOST`; environment variables take priority over the built-in defaults.
 
+## Security
+
+Vesperwind does not provide built-in authentication.
+
+By default, the server listens on `127.0.0.1` and is accessible only from the
+local machine. This is the recommended mode. Do not expose Vesperwind directly
+to the Internet or an untrusted LAN with `--host 0.0.0.0`.
+
+For remote access, use an SSH tunnel:
+
+```bash
+ssh -L 3101:127.0.0.1:3101 user@server
+```
+
+Then open [http://127.0.0.1:3101](http://127.0.0.1:3101).
+
+Vesperwind must remain bound to `127.0.0.1` on the remote machine. The SSH
+tunnel does not require `--host 0.0.0.0`.
+
+When Vesperwind is intentionally started with a host other than `127.0.0.1`,
+`localhost`, or `::1`, it prints a warning that the unauthenticated server is
+listening on a non-loopback interface. The warning does not block startup.
+
 The backend resolves and validates every requested directory against this root.
 Directory contents are loaded lazily and cached inside the corresponding tree node.
 Files and folders can be dragged onto a folder in either panel. The drop menu offers

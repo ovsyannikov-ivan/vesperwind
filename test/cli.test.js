@@ -6,7 +6,9 @@ import {
   DEFAULT_HOST,
   DEFAULT_PORT,
   formatHelp,
+  formatSecurityWarning,
   formatVersion,
+  isLoopbackHost,
   resolveRuntimeConfig,
 } from '../server/cli.js'
 
@@ -98,7 +100,33 @@ test('provides standalone help and version output', () => {
   assert.match(formatHelp(), /-r, --root <path>/)
   assert.match(formatHelp(), /-p, --port <number>/)
   assert.match(formatHelp(), /--host <address>/)
+  assert.match(formatHelp(), /Security:/)
+  assert.match(formatHelp(), /does not provide built-in authentication/)
+  assert.match(formatHelp(), /ssh -L 3101:127\.0\.0\.1:3101 user@server/)
+  assert.match(formatHelp(), /does not require --host 0\.0\.0\.0/)
   assert.equal(formatVersion(), 'Vesperwind 0.1.0')
+})
+
+test('identifies only the supported loopback host names', () => {
+  assert.equal(isLoopbackHost('127.0.0.1'), true)
+  assert.equal(isLoopbackHost('localhost'), true)
+  assert.equal(isLoopbackHost('::1'), true)
+  assert.equal(isLoopbackHost('LOCALHOST'), true)
+  assert.equal(isLoopbackHost('0.0.0.0'), false)
+  assert.equal(isLoopbackHost('192.168.1.10'), false)
+  assert.equal(isLoopbackHost('127.0.0.2'), false)
+})
+
+test('formats a prominent warning for non-loopback hosts', () => {
+  const warning = formatSecurityWarning({ host: '0.0.0.0', port: 3101 })
+
+  assert.match(
+    warning,
+    /WARNING: Vesperwind has no built-in authentication and is listening on a non-loopback interface\./,
+  )
+  assert.match(warning, /0\.0\.0\.0:3101/)
+  assert.match(warning, /SSH tunnel/)
+  assert.match(warning, /bound to 127\.0\.0\.1/)
 })
 
 test('rejects invalid and incomplete CLI options', () => {

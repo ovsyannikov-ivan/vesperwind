@@ -6,6 +6,8 @@ import { APP_NAME, APP_VERSION } from '../shared/appMetadata.js'
 export const DEFAULT_HOST = '127.0.0.1'
 export const DEFAULT_PORT = 3001
 
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1'])
+
 export class CliArgumentError extends Error {
   constructor(message) {
     super(message)
@@ -146,6 +148,9 @@ export const resolveRuntimeConfig = ({
   }
 }
 
+export const isLoopbackHost = (host) =>
+  LOOPBACK_HOSTS.has(typeof host === 'string' ? host.trim().toLowerCase() : '')
+
 export const formatHelp = () => `${APP_NAME} ${APP_VERSION}
 
 Usage: vesperwind [options]
@@ -160,6 +165,33 @@ Options:
 Environment fallback:
   FILE_MANAGER_ROOT, PORT, HOST
 
-Priority: CLI arguments > environment variables > defaults`
+Priority: CLI arguments > environment variables > defaults
+
+Security:
+  Vesperwind does not provide built-in authentication.
+
+  By default, the server listens on ${DEFAULT_HOST} and is accessible only
+  from the local machine. This is the recommended mode.
+
+  Do not expose Vesperwind directly to the Internet or an untrusted LAN with
+  --host 0.0.0.0.
+
+  For remote access, prefer an SSH tunnel:
+    ssh -L 3101:127.0.0.1:3101 user@server
+
+  Then open:
+    http://127.0.0.1:3101
+
+  Keep Vesperwind bound to 127.0.0.1 on the remote machine. An SSH tunnel
+  does not require --host 0.0.0.0.`
+
+export const formatSecurityWarning = ({ host, port }) =>
+  `WARNING: Vesperwind has no built-in authentication and is listening on a non-loopback interface.
+
+The server is listening on ${host}:${port} and may be accessible from other hosts.
+
+Do not expose Vesperwind directly to the Internet or an untrusted LAN.
+
+For remote access, prefer an SSH tunnel while keeping Vesperwind bound to 127.0.0.1.`
 
 export const formatVersion = () => `${APP_NAME} ${APP_VERSION}`
