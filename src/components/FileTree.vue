@@ -27,6 +27,10 @@ defineProps({
     type: Boolean,
     default: false,
   },
+  scrollSelectedIntoView: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 defineEmits(['select', 'open', 'drop-request'])
@@ -41,6 +45,7 @@ defineEmits(['select', 'open', 'drop-request'])
       :selected-path="selectedPath"
       :list-directory="listDirectory"
       :compact="compact"
+      :scroll-selected-into-view="scrollSelectedIntoView"
       default-expanded
       @select="$emit('select', $event)"
       @open="$emit('open', $event)"

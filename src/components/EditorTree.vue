@@ -9,11 +9,17 @@ const props = defineProps({
     type: Object,
     required: true,
   },
+  activeFilePath: {
+    type: String,
+    default: '',
+  },
 })
 
 const emit = defineEmits(['open-file'])
 const { listDirectory } = useFilesystem()
-const selectedPath = ref(props.context.sourceRootPath)
+const selectedPath = ref(
+  props.activeFilePath || props.context.sourceRootPath,
+)
 const breadcrumbsRef = ref(null)
 const root = computed(() => ({
   name:
@@ -53,11 +59,24 @@ const openNode = (payload) => {
 watch(
   () => props.context.sourceRootPath,
   async (path) => {
-    selectedPath.value = path
+    if (!props.activeFilePath) {
+      selectedPath.value = path
+    }
+
     await nextTick()
 
     if (breadcrumbsRef.value) {
       breadcrumbsRef.value.scrollLeft = breadcrumbsRef.value.scrollWidth
+    }
+  },
+  { immediate: true },
+)
+
+watch(
+  () => props.activeFilePath,
+  (path) => {
+    if (path) {
+      selectedPath.value = path
     }
   },
   { immediate: true },
@@ -82,6 +101,7 @@ watch(
         :panel-side="context.sourcePane"
         :selected-path="selectedPath"
         :list-directory="listDirectory"
+        scroll-selected-into-view
         compact
         @select="selectedPath = $event.path"
         @open="openNode"

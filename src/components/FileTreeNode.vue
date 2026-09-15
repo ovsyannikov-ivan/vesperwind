@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { getFileIcon } from '../utils/fileIcons.js'
 import { useSettings } from '../composables/useSettings.js'
 import {
@@ -51,6 +51,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  scrollSelectedIntoView: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 const emit = defineEmits(['select', 'open', 'drop-request'])
@@ -62,6 +66,7 @@ const children = ref([])
 const error = ref(null)
 const dragging = ref(false)
 const dropTarget = ref(false)
+const rowElement = ref(null)
 
 const selected = computed(() => props.selectedPath === props.node.path)
 const iconDetails = computed(() => getFileIcon(props.node, expanded.value))
@@ -81,6 +86,18 @@ const terminalPath = computed(() =>
     directory: props.node.isDirectory,
   }),
 )
+
+const scrollToSelected = async () => {
+  if (!props.scrollSelectedIntoView || !selected.value) {
+    return
+  }
+
+  await nextTick()
+  rowElement.value?.scrollIntoView({
+    block: 'nearest',
+    inline: 'nearest',
+  })
+}
 
 const loadChildren = async () => {
   if (loaded.value || loading.value || !props.node.isDirectory) {
@@ -231,12 +248,21 @@ onMounted(() => {
     expanded.value = true
     loadChildren()
   }
+
+  scrollToSelected()
+})
+
+watch(selected, (isSelected) => {
+  if (isSelected) {
+    scrollToSelected()
+  }
 })
 </script>
 
 <template>
   <li class="tree-node" role="treeitem" :aria-expanded="node.isDirectory ? expanded : undefined">
     <div
+      ref="rowElement"
       class="tree-row"
       :class="{
         'is-compact': compact,
@@ -332,6 +358,7 @@ onMounted(() => {
           :selected-path="selectedPath"
           :list-directory="listDirectory"
           :compact="compact"
+          :scroll-selected-into-view="scrollSelectedIntoView"
           @select="$emit('select', $event)"
           @open="forwardOpen"
           @drop-request="$emit('drop-request', $event)"

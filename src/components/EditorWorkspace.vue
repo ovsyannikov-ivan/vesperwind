@@ -272,6 +272,7 @@ onBeforeUnmount(() => {
         <EditorTree
           v-show="context.key === activeContextKey"
           :context="context"
+          :active-file-path="context.key === activeContextKey ? activeTab?.filePath : ''"
           @open-file="$emit('open-file', $event)"
         />
       </template>
