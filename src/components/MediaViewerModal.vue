@@ -42,10 +42,7 @@ const requestClose = () => {
 const enterFullscreen = async () => {
   if (stageElement.value?.requestFullscreen) {
     await stageElement.value.requestFullscreen()
-    return
   }
-
-  videoPlayer.value?.mediaElement?.webkitEnterFullscreen?.()
 }
 
 const handleKeydown = (event) => {
@@ -146,7 +143,8 @@ onBeforeUnmount(() => {
             </h1>
             <div class="d-flex align-items-center gap-2 ms-auto">
               <button
-                class="btn btn-sm btn-outline-secondary"
+                v-if="displayedKind === 'image'"
+                class="media-viewer-header-action"
                 type="button"
                 title="Enter fullscreen"
                 aria-label="Enter fullscreen"

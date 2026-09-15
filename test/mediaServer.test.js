@@ -7,8 +7,10 @@ import test from 'node:test'
 
 const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'vesperwind-media-'))
 const mediaPath = path.join(fixtureRoot, 'sample.mp3')
+const pdfPath = path.join(fixtureRoot, 'manual.pdf')
 const unsupportedPath = path.join(fixtureRoot, 'sample.mkv')
 await fs.writeFile(mediaPath, Buffer.from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]))
+await fs.writeFile(pdfPath, Buffer.from('%PDF-1.7\nvesperwind'))
 await fs.writeFile(unsupportedPath, Buffer.from([0, 1, 2]))
 process.env.FILE_MANAGER_ROOT = fixtureRoot
 
@@ -66,6 +68,15 @@ test('streams media with content type and byte-range support', async () => {
   assert.equal(response.headers['content-type'], 'audio/mpeg')
   assert.equal(response.headers['content-range'], 'bytes 2-5/10')
   assert.deepEqual([...response.body], [2, 3, 4, 5])
+})
+
+test('streams PDFs through the guarded endpoint with byte-range support', async () => {
+  const response = await requestMedia(pdfPath, { range: 'bytes=0-7' })
+
+  assert.equal(response.statusCode, 206)
+  assert.equal(response.headers['content-type'], 'application/pdf')
+  assert.equal(response.headers['accept-ranges'], 'bytes')
+  assert.equal(response.body.toString('utf8'), '%PDF-1.7')
 })
 
 test('rejects unsupported media and paths outside the configured root', async () => {

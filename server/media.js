@@ -2,7 +2,7 @@ import { createReadStream } from 'node:fs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import {
-  canPreviewMedia,
+  canServePreview,
   getMediaContentType,
 } from '../shared/mediaTypes.js'
 import { resolveInsideRoot, verifyRealPathInsideRoot } from './filesystem.js'
@@ -140,10 +140,10 @@ export const serveMedia = async (request, response) => {
       throw createMediaError('ENOTFILE', 'The requested path is not a file')
     }
 
-    if (!canPreviewMedia(path.basename(resolvedPath))) {
+    if (!canServePreview(path.basename(resolvedPath))) {
       throw createMediaError(
         'EMEDIA_TYPE',
-        'This media format is not supported by the browser player',
+        'This file format is not supported by the built-in viewer',
       )
     }
 

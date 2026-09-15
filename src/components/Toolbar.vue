@@ -46,7 +46,14 @@ defineEmits([
 <template>
   <header class="app-toolbar">
     <div class="brand-mark" aria-label="Vesperwind file manager">
-      <i class="mdi mdi-compass-outline" aria-hidden="true" />
+      <img
+        class="brand-icon"
+        src="/icons/app_icon.png"
+        width="24"
+        height="24"
+        alt=""
+        aria-hidden="true"
+      />
       <span>Vesperwind</span>
     </div>
 

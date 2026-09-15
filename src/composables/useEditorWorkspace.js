@@ -8,6 +8,44 @@ const activeTabId = ref(null)
 const createTabId = (filesystemId, filePath) =>
   JSON.stringify([filesystemId, filePath])
 
+const createCommonTab = (id, filesystemId, context) => ({
+  id,
+  type: context.type,
+  filesystemId,
+  filePath: context.node.path,
+  fileName: context.node.name,
+  sourcePane: context.sourcePane,
+  sourceRootPath: context.sourceRootPath,
+  sourceRootName: context.sourceRootName,
+  filesystemRoot: context.filesystemRoot,
+  homePath: context.homePath || '',
+})
+
+const createPdfTab = (common) =>
+  reactive({
+    ...common,
+    currentPage: 1,
+    pageCount: 0,
+    zoomMode: 'fit-width',
+    zoom: 1,
+    scrollTop: 0,
+    scrollLeft: 0,
+    thumbnailsOpen: true,
+  })
+
+const createTextTab = (common) =>
+  reactive({
+    ...common,
+    content: '',
+    savedContent: '',
+    dirty: false,
+    language: getEditorLanguage(common.fileName),
+    loading: true,
+    saving: false,
+    error: null,
+    saveError: null,
+  })
+
 export const useEditorWorkspace = () => {
   const { readTextFile, writeTextFile } = useTextFiles()
   const activeTab = computed(
@@ -30,27 +68,15 @@ export const useEditorWorkspace = () => {
       return existingTab
     }
 
-    const tab = reactive({
-      id,
-      filesystemId,
-      filePath: context.node.path,
-      fileName: context.node.name,
-      sourcePane: context.sourcePane,
-      sourceRootPath: context.sourceRootPath,
-      sourceRootName: context.sourceRootName,
-      filesystemRoot: context.filesystemRoot,
-      homePath: context.homePath || '',
-      content: '',
-      savedContent: '',
-      dirty: false,
-      language: getEditorLanguage(context.node.name),
-      loading: true,
-      saving: false,
-      error: null,
-      saveError: null,
-    })
+    const type = context.type === 'pdf' ? 'pdf' : 'text'
+    const common = createCommonTab(id, filesystemId, { ...context, type })
+    const tab = type === 'pdf' ? createPdfTab(common) : createTextTab(common)
     tabs.value.push(tab)
     activeTabId.value = id
+
+    if (tab.type === 'pdf') {
+      return tab
+    }
 
     try {
       const response = await readTextFile(tab.filePath, tab.filesystemId)
@@ -77,7 +103,7 @@ export const useEditorWorkspace = () => {
   const updateContent = (tabId, content) => {
     const tab = tabs.value.find((candidate) => candidate.id === tabId)
 
-    if (!tab || tab.loading || tab.error) {
+    if (!tab || tab.type !== 'text' || tab.loading || tab.error) {
       return
     }
 
@@ -89,7 +115,7 @@ export const useEditorWorkspace = () => {
   const saveTab = async (tabId = activeTabId.value) => {
     const tab = tabs.value.find((candidate) => candidate.id === tabId)
 
-    if (!tab || tab.loading || tab.saving || tab.error) {
+    if (!tab || tab.type !== 'text' || tab.loading || tab.saving || tab.error) {
       return { ok: false, error: tab?.error || { message: 'No file to save' } }
     }
 
@@ -128,6 +154,16 @@ export const useEditorWorkspace = () => {
     return response
   }
 
+  const updatePdfState = (tabId, state) => {
+    const tab = tabs.value.find((candidate) => candidate.id === tabId)
+
+    if (!tab || tab.type !== 'pdf' || !state || typeof state !== 'object') {
+      return
+    }
+
+    Object.assign(tab, state)
+  }
+
   const closeTab = (tabId) => {
     const index = tabs.value.findIndex((tab) => tab.id === tabId)
 
@@ -150,6 +186,7 @@ export const useEditorWorkspace = () => {
     activateTab,
     openFile,
     updateContent,
+    updatePdfState,
     saveTab,
     closeTab,
   }

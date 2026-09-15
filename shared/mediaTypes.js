@@ -52,6 +52,8 @@ export const imageExtensions = new Set([
   'tiff',
 ])
 
+export const pdfExtensions = new Set(['pdf'])
+
 const previewableVideoExtensions = new Set(['mp4', 'm4v', 'mov', 'webm', 'ogv'])
 const previewableAudioExtensions = new Set([
   'mp3',
@@ -102,6 +104,7 @@ const contentTypes = {
   webp: 'image/webp',
   avif: 'image/avif',
   bmp: 'image/bmp',
+  pdf: 'application/pdf',
 }
 
 export const getFileExtension = (name) => extensionFromName(name)
@@ -133,6 +136,9 @@ export const canPreviewMedia = (name) => {
     previewableImageExtensions.has(extension)
   )
 }
+
+export const canServePreview = (name) =>
+  canPreviewMedia(name) || pdfExtensions.has(extensionFromName(name))
 
 export const getMediaContentType = (name) =>
   contentTypes[extensionFromName(name)] || 'application/octet-stream'

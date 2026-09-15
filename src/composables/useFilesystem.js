@@ -1,12 +1,18 @@
 import { filterVisibleFilesystemEntries } from '../utils/fileVisibility.js'
-import { request } from '../socket/request.js'
+import {
+  filesystem,
+  filesystemLocation,
+  LOCAL_FILESYSTEM_PROVIDER,
+} from '../api/filesystem.js'
 import { useSettings } from './useSettings.js'
 
-export const useFilesystem = () => {
+export const useFilesystem = (providerId = LOCAL_FILESYSTEM_PROVIDER) => {
   const { settings } = useSettings()
-  const getRoot = () => request('filesystem:root')
+  const getRoot = () => filesystem.getRoot(providerId)
   const listDirectory = async (directoryPath) => {
-    const response = await request('filesystem:list', { path: directoryPath })
+    const response = await filesystem.readDir(
+      filesystemLocation(directoryPath, providerId),
+    )
 
     if (!response?.ok) {
       return response

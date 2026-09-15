@@ -31,6 +31,7 @@ test('adds editable file defaults while migrating older settings', () => {
 
   assert.ok(settings.editor.editableFiles.includes('.vue'))
   assert.ok(settings.editor.editableFiles.includes('.env'))
+  assert.equal(settings.editor.editableFiles.includes('.pdf'), false)
 })
 
 test('normalizes editable files and removes case-insensitive duplicates', () => {

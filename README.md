@@ -5,7 +5,7 @@ first prototype focuses on filesystem navigation and a real PTY-backed terminal.
 
 ## Run
 
-Requirements: macOS, Node.js 20.19 or newer, and the native build tools required by
+Requirements: macOS, Node.js 22.13 or newer, and the native build tools required by
 `node-pty` (normally provided by Xcode Command Line Tools).
 
 The project postinstall step also restores the executable bit on the packaged
@@ -92,9 +92,20 @@ Workspace. Its compact lazy tree inherits the current directory and source side 
 the panel that opened the file. Tabs retain that context independently, support
 syntax highlighting, per-tab undo/redo history, explicit Save and Revert controls,
 and `Cmd+S`/`Ctrl+S`. Unsaved changes are protected when closing a tab or leaving
-the browser page.
+the browser page. PDF files open in the same workspace as document tabs, rendered
+locally with PDF.js. The viewer provides continuous vertical scrolling, a collapsible
+thumbnail sidebar, page navigation, zoom, Fit Width, Fit Page, and fullscreen controls.
+Each PDF tab retains its own current page, zoom mode, scroll position, and thumbnail
+sidebar state. Pages and thumbnails are rendered lazily, and distant canvas buffers are
+released to keep large documents from consuming memory unnecessarily.
 The Files and Editor toolbar buttons switch workspaces without unmounting either
 file panel or the PTY terminal.
+
+The web client includes a manifest, favicon, Apple touch icon, install icons, and a
+minimal service worker so it can be installed as a standalone PWA from a secure
+context such as `127.0.0.1`. The service worker deliberately does not cache the app
+shell: Vesperwind still requires its local backend and should always load the current
+frontend assets.
 
 `VESPERWIND_SETTINGS_PATH` optionally overrides the user settings file location. On
 macOS it defaults to `~/Library/Application Support/Vesperwind/settings.json`.
@@ -114,13 +125,14 @@ which files open in Monaco; extensions and exact names such as `.env` or
 
 - `server/filesystem.js` — safe directory reads, sorting, and filesystem errors.
 - `server/fileOperations.js` — validated copy, move, and symbolic-link operations.
-- `server/media.js` — root-validated audio/video streaming with byte ranges.
+- `server/media.js` — root-validated media and PDF streaming with byte ranges.
 - `server/terminal.js` — lifecycle and Socket.io bridge for `node-pty`.
 - `server/settings.js` — versioned JSON settings storage and Socket.io handlers.
 - `server/textFiles.js` — root-validated UTF-8 reads and writes for editor tabs.
 - `server/index.js` — local HTTP and Socket.io server.
-- `src/components` — file manager, panels, recursive trees, Monaco workspace, terminal, toolbar, splitters.
+- `src/components` — file manager, recursive trees, Monaco/PDF workspace, terminal, toolbar, splitters.
 - `src/composables` — filesystem operations, settings, terminal, and persistent layout state.
+- `public` — favicon, PWA manifest, service worker, and application icon assets.
 - `shared/defaultSettings.js` — defaults and normalization shared by browser and backend.
 
 ## Checks

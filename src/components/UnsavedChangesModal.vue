@@ -93,7 +93,7 @@ onBeforeUnmount(() => {
             <button class="btn btn-sm btn-secondary" type="button" :disabled="busy" @click="$emit('cancel')">
               Cancel
             </button>
-            <button class="btn btn-sm btn-outline-danger" type="button" :disabled="busy" @click="$emit('discard')">
+            <button class="btn btn-sm btn-danger" type="button" :disabled="busy" @click="$emit('discard')">
               Don’t Save
             </button>
             <button class="btn btn-sm btn-primary" type="button" :disabled="busy" @click="$emit('save')">

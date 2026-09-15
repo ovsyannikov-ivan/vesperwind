@@ -3,7 +3,30 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#323232" />
+    <meta name="color-scheme" content="dark light" />
+    <meta id="theme-color" name="theme-color" content="#202022" />
+    <meta name="application-name" content="Vesperwind" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Vesperwind" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="msapplication-TileColor" content="#202022" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="32x32"
+      href="/icons/Icon-iOS-Default-32x32@1x.png"
+    />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="16x16"
+      href="/icons/Icon-iOS-Default-16x16@1x.png"
+    />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-180.png" />
     <script>
       (() => {
         const storedTheme = localStorage.getItem('vesperwind:theme')
@@ -13,6 +36,10 @@
             ? 'dark'
             : 'light'
         document.documentElement.setAttribute('data-bs-theme', theme)
+        document.querySelector('#theme-color').setAttribute(
+          'content',
+          theme === 'dark' ? '#202022' : '#f2f2f2',
+        )
       })()
     </script>
     <meta

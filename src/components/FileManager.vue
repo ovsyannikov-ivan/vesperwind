@@ -1,12 +1,16 @@
 <script setup>
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { connection } from '../api/connection.js'
 import { useEditorWorkspace } from '../composables/useEditorWorkspace.js'
 import { useFileOperations } from '../composables/useFileOperations.js'
 import { useLayout } from '../composables/useLayout.js'
 import { useMediaViewer } from '../composables/useMediaViewer.js'
 import { useSettings } from '../composables/useSettings.js'
-import { socket } from '../socket/socket.js'
-import { isEditableFile } from '../utils/editableFiles.js'
+import {
+  getFileOpenType,
+  isMediaOpenType,
+  isWorkspaceDocumentType,
+} from '../utils/fileTypes.js'
 import AudioPlayerBar from './AudioPlayerBar.vue'
 import FilePanel from './FilePanel.vue'
 import FileOperationConfirmModal from './FileOperationConfirmModal.vue'
@@ -46,7 +50,7 @@ const filesContainer = ref(null)
 const workspace = ref(null)
 const workspaceMode = ref('files')
 const activePanel = ref('left')
-const connected = ref(socket.connected)
+const connected = ref(connection.isConnected())
 const settingsOpen = ref(false)
 const filesystemRevision = ref(0)
 const dropRequest = ref(null)
@@ -68,6 +72,7 @@ const panelStates = reactive({
     canOperateSelected: false,
   },
 })
+let unsubscribeConnection = null
 
 const bothPanelsVisible = computed(() => layout.leftVisible && layout.rightVisible)
 const terminalStyle = computed(() =>
@@ -202,16 +207,22 @@ const updatePanelState = (state) => {
 }
 
 const openFile = (context) => {
-  if (openMedia(context)) {
+  const type = getFileOpenType(
+    context?.node?.name,
+    settings.value.editor.editableFiles,
+  )
+
+  if (isMediaOpenType(type)) {
+    openMedia(context)
     return
   }
 
-  if (!isEditableFile(context?.node?.name, settings.value.editor.editableFiles)) {
+  if (!isWorkspaceDocumentType(type)) {
     return
   }
 
   workspaceMode.value = 'editor'
-  openEditorFile(context)
+  openEditorFile({ ...context, type })
 }
 
 const showFiles = () => {
@@ -372,16 +383,20 @@ const handleCommanderKeydown = (event) => {
 
 onMounted(() => {
   loadSettings()
-  socket.on('connect', handleConnect)
-  socket.on('disconnect', handleDisconnect)
+  unsubscribeConnection = connection.onStatusChange((isConnected) => {
+    if (isConnected) {
+      handleConnect()
+    } else {
+      handleDisconnect()
+    }
+  })
   window.addEventListener('resize', clampTerminalToViewport)
   window.addEventListener('keydown', handleCommanderKeydown)
   clampTerminalToViewport()
 })
 
 onBeforeUnmount(() => {
-  socket.off('connect', handleConnect)
-  socket.off('disconnect', handleDisconnect)
+  unsubscribeConnection?.()
   window.removeEventListener('resize', clampTerminalToViewport)
   window.removeEventListener('keydown', handleCommanderKeydown)
 })

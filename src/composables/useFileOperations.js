@@ -1,25 +1,22 @@
-import { request } from '../socket/request.js'
+import {
+  filesystem,
+  filesystemLocation,
+  LOCAL_FILESYSTEM_PROVIDER,
+} from '../api/filesystem.js'
 
-const OPERATION_TIMEOUT = 10 * 60 * 1000
-
-export const useFileOperations = () => {
-  const operate = (action, sourcePath, targetDirectory) =>
-    request(
-      'filesystem:operate',
-      { action, sourcePath, targetDirectory },
-      { timeout: OPERATION_TIMEOUT },
-    )
+export const useFileOperations = (providerId = LOCAL_FILESYSTEM_PROVIDER) => {
+  const location = (path) => filesystemLocation(path, providerId)
 
   const copyEntry = (sourcePath, targetDirectory) =>
-    operate('copy', sourcePath, targetDirectory)
+    filesystem.copy(location(sourcePath), location(targetDirectory))
 
   const moveEntry = (sourcePath, targetDirectory) =>
-    operate('move', sourcePath, targetDirectory)
+    filesystem.move(location(sourcePath), location(targetDirectory))
 
   const createSymbolicLink = (sourcePath, targetDirectory) =>
-    operate('link', sourcePath, targetDirectory)
+    filesystem.link(location(sourcePath), location(targetDirectory))
 
-  const deleteEntry = (sourcePath) => operate('delete', sourcePath)
+  const deleteEntry = (sourcePath) => filesystem.remove(location(sourcePath))
 
   return {
     copyEntry,

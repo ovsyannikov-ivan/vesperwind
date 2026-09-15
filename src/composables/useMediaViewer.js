@@ -1,20 +1,23 @@
 import { computed, ref } from 'vue'
 import { canPreviewMedia, getMediaKind } from '../../shared/mediaTypes.js'
+import { LOCAL_FILESYSTEM_PROVIDER } from '../api/filesystemLocation.js'
+import { media as mediaApi } from '../api/media.js'
 
-const mediaUrl = (filePath) =>
-  `/api/media?path=${encodeURIComponent(filePath)}`
-
-export const createMediaDescriptor = (node) => ({
+export const createMediaDescriptor = (
+  node,
+  providerId = LOCAL_FILESYSTEM_PROVIDER,
+) => ({
   name: node.name,
   path: node.path,
+  providerId,
   kind: getMediaKind(node.name),
-  url: mediaUrl(node.path),
+  url: mediaApi.getUrl({ providerId, path: node.path }),
 })
 
 const isSameOrInsidePath = (parentPath, candidatePath) =>
   candidatePath === parentPath || candidatePath.startsWith(`${parentPath}/`)
 
-const buildPlaylist = (node, siblings, kind) => {
+const buildPlaylist = (node, siblings, kind, providerId) => {
   const candidates = Array.isArray(siblings) ? siblings : []
   const items = candidates.filter(
     (candidate) =>
@@ -27,7 +30,7 @@ const buildPlaylist = (node, siblings, kind) => {
     items.push(node)
   }
 
-  return items.map(createMediaDescriptor)
+  return items.map((item) => createMediaDescriptor(item, providerId))
 }
 
 export const useMediaViewer = () => {
@@ -41,7 +44,11 @@ export const useMediaViewer = () => {
   )
   const viewerCount = computed(() => viewer.value?.items.length || 0)
 
-  const openMedia = ({ node, siblings = [] } = {}) => {
+  const openMedia = ({
+    node,
+    siblings = [],
+    filesystemId = LOCAL_FILESYSTEM_PROVIDER,
+  } = {}) => {
     if (!node || !canPreviewMedia(node.name)) {
       return false
     }
@@ -49,7 +56,7 @@ export const useMediaViewer = () => {
     const kind = getMediaKind(node.name)
 
     if (kind === 'audio') {
-      activeAudio.value = createMediaDescriptor(node)
+      activeAudio.value = createMediaDescriptor(node, filesystemId)
       return true
     }
 
@@ -57,7 +64,7 @@ export const useMediaViewer = () => {
       return false
     }
 
-    const items = buildPlaylist(node, siblings, kind)
+    const items = buildPlaylist(node, siblings, kind, filesystemId)
     const index = Math.max(
       0,
       items.findIndex((item) => item.path === node.path),
@@ -130,17 +137,20 @@ export const useMediaViewer = () => {
       return
     }
 
-    const relocateMedia = (media) => {
-      if (!media || !isSameOrInsidePath(sourcePath, media.path)) {
-        return media
+    const relocateMedia = (mediaItem) => {
+      if (!mediaItem || !isSameOrInsidePath(sourcePath, mediaItem.path)) {
+        return mediaItem
       }
 
-      const nextPath = `${response.result.destinationPath}${media.path.slice(sourcePath.length)}`
+      const nextPath = `${response.result.destinationPath}${mediaItem.path.slice(sourcePath.length)}`
 
       return {
-        ...media,
+        ...mediaItem,
         path: nextPath,
-        url: mediaUrl(nextPath),
+        url: mediaApi.getUrl({
+          providerId: mediaItem.providerId,
+          path: nextPath,
+        }),
       }
     }
 

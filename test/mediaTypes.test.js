@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   canPreviewMedia,
+  canServePreview,
   getMediaContentType,
   getMediaKind,
 } from '../shared/mediaTypes.js'
@@ -17,6 +18,8 @@ test('classifies common browser media and icon-only video formats', () => {
   assert.equal(canPreviewMedia('clip.mov'), true)
   assert.equal(canPreviewMedia('archive.mkv'), false)
   assert.equal(canPreviewMedia('photo.png'), true)
+  assert.equal(canPreviewMedia('manual.pdf'), false)
+  assert.equal(canServePreview('manual.PDF'), true)
 })
 
 test('returns explicit media content types', () => {
@@ -24,6 +27,7 @@ test('returns explicit media content types', () => {
   assert.equal(getMediaContentType('voice.mp3'), 'audio/mpeg')
   assert.equal(getMediaContentType('sound.flac'), 'audio/flac')
   assert.equal(getMediaContentType('photo.jpeg'), 'image/jpeg')
+  assert.equal(getMediaContentType('manual.PDF'), 'application/pdf')
 })
 
 test('parses open, closed, and suffix byte ranges', () => {

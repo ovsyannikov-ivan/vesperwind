@@ -1,7 +1,8 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
-import { socket } from '../socket/socket.js'
+import { connection } from '../api/connection.js'
+import { terminal as terminalApi } from '../api/terminal.js'
 import { createTerminalAnsiNormalizer } from '../utils/terminalAnsi.js'
 import { TERMINAL_PATH_MIME } from '../utils/terminalPath.js'
 
@@ -69,6 +70,9 @@ export const useTerminal = (containerRef, visibleRef) => {
   let fitAddon = null
   let resizeObserver = null
   let inputSubscription = null
+  let unsubscribeData = null
+  let unsubscribeExit = null
+  let unsubscribeConnection = null
   let creatingSession = false
   let normalizeTerminalOutput = createTerminalAnsiNormalizer()
 
@@ -81,18 +85,14 @@ export const useTerminal = (containerRef, visibleRef) => {
       fitAddon.fit()
 
       if (sessionId.value) {
-        socket.emit('terminal:resize', {
-          id: sessionId.value,
-          cols: terminal.cols,
-          rows: terminal.rows,
-        })
+        terminalApi.resize(sessionId.value, terminal.cols, terminal.rows)
       }
     } catch {
       // xterm cannot be measured while its container is hidden.
     }
   }
 
-  const createSession = () => {
+  const createSession = async () => {
     if (!terminal || creatingSession || sessionId.value) {
       return
     }
@@ -101,23 +101,21 @@ export const useTerminal = (containerRef, visibleRef) => {
     status.value = 'connecting'
     errorMessage.value = ''
 
-    socket.timeout(15_000).emit(
-      'terminal:create',
-      { cols: terminal.cols, rows: terminal.rows },
-      (timeoutError, response) => {
-        creatingSession = false
+    const response = await terminalApi.createSession({
+      cols: terminal.cols,
+      rows: terminal.rows,
+    })
+    creatingSession = false
 
-        if (timeoutError || !response?.ok) {
-          status.value = 'error'
-          errorMessage.value = response?.error?.message || 'Unable to reach the terminal backend'
-          return
-        }
+    if (!response?.ok) {
+      status.value = 'error'
+      errorMessage.value = response?.error?.message || 'Unable to reach the terminal backend'
+      return
+    }
 
-        sessionId.value = response.id
-        status.value = 'ready'
-        fit()
-      },
-    )
+    sessionId.value = response.sessionId
+    status.value = 'ready'
+    fit()
   }
 
   const handleOutput = (payload) => {
@@ -125,13 +123,13 @@ export const useTerminal = (containerRef, visibleRef) => {
       return
     }
 
-    if (!sessionId.value || payload.id === sessionId.value) {
+    if (!sessionId.value || payload.sessionId === sessionId.value) {
       terminal.write(normalizeTerminalOutput(payload.data))
     }
   }
 
   const handleExit = (payload) => {
-    if (payload?.id !== sessionId.value) {
+    if (payload?.sessionId !== sessionId.value) {
       return
     }
 
@@ -203,10 +201,7 @@ export const useTerminal = (containerRef, visibleRef) => {
       return
     }
 
-    socket.emit('terminal:input', {
-      id: sessionId.value,
-      data: value,
-    })
+    terminalApi.write(sessionId.value, value)
     terminal?.focus()
   }
 
@@ -228,14 +223,19 @@ export const useTerminal = (containerRef, visibleRef) => {
     containerRef.value.addEventListener('drop', handleDrop, true)
     inputSubscription = terminal.onData((data) => {
       if (sessionId.value) {
-        socket.emit('terminal:input', { id: sessionId.value, data })
+        terminalApi.write(sessionId.value, data)
       }
     })
 
-    socket.on('terminal:output', handleOutput)
-    socket.on('terminal:exit', handleExit)
-    socket.on('connect', handleConnect)
-    socket.on('disconnect', handleDisconnect)
+    unsubscribeData = terminalApi.onData(handleOutput)
+    unsubscribeExit = terminalApi.onExit(handleExit)
+    unsubscribeConnection = connection.onStatusChange((isConnected) => {
+      if (isConnected) {
+        handleConnect()
+      } else {
+        handleDisconnect()
+      }
+    })
     window.addEventListener('vesperwind:theme-changed', handleThemeChange)
 
     resizeObserver = new ResizeObserver(() => fit())
@@ -262,13 +262,12 @@ export const useTerminal = (containerRef, visibleRef) => {
 
   onBeforeUnmount(() => {
     if (sessionId.value) {
-      socket.emit('terminal:close', { id: sessionId.value })
+      terminalApi.closeSession(sessionId.value)
     }
 
-    socket.off('terminal:output', handleOutput)
-    socket.off('terminal:exit', handleExit)
-    socket.off('connect', handleConnect)
-    socket.off('disconnect', handleDisconnect)
+    unsubscribeData?.()
+    unsubscribeExit?.()
+    unsubscribeConnection?.()
     window.removeEventListener('vesperwind:theme-changed', handleThemeChange)
     containerRef.value?.removeEventListener('dragover', handleDragOver, true)
     containerRef.value?.removeEventListener('dragleave', handleDragLeave, true)

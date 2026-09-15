@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { createDefaultSettings } from '../../shared/defaultSettings.js'
-import { request } from '../socket/request.js'
+import { settingsApi } from '../api/settings.js'
 import { setThemePreference } from './useTheme.js'
 
 const settings = ref(createDefaultSettings())
@@ -34,7 +34,7 @@ export const useSettings = () => {
     }
 
     loading.value = true
-    pendingLoad = request('settings:get').then(applyResponse).finally(() => {
+    pendingLoad = settingsApi.get().then(applyResponse).finally(() => {
       loading.value = false
       pendingLoad = null
     })
@@ -43,10 +43,10 @@ export const useSettings = () => {
   }
 
   const saveSettings = async (nextSettings) =>
-    applyResponse(await request('settings:update', { settings: nextSettings }))
+    applyResponse(await settingsApi.update(nextSettings))
 
   const resetSettings = async () =>
-    applyResponse(await request('settings:reset'))
+    applyResponse(await settingsApi.reset())
 
   return {
     settings,

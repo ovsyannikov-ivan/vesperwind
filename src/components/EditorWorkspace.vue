@@ -4,6 +4,7 @@ import { useEditorLayout } from '../composables/useEditorLayout.js'
 import { useEditorWorkspace } from '../composables/useEditorWorkspace.js'
 import EditorTree from './EditorTree.vue'
 import MonacoEditor from './MonacoEditor.vue'
+import PdfViewer from './PdfViewer.vue'
 import RevertChangesModal from './RevertChangesModal.vue'
 import Splitter from './Splitter.vue'
 import UnsavedChangesModal from './UnsavedChangesModal.vue'
@@ -29,6 +30,7 @@ const {
   activeTab,
   activateTab,
   updateContent,
+  updatePdfState,
   saveTab,
   closeTab,
 } = useEditorWorkspace()
@@ -61,43 +63,60 @@ const activeContextKey = computed(() =>
   activeTab.value ? contextKey(activeTab.value) : '',
 )
 const treeStyle = computed(() => ({ width: `${editorLayout.treeWidth}px` }))
+const textTabs = computed(() => tabs.value.filter((tab) => tab.type === 'text'))
+const pdfTabs = computed(() => tabs.value.filter((tab) => tab.type === 'pdf'))
+const activeTextTab = computed(() =>
+  activeTab.value?.type === 'text' ? activeTab.value : null,
+)
 const activeTabReady = computed(() =>
-  Boolean(activeTab.value && !activeTab.value.loading && !activeTab.value.error),
+  Boolean(
+    activeTextTab.value &&
+      !activeTextTab.value.loading &&
+      !activeTextTab.value.error,
+  ),
 )
 const canUndo = computed(() =>
   Boolean(
     activeTabReady.value &&
-      historyState.value.tabId === activeTab.value.id &&
+      historyState.value.tabId === activeTextTab.value.id &&
       historyState.value.canUndo,
   ),
 )
 const canRedo = computed(() =>
   Boolean(
     activeTabReady.value &&
-      historyState.value.tabId === activeTab.value.id &&
+      historyState.value.tabId === activeTextTab.value.id &&
       historyState.value.canRedo,
   ),
 )
 const canSave = computed(() =>
-  Boolean(activeTabReady.value && activeTab.value.dirty && !activeTab.value.saving),
+  Boolean(
+    activeTabReady.value &&
+      activeTextTab.value.dirty &&
+      !activeTextTab.value.saving,
+  ),
 )
 const canRevert = computed(() =>
-  Boolean(activeTabReady.value && activeTab.value.dirty && !activeTab.value.saving),
+  Boolean(
+    activeTabReady.value &&
+      activeTextTab.value.dirty &&
+      !activeTextTab.value.saving,
+  ),
 )
 const editorStatus = computed(() => {
-  if (!activeTab.value) {
+  if (!activeTextTab.value) {
     return ''
   }
 
-  if (activeTab.value.saving) {
+  if (activeTextTab.value.saving) {
     return 'Saving…'
   }
 
-  if (activeTab.value.saveError) {
+  if (activeTextTab.value.saveError) {
     return 'Save failed'
   }
 
-  return activeTab.value.dirty ? 'Unsaved' : 'Saved'
+  return activeTextTab.value.dirty ? 'Unsaved' : 'Saved'
 })
 
 const resizeTree = (delta) => {
@@ -118,7 +137,7 @@ const finishClose = (tabId) => {
 }
 
 const requestClose = (tab) => {
-  if (tab.dirty) {
+  if (tab.type === 'text' && tab.dirty) {
     pendingClose.value = tab
     closeError.value = ''
     return
@@ -168,7 +187,7 @@ const saveActiveTab = () => {
     return
   }
 
-  saveTab(activeTab.value.id)
+  saveTab(activeTextTab.value.id)
 }
 
 const undo = () => {
@@ -185,7 +204,7 @@ const redo = () => {
 
 const requestRevert = () => {
   if (canRevert.value) {
-    pendingRevert.value = activeTab.value
+    pendingRevert.value = activeTextTab.value
   }
 }
 
@@ -219,7 +238,7 @@ const handleEditorKeydown = (event) => {
 }
 
 const handleBeforeUnload = (event) => {
-  if (!tabs.value.some((tab) => tab.dirty)) {
+  if (!tabs.value.some((tab) => tab.type === 'text' && tab.dirty)) {
     return
   }
 
@@ -275,7 +294,12 @@ onBeforeUnmount(() => {
             @click="activateTab(tab.id)"
           >
             <span v-if="tab.dirty" class="editor-dirty-marker" aria-label="Unsaved changes">●</span>
-            <i v-else class="mdi mdi-file-code-outline" aria-hidden="true" />
+            <i
+              v-else
+              class="mdi"
+              :class="tab.type === 'pdf' ? 'mdi-file-pdf-box' : 'mdi-file-code-outline'"
+              aria-hidden="true"
+            />
             <span class="editor-tab-name">{{ tab.fileName }}</span>
             <span v-if="tab.saving" class="spinner-border spinner-border-sm editor-tab-spinner" aria-hidden="true" />
             <span
@@ -293,13 +317,13 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
-        <div class="editor-actions" aria-label="Editor actions">
+        <div v-if="activeTextTab" class="editor-actions" aria-label="Editor actions">
           <span
-            v-if="activeTab"
+            v-if="activeTextTab"
             class="editor-change-status"
             :class="{
-              'is-dirty': activeTab.dirty && !activeTab.saveError,
-              'is-error': activeTab.saveError,
+              'is-dirty': activeTextTab.dirty && !activeTextTab.saveError,
+              'is-error': activeTextTab.saveError,
             }"
           >{{ editorStatus }}</span>
           <button
@@ -339,38 +363,46 @@ onBeforeUnmount(() => {
             :disabled="!canSave"
             @click="saveActiveTab"
           >
-            <span v-if="activeTab?.saving" class="spinner-border spinner-border-sm editor-tab-spinner" aria-hidden="true" />
+            <span v-if="activeTextTab?.saving" class="spinner-border spinner-border-sm editor-tab-spinner" aria-hidden="true" />
             <i v-else class="mdi mdi-content-save-outline" aria-hidden="true" />
             Save
           </button>
         </div>
       </div>
 
-      <div v-if="activeTab?.loading" class="editor-message">
+      <div v-if="activeTextTab?.loading" class="editor-message">
         <span class="spinner-border spinner-border-sm" aria-hidden="true" />
-        Opening {{ activeTab.fileName }}…
+        Opening {{ activeTextTab.fileName }}…
       </div>
-      <div v-else-if="activeTab?.error" class="editor-message text-danger" role="alert">
+      <div v-else-if="activeTextTab?.error" class="editor-message text-danger" role="alert">
         <i class="mdi mdi-alert-outline" aria-hidden="true" />
-        <span>{{ activeTab.error.message }}</span>
-        <button class="btn btn-sm btn-outline-secondary" type="button" @click="requestClose(activeTab)">Close tab</button>
+        <span>{{ activeTextTab.error.message }}</span>
+        <button class="btn btn-sm btn-outline-secondary" type="button" @click="requestClose(activeTextTab)">Close tab</button>
       </div>
       <div v-if="!activeTab" class="editor-message">
         <i class="mdi mdi-file-document-edit-outline" aria-hidden="true" />
         Double-click a text file to open it.
       </div>
-      <div v-if="activeTab?.saveError && !activeTab.loading && !activeTab.error" class="editor-save-error" role="alert">
+      <div v-if="activeTextTab?.saveError && !activeTextTab.loading && !activeTextTab.error" class="editor-save-error" role="alert">
         <i class="mdi mdi-alert-outline" aria-hidden="true" />
-        {{ activeTab.saveError.message }}
+        {{ activeTextTab.saveError.message }}
       </div>
       <MonacoEditor
         ref="monacoEditor"
-        v-show="Boolean(activeTab) && !activeTab.loading && !activeTab.error"
-        :active-tab="activeTab"
-        :tabs="tabs"
-        :visible="visible && Boolean(activeTab) && !activeTab.loading && !activeTab.error"
+        v-show="Boolean(activeTextTab) && !activeTextTab.loading && !activeTextTab.error"
+        :active-tab="activeTextTab"
+        :tabs="textTabs"
+        :visible="visible && Boolean(activeTextTab) && !activeTextTab.loading && !activeTextTab.error"
         @change="updateContent"
         @history-state="updateHistoryState"
+      />
+      <PdfViewer
+        v-for="tab in pdfTabs"
+        v-show="tab.id === activeTab?.id"
+        :key="tab.id"
+        :tab="tab"
+        :visible="visible && tab.id === activeTab?.id"
+        @state-change="updatePdfState"
       />
     </section>
 

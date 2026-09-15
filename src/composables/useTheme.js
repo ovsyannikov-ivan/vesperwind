@@ -20,7 +20,7 @@ const applyResolvedTheme = () => {
   document.documentElement.setAttribute('data-bs-theme', nextTheme)
   document.querySelector('meta[name="theme-color"]')?.setAttribute(
     'content',
-    nextTheme === 'dark' ? '#323232' : '#f2f2f2',
+    nextTheme === 'dark' ? '#202022' : '#f2f2f2',
   )
   window.dispatchEvent(new CustomEvent('vesperwind:theme-changed', {
     detail: { theme: nextTheme },
