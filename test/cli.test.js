@@ -12,32 +12,36 @@ import {
   resolveRuntimeConfig,
 } from '../server/cli.js'
 
+const testCwd = path.resolve(path.sep, 'workspace')
+const testHomeDirectory = path.resolve(path.sep, 'Users', 'default')
+const testRoot = path.resolve(path.sep, 'Users', 'ivan')
+
 const testContext = {
-  cwd: '/workspace',
-  homeDirectory: '/Users/default',
+  cwd: testCwd,
+  homeDirectory: testHomeDirectory,
 }
 
 test('accepts short and long standalone options', () => {
   const shortOptions = resolveRuntimeConfig({
     ...testContext,
-    argv: ['-r', '/Users/ivan', '-p', '3101', '--host', '0.0.0.0'],
+    argv: ['-r', testRoot, '-p', '3101', '--host', '0.0.0.0'],
     env: {},
   })
   const longOptions = resolveRuntimeConfig({
     ...testContext,
-    argv: ['--root', '/Users/ivan', '--port', '3101'],
+    argv: ['--root', testRoot, '--port', '3101'],
     env: {},
   })
 
   assert.deepEqual(shortOptions, {
     command: null,
-    root: '/Users/ivan',
+    root: testRoot,
     port: 3101,
     host: '0.0.0.0',
   })
   assert.deepEqual(longOptions, {
     command: null,
-    root: '/Users/ivan',
+    root: testRoot,
     port: 3101,
     host: DEFAULT_HOST,
   })
@@ -70,19 +74,19 @@ test('uses CLI arguments before environment variables before defaults', () => {
 
   assert.deepEqual(environmentOptions, {
     command: null,
-    root: path.resolve('/workspace', 'environment-root'),
+    root: path.resolve(testCwd, 'environment-root'),
     port: 3201,
     host: 'localhost',
   })
   assert.deepEqual(cliOptions, {
     command: null,
-    root: path.resolve('/workspace', 'cli-root'),
+    root: path.resolve(testCwd, 'cli-root'),
     port: 3301,
     host: '127.0.0.2',
   })
   assert.deepEqual(defaultOptions, {
     command: null,
-    root: '/Users/default',
+    root: testHomeDirectory,
     port: DEFAULT_PORT,
     host: DEFAULT_HOST,
   })

@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import process from 'node:process'
 import { entryNameError } from '../shared/entryName.js'
 import {
   fileManagerRoot,
@@ -13,6 +14,36 @@ const createOperationError = (code, message) => {
   const error = new Error(message)
   error.code = code
   return error
+}
+
+const WINDOWS_SYMLINK_PRIVILEGE_MESSAGE =
+  'Windows could not create the symbolic link. Enable Developer Mode or grant this account the Create symbolic links privilege, then try again.'
+
+export const normalizeSymlinkError = (
+  error,
+  platform = process.platform,
+) => {
+  if (
+    platform === 'win32' &&
+    ['EPERM', 'EACCES'].includes(error?.code)
+  ) {
+    const normalized = createOperationError(
+      'ESYMLINK_PRIVILEGE',
+      WINDOWS_SYMLINK_PRIVILEGE_MESSAGE,
+    )
+    normalized.cause = error
+    return normalized
+  }
+
+  return error
+}
+
+const createSymbolicLink = async (target, destination, type) => {
+  try {
+    await fs.symlink(target, destination, type)
+  } catch (error) {
+    throw normalizeSymlinkError(error)
+  }
 }
 
 const isSameOrInside = (parentPath, targetPath) => {
@@ -44,7 +75,7 @@ const copyEntry = async (sourcePath, destinationPath, sourceStats) => {
   try {
     if (sourceStats.isSymbolicLink()) {
       const linkTarget = await fs.readlink(sourcePath)
-      await fs.symlink(linkTarget, destinationPath)
+      await createSymbolicLink(linkTarget, destinationPath)
       return
     }
 
@@ -190,7 +221,7 @@ export const performFileOperation = async ({
     await moveEntry(resolvedSource, destinationPath, sourceStats)
   } else {
     const relativeSource = path.relative(resolvedTargetDirectory, resolvedSource)
-    await fs.symlink(
+    await createSymbolicLink(
       relativeSource,
       destinationPath,
       sourceStats.isDirectory() ? 'dir' : 'file',
@@ -215,10 +246,11 @@ const operationErrorMessages = {
   EROOT_OPERATION: 'The configured filesystem root cannot be changed',
   ECYCLE: 'A folder cannot be copied or moved into itself',
   ESAMEPATH: 'The item is already in this folder',
+  ESYMLINK_PRIVILEGE: WINDOWS_SYMLINK_PRIVILEGE_MESSAGE,
   EINVAL: 'Invalid file operation',
 }
 
-const serializeOperationError = (error) => ({
+export const serializeOperationError = (error) => ({
   code: error?.code || 'EFILE_OPERATION',
   message:
     operationErrorMessages[error?.code] ||

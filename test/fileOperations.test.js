@@ -7,7 +7,11 @@ import test from 'node:test'
 const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'vesperwind-operations-'))
 process.env.FILE_MANAGER_ROOT = fixtureRoot
 
-const { performFileOperation } = await import('../server/fileOperations.js')
+const {
+  normalizeSymlinkError,
+  performFileOperation,
+  serializeOperationError,
+} = await import('../server/fileOperations.js')
 
 test.after(async () => {
   await fs.rm(fixtureRoot, { recursive: true, force: true })
@@ -39,14 +43,34 @@ test('renames files and nonempty folders, rejecting collisions and root renames'
   await assert.rejects(() => performFileOperation({ action: 'rename', sourcePath: fixtureRoot, name: 'root2' }), { code: 'EROOT_OPERATION' })
 })
 
-test('rejects traversal names, unavailable providers and creation through outside symlinks', async () => {
+test('rejects traversal names and unavailable providers', async () => {
   for (const name of ['', ' ', '.', '..', '../escape', '/absolute', 'a/b', 'a\\b', 'nul\0name']) {
     await assert.rejects(() => performFileOperation({ action: 'create-file', targetDirectory: fixtureRoot, name }), { code: 'EINVALID_NAME' })
   }
   await assert.rejects(() => performFileOperation({ action: 'create-file', targetDirectory: path.dirname(fixtureRoot), name: 'escape' }), { code: 'EOUTSIDE_ROOT' })
   await assert.rejects(() => performFileOperation({ action: 'create-file', targetDirectory: fixtureRoot, name: 'remote', targetFilesystemId: 'ssh:test' }), { code: 'EFILESYSTEM_ID' })
+})
+
+test('rejects creation through an outside filesystem link', async (context) => {
   const link = path.join(fixtureRoot, 'outside-link')
-  await fs.symlink(path.dirname(fixtureRoot), link)
+  try {
+    await fs.symlink(
+      path.dirname(fixtureRoot),
+      link,
+      process.platform === 'win32' ? 'junction' : 'dir',
+    )
+  } catch (error) {
+    if (
+      process.platform === 'win32' &&
+      ['EPERM', 'EACCES'].includes(error?.code)
+    ) {
+      context.skip(
+        'Windows could not create the junction fixture needed for the link-escape security test',
+      )
+      return
+    }
+    throw error
+  }
   await assert.rejects(() => performFileOperation({ action: 'create-file', targetDirectory: link, name: 'escape' }), { code: 'EOUTSIDE_ROOT' })
 })
 
@@ -98,19 +122,57 @@ test('moves a file into the selected target folder', async () => {
   assert.equal(await fs.readFile(result.destinationPath, 'utf8'), 'moving')
 })
 
-test('creates a relative symbolic link in the selected target folder', async () => {
+test('creates a relative symbolic link in the selected target folder', async (context) => {
   const target = path.join(fixtureRoot, 'link-target')
   const source = path.join(fixtureRoot, 'link-me.txt')
   await Promise.all([createFolder('link-target'), fs.writeFile(source, 'linked')])
 
-  const result = await performFileOperation({
-    action: 'link',
-    sourcePath: source,
-    targetDirectory: target,
-  })
+  let result
+  try {
+    result = await performFileOperation({
+      action: 'link',
+      sourcePath: source,
+      targetDirectory: target,
+    })
+  } catch (error) {
+    if (
+      process.platform === 'win32' &&
+      error?.code === 'ESYMLINK_PRIVILEGE'
+    ) {
+      context.skip(
+        'Windows symbolic links require Developer Mode or the Create symbolic links privilege',
+      )
+      return
+    }
+    throw error
+  }
 
   assert.equal(await fs.readlink(result.destinationPath), '../link-me.txt')
   assert.equal(await fs.readFile(result.destinationPath, 'utf8'), 'linked')
+})
+
+test('normalizes Windows symlink privilege errors without changing other failures', () => {
+  const permissionError = Object.assign(new Error('operation not permitted'), {
+    code: 'EPERM',
+  })
+  const normalized = normalizeSymlinkError(permissionError, 'win32')
+
+  assert.equal(normalized.code, 'ESYMLINK_PRIVILEGE')
+  assert.match(normalized.message, /Windows could not create the symbolic link/)
+  assert.match(normalized.message, /Developer Mode/)
+  assert.equal(normalized.cause, permissionError)
+  assert.deepEqual(serializeOperationError(normalized), {
+    code: 'ESYMLINK_PRIVILEGE',
+    message: normalized.message,
+  })
+  assert.equal(normalizeSymlinkError(permissionError, 'darwin'), permissionError)
+  const accessError = Object.assign(new Error('access denied'), { code: 'EACCES' })
+  assert.equal(
+    normalizeSymlinkError(accessError, 'win32').code,
+    'ESYMLINK_PRIVILEGE',
+  )
+  const missingError = Object.assign(new Error('missing'), { code: 'ENOENT' })
+  assert.equal(normalizeSymlinkError(missingError, 'win32'), missingError)
 })
 
 test('deletes files and non-empty folders recursively', async () => {

@@ -160,11 +160,10 @@ fn operate_existing(
         "copy" => {
             prepare_copy_content(filesystem, &source, &source_metadata)?;
             copy_entry(&source, &destination, &source_metadata)
-                .map_err(|error| operation_io_error(&error))
         }
         "move" => move_entry(filesystem, &source, &destination, &source_metadata),
         "link" => create_relative_link(&source, &destination, &target, source_metadata.is_dir())
-            .map_err(|error| operation_io_error(&error)),
+            .map_err(|error| symlink_operation_error(&error)),
         _ => unreachable!(),
     }
     .map_err(|error| {
@@ -225,16 +224,22 @@ fn ensure_available(path: &Path) -> Result<(), NativeError> {
     }
 }
 
-fn copy_entry(source: &Path, destination: &Path, metadata: &fs::Metadata) -> io::Result<()> {
+fn copy_entry(
+    source: &Path,
+    destination: &Path,
+    metadata: &fs::Metadata,
+) -> Result<(), NativeError> {
     if metadata.file_type().is_symlink() {
-        return copy_symlink(source, destination);
+        return copy_symlink(source, destination).map_err(|error| symlink_operation_error(&error));
     }
     if metadata.is_dir() {
-        fs::create_dir(destination)?;
-        fs::set_permissions(destination, metadata.permissions())?;
-        for entry in fs::read_dir(source)? {
-            let entry = entry?;
-            let child_metadata = fs::symlink_metadata(entry.path())?;
+        fs::create_dir(destination).map_err(|error| operation_io_error(&error))?;
+        fs::set_permissions(destination, metadata.permissions())
+            .map_err(|error| operation_io_error(&error))?;
+        for entry in fs::read_dir(source).map_err(|error| operation_io_error(&error))? {
+            let entry = entry.map_err(|error| operation_io_error(&error))?;
+            let child_metadata =
+                fs::symlink_metadata(entry.path()).map_err(|error| operation_io_error(&error))?;
             copy_entry(
                 &entry.path(),
                 &destination.join(entry.file_name()),
@@ -242,13 +247,15 @@ fn copy_entry(source: &Path, destination: &Path, metadata: &fs::Metadata) -> io:
             )?;
         }
     } else {
-        fs::copy(source, destination)?;
-        fs::set_permissions(destination, metadata.permissions())?;
+        fs::copy(source, destination).map_err(|error| operation_io_error(&error))?;
+        fs::set_permissions(destination, metadata.permissions())
+            .map_err(|error| operation_io_error(&error))?;
     }
 
     let accessed = FileTime::from_last_access_time(metadata);
     let modified = FileTime::from_last_modification_time(metadata);
-    filetime::set_file_times(destination, accessed, modified)?;
+    filetime::set_file_times(destination, accessed, modified)
+        .map_err(|error| operation_io_error(&error))?;
     Ok(())
 }
 
@@ -262,8 +269,7 @@ fn move_entry(
         Ok(()) => Ok(()),
         Err(error) if error.kind() == io::ErrorKind::CrossesDevices => {
             prepare_copy_content(filesystem, source, metadata)?;
-            copy_entry(source, destination, metadata)
-                .map_err(|error| operation_io_error(&error))?;
+            copy_entry(source, destination, metadata)?;
             remove_entry(source, metadata).map_err(|error| operation_io_error(&error))
         }
         Err(error) => Err(operation_io_error(&error)),
@@ -381,6 +387,19 @@ fn operation_io_error(error: &io::Error) -> NativeError {
     result
 }
 
+fn symlink_operation_error(error: &io::Error) -> NativeError {
+    #[cfg(windows)]
+    if error.kind() == io::ErrorKind::PermissionDenied || error.raw_os_error() == Some(1314) {
+        return NativeError::new(
+            "ESYMLINK_PRIVILEGE",
+            "Windows could not create the symbolic link. Enable Developer Mode or grant this account the Create symbolic links privilege, then try again.",
+        )
+        .with_native_error(error.to_string());
+    }
+
+    operation_io_error(error)
+}
+
 fn operation_result(
     action: &str,
     source: Option<PathBuf>,
@@ -467,22 +486,8 @@ mod tests {
             ),
         )
         .unwrap();
-        perform(
-            &filesystem,
-            request(
-                "link",
-                Some(test_root.join("left/note.txt")),
-                Some(test_root.join("right")),
-                None,
-            ),
-        )
-        .unwrap();
         assert_eq!(
             fs::read_to_string(test_root.join("third/note.txt")).unwrap(),
-            "hello"
-        );
-        assert_eq!(
-            fs::read_to_string(test_root.join("right/note.txt")).unwrap(),
             "hello"
         );
 
@@ -510,5 +515,58 @@ mod tests {
         assert!(!test_root.join("left/note.txt").exists());
         let _ = fs::remove_dir_all(&test_root);
         let _ = fs::remove_dir_all(&outside);
+    }
+
+    #[test]
+    fn creates_a_relative_symbolic_link_when_permitted() {
+        let test_root =
+            std::env::temp_dir().join(format!("vesperwind-link-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(test_root.join("left")).unwrap();
+        fs::create_dir_all(test_root.join("right")).unwrap();
+        fs::write(test_root.join("left/note.txt"), "hello").unwrap();
+        let filesystem = Filesystem::from_root(&test_root, PathBuf::from("/home/test")).unwrap();
+        let result = perform(
+            &filesystem,
+            OperationRequest {
+                action: "link".to_string(),
+                source_path: Some(
+                    test_root
+                        .join("left/note.txt")
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
+                target_directory: Some(test_root.join("right").to_string_lossy().into_owned()),
+                name: None,
+                filesystem_id: Some("local".to_string()),
+                target_filesystem_id: Some("local".to_string()),
+            },
+        );
+
+        match result {
+            Ok(result) => {
+                assert_eq!(
+                    fs::read_to_string(result.destination_path.unwrap()).unwrap(),
+                    "hello"
+                );
+            }
+            Err(error) if cfg!(windows) && error.code == "ESYMLINK_PRIVILEGE" => {
+                eprintln!(
+                    "skipped symbolic-link capability assertion: Windows requires Developer Mode or the Create symbolic links privilege"
+                );
+            }
+            Err(error) => panic!("unexpected symbolic-link error: {error:?}"),
+        }
+
+        let _ = fs::remove_dir_all(&test_root);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalizes_windows_symlink_privilege_errors() {
+        let error = std::io::Error::from_raw_os_error(1314);
+        let normalized = super::symlink_operation_error(&error);
+        assert_eq!(normalized.code, "ESYMLINK_PRIVILEGE");
+        assert!(normalized.message.contains("Developer Mode"));
+        assert!(normalized.native_error.is_some());
     }
 }
