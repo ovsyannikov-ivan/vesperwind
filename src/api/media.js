@@ -1,13 +1,21 @@
-import { LOCAL_FILESYSTEM_PROVIDER } from './filesystemLocation.js'
+import { backend } from './backend.js'
+import { normalizeApiResponse } from './response.js'
+import { content } from './content.js'
 
-const getUrl = ({ path, providerId = LOCAL_FILESYSTEM_PROVIDER } = {}) => {
-  let url = `/api/media?path=${encodeURIComponent(path || '')}`
-
-  if (providerId !== LOCAL_FILESYSTEM_PROVIDER) {
-    url += `&filesystemId=${encodeURIComponent(providerId)}`
-  }
-
-  return url
+const getUrl = (location) => backend.getMediaUrl(location)
+const prepare = async (location, options) => {
+  const response = normalizeApiResponse(
+    await content.prepare(location, options),
+    'EMEDIA_PREPARE',
+    'Unable to prepare this file',
+  )
+  if (!response.ok) return response
+  const source = normalizeApiResponse(
+    await backend.getPreparedMediaSource(location),
+    'EMEDIA_SOURCE',
+    'Unable to create a media source',
+  )
+  return source.ok ? { ...response, source: source.source } : source
 }
 
-export const media = Object.freeze({ getUrl })
+export const media = Object.freeze({ getUrl, prepare })

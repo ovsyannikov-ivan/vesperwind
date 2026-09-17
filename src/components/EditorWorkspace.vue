@@ -31,6 +31,7 @@ const {
   activateTab,
   updateContent,
   updatePdfState,
+  retryPdfTab,
   saveTab,
   closeTab,
 } = useEditorWorkspace()
@@ -404,6 +405,7 @@ onBeforeUnmount(() => {
         :tab="tab"
         :visible="visible && tab.id === activeTab?.id"
         @state-change="updatePdfState"
+        @prepare-retry="retryPdfTab"
       />
     </section>
 

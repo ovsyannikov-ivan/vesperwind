@@ -9,7 +9,6 @@ import {
   ref,
   watch,
 } from 'vue'
-import { media } from '../api/media.js'
 import { calculatePdfOutputScale } from '../utils/pdfRendering.js'
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl
@@ -31,7 +30,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['state-change'])
+const emit = defineEmits(['state-change', 'prepare-retry'])
 const viewerElement = ref(null)
 const scrollElement = ref(null)
 const thumbnailElement = ref(null)
@@ -68,13 +67,7 @@ let mainQueueRunning = false
 let thumbnailQueueRunning = false
 let restoringView = false
 
-const sourceUrl = computed(
-  () =>
-    media.getUrl({
-      providerId: props.tab.filesystemId,
-      path: props.tab.filePath,
-    }),
-)
+const sourceUrl = computed(() => props.tab.sourceUrl || '')
 const currentPage = computed(() => props.tab.currentPage || 1)
 const pageCount = computed(() => props.tab.pageCount || 0)
 const thumbnailsOpen = computed(() => props.tab.thumbnailsOpen !== false)
@@ -824,7 +817,14 @@ const applyScale = async ({ restore = false } = {}) => {
 }
 
 const loadDocument = async () => {
-  if (!mounted || loaded.value || documentLoading.value) {
+  if (
+    !mounted ||
+    loaded.value ||
+    documentLoading.value ||
+    props.tab.loading ||
+    props.tab.error ||
+    !sourceUrl.value
+  ) {
     return
   }
 
@@ -901,6 +901,11 @@ const destroyDocument = async () => {
 }
 
 const retry = async () => {
+  if (props.tab.error || !sourceUrl.value) {
+    emit('prepare-retry', props.tab.id)
+    return
+  }
+
   await destroyDocument()
   errorMessage.value = ''
   await loadDocument()
@@ -1002,6 +1007,15 @@ watch(
       createMainObserver()
       createThumbnailObserver()
       await restoreView()
+    }
+  },
+)
+
+watch(
+  () => [sourceUrl.value, props.tab.loading, props.tab.error],
+  async ([url, loading, error]) => {
+    if (mounted && props.visible && url && !loading && !error && !loaded.value) {
+      await loadDocument()
     }
   },
 )
@@ -1260,7 +1274,20 @@ onBeforeUnmount(() => {
         @pointerdown="focusViewer"
         @scroll.passive="rememberScrollPosition"
       >
-        <div v-if="documentLoading" class="pdf-viewer-message">
+        <div v-if="tab.loading" class="pdf-viewer-message">
+          <span class="spinner-border spinner-border-sm" aria-hidden="true" />
+          {{ tab.statusMessage || 'Preparing file…' }}
+        </div>
+
+        <div v-else-if="tab.error" class="pdf-viewer-message text-danger" role="alert">
+          <i class="mdi mdi-alert-outline" aria-hidden="true" />
+          <span>{{ tab.error.message }}</span>
+          <button class="btn btn-sm btn-outline-secondary" type="button" @click="retry">
+            Retry
+          </button>
+        </div>
+
+        <div v-else-if="documentLoading" class="pdf-viewer-message">
           <span class="spinner-border spinner-border-sm" aria-hidden="true" />
           Loading document…
         </div>

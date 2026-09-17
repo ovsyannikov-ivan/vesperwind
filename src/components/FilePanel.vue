@@ -4,6 +4,8 @@ import { useFilesystem } from '../composables/useFilesystem.js'
 import { useSettings } from '../composables/useSettings.js'
 import { buildPathBreadcrumbs } from '../utils/pathBreadcrumbs.js'
 import FileTree from './FileTree.vue'
+import { entryChange, relocatePath } from '../composables/useEntryChanges.js'
+import { LOCAL_FILESYSTEM_PROVIDER } from '../api/filesystemLocation.js'
 
 const props = defineProps({
   side: {
@@ -14,6 +16,10 @@ const props = defineProps({
   active: {
     type: Boolean,
     default: false,
+  },
+  providerId: {
+    type: String,
+    default: LOCAL_FILESYSTEM_PROVIDER,
   },
   filesystemRevision: {
     type: Number,
@@ -28,7 +34,7 @@ const emit = defineEmits([
   'open-file',
   'state-change',
 ])
-const { getRoot, listDirectory } = useFilesystem()
+const { getRoot, listDirectory } = useFilesystem(props.providerId)
 const { revision: settingsRevision } = useSettings()
 const filesystemRoot = ref(null)
 const homePath = ref('')
@@ -43,8 +49,12 @@ const breadcrumbs = computed(() =>
 )
 const panelState = computed(() => ({
   side: props.side,
-  currentDirectory: root.value,
-  selected: selectedNode.value,
+  currentDirectory: root.value
+    ? { ...root.value, providerId: props.providerId }
+    : null,
+  selected: selectedNode.value
+    ? { ...selectedNode.value, providerId: props.providerId }
+    : null,
   canOperateSelected: Boolean(
     selectedNode.value &&
       filesystemRoot.value &&
@@ -94,7 +104,7 @@ const openNode = (payload) => {
     emit('open-file', {
       node,
       siblings: Array.isArray(payload?.siblings) ? payload.siblings : [node],
-      filesystemId: 'local',
+      filesystemId: props.providerId,
       sourcePane: props.side,
       sourceRootPath: root.value?.path,
       sourceRootName: root.value?.name,
@@ -146,6 +156,18 @@ watch(
 )
 
 onMounted(loadRoot)
+
+watch(entryChange, (change) => {
+  if (change?.action !== 'rename') return
+  const relocateNode = (node) => {
+    if (!node) return node
+    const path = relocatePath(node.path, change)
+    return path === node.path ? node : { ...node, path, name: path.split('/').at(-1) }
+  }
+  root.value = relocateNode(root.value)
+  selectedNode.value = relocateNode(selectedNode.value)
+  selectedPath.value = relocatePath(selectedPath.value, change)
+})
 </script>
 
 <template>
@@ -222,6 +244,7 @@ onMounted(loadRoot)
           :key="`${root.path}:${settingsRevision}:${filesystemRevision}`"
           :root="root"
           :home-path="homePath"
+          :provider-id="providerId"
           :panel-side="side"
           :selected-path="selectedPath"
           :list-directory="listDirectory"

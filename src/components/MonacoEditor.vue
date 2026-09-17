@@ -47,7 +47,11 @@ const getOrCreateModel = (tab) => {
     )
   }
 
-  return models.get(tab.id)
+  const model = models.get(tab.id)
+  if (model.getLanguageId() !== tab.language) {
+    monaco.editor.setModelLanguage(model, tab.language)
+  }
+  return model
 }
 
 const syncActiveTab = async () => {
@@ -155,6 +159,7 @@ watch(
     props.activeTab?.id,
     props.activeTab?.loading,
     props.activeTab?.saving,
+    props.activeTab?.language,
     props.visible,
   ],
   syncActiveTab,

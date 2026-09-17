@@ -12,6 +12,7 @@ import {
   isWorkspaceDocumentType,
 } from '../utils/fileTypes.js'
 import AudioPlayerBar from './AudioPlayerBar.vue'
+import CreateEntryModal from './CreateEntryModal.vue'
 import FilePanel from './FilePanel.vue'
 import FileOperationConfirmModal from './FileOperationConfirmModal.vue'
 import FileOperationMenu from './FileOperationMenu.vue'
@@ -32,6 +33,7 @@ const {
   moveEntry,
   createSymbolicLink,
   deleteEntry,
+  createEntry,
 } = useFileOperations()
 const {
   activeAudio,
@@ -44,6 +46,7 @@ const {
   closeViewer,
   showPrevious,
   showNext,
+  retryMedia,
   syncAfterFileOperation,
 } = useMediaViewer()
 const filesContainer = ref(null)
@@ -52,6 +55,27 @@ const workspaceMode = ref('files')
 const activePanel = ref('left')
 const connected = ref(connection.isConnected())
 const settingsOpen = ref(false)
+const createRequest = ref(null)
+const createBusy = ref(false)
+const createError = ref('')
+const openCreate = (kind) => {
+  if (!commandAvailability.value.create) return
+  createError.value = ''
+  createRequest.value = { kind, directory: panelStates[activePanel.value].currentDirectory.path }
+}
+const submitCreate = async (name) => {
+  if (!createRequest.value || createBusy.value) return
+  createBusy.value = true
+  createError.value = ''
+  try {
+    const { kind, directory } = createRequest.value
+    const response = await createEntry(kind, directory, name)
+    if (response.ok) createRequest.value = null
+    else createError.value = response.error.message
+  } catch (error) {
+    createError.value = error.message || 'Unable to create this item'
+  } finally { createBusy.value = false }
+}
 const filesystemRevision = ref(0)
 const dropRequest = ref(null)
 const operationBusy = ref(false)
@@ -102,6 +126,7 @@ const commandAvailability = computed(() => {
   const interactionBlocked = Boolean(
     !connected.value ||
       settingsOpen.value ||
+      createRequest.value ||
       dropRequest.value ||
       confirmationRequest.value ||
       viewer.value ||
@@ -119,6 +144,7 @@ const commandAvailability = computed(() => {
   )
 
   return {
+    create: Boolean(activePanelVisible && source?.currentDirectory?.isDirectory && !interactionBlocked),
     copy: canTransfer && !interactionBlocked,
     move: canTransfer && !interactionBlocked,
     delete: canUseSource && !interactionBlocked,
@@ -235,21 +261,21 @@ const showEditor = () => {
   }
 }
 
-const runFileOperation = (action, sourcePath, targetDirectory) => {
+const runFileOperation = (action, source, targetDirectory) => {
   if (action === 'copy') {
-    return copyEntry(sourcePath, targetDirectory)
+    return copyEntry(source, targetDirectory)
   }
 
   if (action === 'move') {
-    return moveEntry(sourcePath, targetDirectory)
+    return moveEntry(source, targetDirectory)
   }
 
   if (action === 'link') {
-    return createSymbolicLink(sourcePath, targetDirectory)
+    return createSymbolicLink(source, targetDirectory)
   }
 
   if (action === 'delete') {
-    return deleteEntry(sourcePath)
+    return deleteEntry(source)
   }
 
   return Promise.resolve({
@@ -290,8 +316,8 @@ const executeFileOperation = async (action) => {
   operationError.value = ''
   const response = await runFileOperation(
     action,
-    dropRequest.value.source.path,
-    dropRequest.value.target.path,
+    dropRequest.value.source,
+    dropRequest.value.target,
   )
   operationBusy.value = false
 
@@ -345,8 +371,8 @@ const executeCommanderOperation = async () => {
   confirmationError.value = ''
   const response = await runFileOperation(
     requestDetails.action,
-    requestDetails.source.path,
-    requestDetails.targetDirectory?.path,
+    requestDetails.source,
+    requestDetails.targetDirectory,
   )
   confirmationBusy.value = false
 
@@ -362,7 +388,7 @@ const executeCommanderOperation = async () => {
 }
 
 const handleCommanderKeydown = (event) => {
-  if (workspaceMode.value !== 'files') {
+  if (workspaceMode.value !== 'files' || event.target.closest?.('input, textarea, [contenteditable="true"]')) {
     return
   }
 
@@ -418,6 +444,7 @@ onBeforeUnmount(() => {
       @copy="openCommanderConfirmation('copy')"
       @move="openCommanderConfirmation('move')"
       @delete="openCommanderConfirmation('delete')"
+      @create="openCreate"
       @show-files="showFiles"
       @show-editor="showEditor"
     />
@@ -426,6 +453,7 @@ onBeforeUnmount(() => {
       v-if="activeAudio"
       :media="activeAudio"
       @close="closeAudio"
+      @retry="retryMedia"
     />
 
     <div ref="workspace" class="workspace">
@@ -494,6 +522,7 @@ onBeforeUnmount(() => {
     </div>
 
     <SettingsModal :open="settingsOpen" @close="settingsOpen = false" />
+    <CreateEntryModal :request="createRequest" :busy="createBusy" :error="createError" @confirm="submitCreate" @cancel="!createBusy && (createRequest = null)" />
     <MediaViewerModal
       :open="Boolean(viewer)"
       :media="currentViewerMedia"
@@ -503,6 +532,7 @@ onBeforeUnmount(() => {
       @close="closeViewer"
       @previous="showPrevious"
       @next="showNext"
+      @retry="retryMedia"
     />
     <FileOperationConfirmModal
       :open="Boolean(confirmationRequest)"

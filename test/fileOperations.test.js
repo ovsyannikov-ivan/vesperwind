@@ -15,6 +15,41 @@ test.after(async () => {
 
 const createFolder = (name) => fs.mkdir(path.join(fixtureRoot, name))
 
+test('creates empty files and folders without overwriting existing entries', async () => {
+  const file = await performFileOperation({ action: 'create-file', targetDirectory: fixtureRoot, name: 'new file.txt' })
+  assert.equal(await fs.readFile(file.destinationPath, 'utf8'), '')
+  await fs.writeFile(file.destinationPath, 'keep me')
+  await assert.rejects(() => performFileOperation({ action: 'create-file', targetDirectory: fixtureRoot, name: 'new file.txt' }), { code: 'EEXIST' })
+  assert.equal(await fs.readFile(file.destinationPath, 'utf8'), 'keep me')
+  const folder = await performFileOperation({ action: 'create-folder', targetDirectory: fixtureRoot, name: 'new folder' })
+  assert.equal((await fs.stat(folder.destinationPath)).isDirectory(), true)
+  await assert.rejects(() => performFileOperation({ action: 'create-folder', targetDirectory: fixtureRoot, name: 'new folder' }), { code: 'EEXIST' })
+})
+
+test('renames files and nonempty folders, rejecting collisions and root renames', async () => {
+  const source = path.join(fixtureRoot, 'rename-source')
+  await fs.mkdir(source)
+  await fs.writeFile(path.join(source, 'before.txt'), 'preserved')
+  const folder = await performFileOperation({ action: 'rename', sourcePath: source, name: 'rename-destination' })
+  const file = await performFileOperation({ action: 'rename', sourcePath: path.join(folder.destinationPath, 'before.txt'), name: 'after.txt' })
+  assert.equal(await fs.readFile(file.destinationPath, 'utf8'), 'preserved')
+  await fs.writeFile(path.join(folder.destinationPath, 'exists.txt'), 'existing')
+  await assert.rejects(() => performFileOperation({ action: 'rename', sourcePath: file.destinationPath, name: 'exists.txt' }), { code: 'EEXIST' })
+  assert.equal(await fs.readFile(file.destinationPath, 'utf8'), 'preserved')
+  await assert.rejects(() => performFileOperation({ action: 'rename', sourcePath: fixtureRoot, name: 'root2' }), { code: 'EROOT_OPERATION' })
+})
+
+test('rejects traversal names, unavailable providers and creation through outside symlinks', async () => {
+  for (const name of ['', ' ', '.', '..', '../escape', '/absolute', 'a/b', 'a\\b', 'nul\0name']) {
+    await assert.rejects(() => performFileOperation({ action: 'create-file', targetDirectory: fixtureRoot, name }), { code: 'EINVALID_NAME' })
+  }
+  await assert.rejects(() => performFileOperation({ action: 'create-file', targetDirectory: path.dirname(fixtureRoot), name: 'escape' }), { code: 'EOUTSIDE_ROOT' })
+  await assert.rejects(() => performFileOperation({ action: 'create-file', targetDirectory: fixtureRoot, name: 'remote', targetFilesystemId: 'ssh:test' }), { code: 'EFILESYSTEM_ID' })
+  const link = path.join(fixtureRoot, 'outside-link')
+  await fs.symlink(path.dirname(fixtureRoot), link)
+  await assert.rejects(() => performFileOperation({ action: 'create-file', targetDirectory: link, name: 'escape' }), { code: 'EOUTSIDE_ROOT' })
+})
+
 test('copies files and folders into the selected target folder', async () => {
   const target = path.join(fixtureRoot, 'copy-target')
   const sourceFile = path.join(fixtureRoot, 'copy-me.txt')

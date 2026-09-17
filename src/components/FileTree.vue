@@ -1,5 +1,6 @@
 <script setup>
 import FileTreeNode from './FileTreeNode.vue'
+import { LOCAL_FILESYSTEM_PROVIDER } from '../api/filesystemLocation.js'
 
 defineProps({
   root: {
@@ -18,6 +19,10 @@ defineProps({
     type: String,
     required: true,
     validator: (value) => ['left', 'right'].includes(value),
+  },
+  providerId: {
+    type: String,
+    default: LOCAL_FILESYSTEM_PROVIDER,
   },
   listDirectory: {
     type: Function,
@@ -42,6 +47,7 @@ defineEmits(['select', 'open', 'drop-request'])
       :node="root"
       :home-path="homePath"
       :panel-side="panelSide"
+      :provider-id="providerId"
       :selected-path="selectedPath"
       :list-directory="listDirectory"
       :compact="compact"

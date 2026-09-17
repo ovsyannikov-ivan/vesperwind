@@ -1,4 +1,5 @@
 import { backend } from './backend.js'
+import { content } from './content.js'
 import { normalizeApiResponse } from './response.js'
 import { LOCAL_FILESYSTEM_PROVIDER } from './filesystemLocation.js'
 
@@ -29,8 +30,10 @@ const readDir = async (location) =>
     'Unable to read this folder',
   )
 
-const readText = async (location) =>
-  normalizeApiResponse(
+const readText = async (location, options) => {
+  const preparation = await content.prepare(location, options)
+  if (!preparation.ok) return preparation
+  return normalizeApiResponse(
     await backend.request('filesystem:read-text', {
       filesystemId: providerIdOf(location),
       path: location?.path,
@@ -38,30 +41,40 @@ const readText = async (location) =>
     'ETEXTFILE_READ',
     'Unable to open this file',
   )
+}
 
-const writeText = async (location, content) =>
-  normalizeApiResponse(
+const writeText = async (location, value, options) => {
+  const preparation = await content.prepare(location, options)
+  if (!preparation.ok) return preparation
+  return normalizeApiResponse(
     await backend.request(
       'filesystem:write-text',
       {
         filesystemId: providerIdOf(location),
         path: location?.path,
-        content,
+        content: value,
       },
       { timeout: 30_000 },
     ),
     'ETEXTFILE_WRITE',
     'Unable to save this file',
   )
+}
 
 const OPERATION_TIMEOUT = 10 * 60 * 1000
 
-const operate = async ({ action, source, target = null }) =>
-  normalizeApiResponse(
+const operate = async ({ action, source, target = null, name }) => {
+  if (action === 'copy' && source?.isDirectory !== true) {
+    const preparation = await content.prepare(source)
+    if (!preparation.ok) return preparation
+  }
+
+  return normalizeApiResponse(
     await backend.request(
       'filesystem:operate',
       {
         action,
+        name,
         filesystemId: providerIdOf(source),
         sourcePath: source?.path,
         targetFilesystemId: target ? providerIdOf(target) : null,
@@ -72,6 +85,7 @@ const operate = async ({ action, source, target = null }) =>
     'EFILE_OPERATION',
     'The file operation failed',
   )
+}
 
 export const filesystem = Object.freeze({
   getRoot,
@@ -82,4 +96,7 @@ export const filesystem = Object.freeze({
   move: (source, target) => operate({ action: 'move', source, target }),
   link: (source, target) => operate({ action: 'link', source, target }),
   remove: (source) => operate({ action: 'delete', source }),
+  createFile: (target, name) => operate({ action: 'create-file', target, name }),
+  createFolder: (target, name) => operate({ action: 'create-folder', target, name }),
+  rename: (source, name) => operate({ action: 'rename', source, name }),
 })

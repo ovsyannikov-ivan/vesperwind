@@ -8,6 +8,7 @@ import {
   LOCAL_FILESYSTEM_PROVIDER,
 } from '../src/api/filesystemLocation.js'
 import { media } from '../src/api/media.js'
+import { content } from '../src/api/content.js'
 import { normalizeApiResponse } from '../src/api/response.js'
 
 const projectRoot = path.resolve(
@@ -39,8 +40,11 @@ test('keeps Vue components and composables behind the frontend API boundary', as
   const files = (await Promise.all(directories.map(sourceFilesIn))).flat()
   const backendDetails = [
     /socket\.io-client/,
+    /@tauri-apps\/api/,
     /socket\.(?:emit|on|off|once|timeout)/,
+    /\b(?:invoke|listen)\s*\(/,
     /["'`]\/api\/media/,
+    /vesperwind-media:/,
     /(?:filesystem|settings|terminal):[a-z-]+/,
   ]
 
@@ -55,6 +59,27 @@ test('keeps Vue components and composables behind the frontend API boundary', as
       )
     }
   }
+})
+
+test('keeps transport-specific imports inside src/api', async () => {
+  const files = await sourceFilesIn(path.join(projectRoot, 'src'))
+
+  for (const file of files) {
+    if (file.startsWith(path.join(projectRoot, 'src', 'api'))) {
+      continue
+    }
+
+    const source = await fs.readFile(file, 'utf8')
+    assert.doesNotMatch(source, /@tauri-apps\/api|socket\.io-client/)
+  }
+})
+
+test('leaves HTML5 drag and drop to the frontend in Tauri', async () => {
+  const config = JSON.parse(
+    await fs.readFile(path.join(projectRoot, 'src-tauri', 'tauri.conf.json'), 'utf8'),
+  )
+
+  assert.equal(config.app.windows[0].dragDropEnabled, false)
 })
 
 test('models filesystem targets independently from the current transport', () => {
@@ -77,6 +102,17 @@ test('builds media sources behind the media API', () => {
     media.getUrl({ providerId: 'ssh:server', path: '/srv/video.mp4' }),
     '/api/media?path=%2Fsrv%2Fvideo.mp4&filesystemId=ssh%3Aserver',
   )
+})
+
+test('prepares content through one transport-neutral API in socket mode', async () => {
+  const response = await content.prepare({
+    providerId: 'local',
+    path: '/tmp/Положение о Совете, 41.pdf',
+  })
+
+  assert.equal(response.ok, true)
+  assert.equal(response.preparation.state, 'READY')
+  assert.equal(response.preparation.progress, 1)
 })
 
 test('normalizes malformed backend failures at the API boundary', () => {

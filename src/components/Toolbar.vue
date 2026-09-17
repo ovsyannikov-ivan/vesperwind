@@ -1,4 +1,13 @@
 <script setup>
+import Dropdown from 'bootstrap/js/dist/dropdown'
+import { onBeforeUnmount, ref, watch } from 'vue'
+const createButton = ref(null)
+let createDropdown
+watch(createButton, (button) => {
+  createDropdown?.dispose()
+  createDropdown = button ? new Dropdown(button) : null
+}, { flush: 'post' })
+onBeforeUnmount(() => createDropdown?.dispose())
 const visibilityButtonClass = (visible) => ({
   'is-active': visible,
 })
@@ -30,7 +39,7 @@ defineProps({
   },
 })
 
-defineEmits([
+const emit = defineEmits([
   'toggle-left',
   'toggle-right',
   'toggle-terminal',
@@ -38,9 +47,14 @@ defineEmits([
   'copy',
   'move',
   'delete',
+  'create',
   'show-files',
   'show-editor',
 ])
+const selectCreate = (kind) => {
+  createDropdown?.hide()
+  emit('create', kind)
+}
 </script>
 
 <template>
@@ -127,6 +141,15 @@ defineEmits([
     <div v-if="workspaceMode === 'files'" class="toolbar-divider" />
 
     <div v-if="workspaceMode === 'files'" class="btn-group btn-group-sm" role="group" aria-label="File operations">
+      <div class="btn-group btn-group-sm">
+        <button ref="createButton" class="btn toolbar-button toolbar-command dropdown-toggle" data-bs-toggle="dropdown" type="button" :disabled="!commandAvailability.create" aria-expanded="false">
+          <i class="mdi mdi-plus" aria-hidden="true" /> Create
+        </button>
+        <ul class="dropdown-menu">
+          <li><button class="dropdown-item" type="button" @click="selectCreate('file')"><i class="mdi mdi-file-plus-outline" aria-hidden="true" /> File</button></li>
+          <li><button class="dropdown-item" type="button" @click="selectCreate('folder')"><i class="mdi mdi-folder-plus-outline" aria-hidden="true" /> Folder</button></li>
+        </ul>
+      </div>
       <button
         class="btn toolbar-button toolbar-command"
         type="button"

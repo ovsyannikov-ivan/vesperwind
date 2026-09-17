@@ -1,5 +1,8 @@
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { entryNameError } from '../../shared/entryName.js'
+import { useFileOperations } from '../composables/useFileOperations.js'
+import { entryChange } from '../composables/useEntryChanges.js'
 import { getFileIcon } from '../utils/fileIcons.js'
 import { useSettings } from '../composables/useSettings.js'
 import {
@@ -16,6 +19,7 @@ import {
   formatTerminalPath,
   TERMINAL_PATH_MIME,
 } from '../utils/terminalPath.js'
+import { LOCAL_FILESYSTEM_PROVIDER } from '../api/filesystemLocation.js'
 
 const props = defineProps({
   node: {
@@ -38,6 +42,10 @@ const props = defineProps({
     type: String,
     required: true,
     validator: (value) => ['left', 'right'].includes(value),
+  },
+  providerId: {
+    type: String,
+    default: LOCAL_FILESYSTEM_PROVIDER,
   },
   defaultExpanded: {
     type: Boolean,
@@ -67,6 +75,55 @@ const error = ref(null)
 const dragging = ref(false)
 const dropTarget = ref(false)
 const rowElement = ref(null)
+const { renameEntry } = useFileOperations(props.providerId)
+const renaming = ref(false)
+const renameName = ref('')
+const renameError = ref('')
+const renameBusy = ref(false)
+const renameInput = ref(null)
+let renameTimer = null
+let lastNameClick = 0
+let refreshPending = false
+const cancelRenameTimer = () => { clearTimeout(renameTimer); renameTimer = null }
+const cancelRename = () => {
+  if (renameBusy.value) return
+  cancelRenameTimer()
+  renaming.value = false
+  renameError.value = ''
+}
+const beginRename = async () => {
+  if (!selected.value || props.depth === 0 || renameBusy.value) return
+  renaming.value = true
+  renameName.value = props.node.name
+  renameError.value = ''
+  await nextTick()
+  renameInput.value?.focus()
+  const dot = props.node.isDirectory ? -1 : props.node.name.lastIndexOf('.')
+  renameInput.value?.setSelectionRange(0, dot > 0 ? dot : props.node.name.length)
+}
+const handleNameClick = (event) => {
+  const now = Date.now()
+  const elapsed = now - lastNameClick
+  cancelRenameTimer()
+  if (event.detail === 1 && selected.value && elapsed > 500 && elapsed < 3000) {
+    renameTimer = setTimeout(beginRename, 550)
+  }
+  lastNameClick = now
+}
+const submitRename = async () => {
+  if (renameBusy.value) return
+  renameError.value = entryNameError(renameName.value)
+  if (renameError.value) return
+  if (renameName.value === props.node.name) { cancelRename(); return }
+  renameBusy.value = true
+  try {
+    const response = await renameEntry(props.node.path, renameName.value)
+    if (response.ok) renaming.value = false
+    else renameError.value = response.error.message
+  } catch (error) {
+    renameError.value = error.message || 'Unable to rename this item'
+  } finally { renameBusy.value = false }
+}
 
 const selected = computed(() => props.selectedPath === props.node.path)
 const iconDetails = computed(() => getFileIcon(props.node, expanded.value))
@@ -110,6 +167,13 @@ const loadChildren = async () => {
   loading.value = false
   loaded.value = true
 
+  if (refreshPending) {
+    refreshPending = false
+    loaded.value = false
+    if (expanded.value) await loadChildren()
+    return
+  }
+
   if (!response?.ok) {
     error.value = response?.error || { message: 'Unable to read this folder' }
     return
@@ -135,6 +199,7 @@ const selectNode = () => {
 }
 
 const handleDoubleClick = () => {
+  cancelRenameTimer()
   selectNode()
   emit('open', props.node)
 }
@@ -152,6 +217,12 @@ const forwardOpen = (payload) => {
 }
 
 const handleKeydown = (event) => {
+  if (event.key === 'F2') {
+    event.preventDefault()
+    selectNode()
+    nextTick(beginRename)
+    return
+  }
   if (event.key === 'Enter') {
     selectNode()
     toggle()
@@ -167,6 +238,7 @@ const handleKeydown = (event) => {
 }
 
 const handleDragStart = (event) => {
+  cancelRenameTimer()
   if (!event.dataTransfer || !terminalPath.value) {
     event.preventDefault()
     return
@@ -179,7 +251,7 @@ const handleDragStart = (event) => {
   if (props.depth > 0) {
     event.dataTransfer.setData(
       FILE_ENTRY_MIME,
-      createFileDragPayload(props.node, props.panelSide),
+      createFileDragPayload(props.node, props.panelSide, props.providerId),
     )
   }
 
@@ -233,6 +305,7 @@ const handleDrop = (event) => {
   emit('drop-request', {
     source,
     target: {
+      providerId: props.providerId,
       path: props.node.path,
       name: props.node.name,
       isDirectory: true,
@@ -256,7 +329,20 @@ watch(selected, (isSelected) => {
   if (isSelected) {
     scrollToSelected()
   }
+  if (!isSelected) { lastNameClick = 0; cancelRename() }
 })
+
+watch(entryChange, async (change) => {
+  if (change?.targetDirectory !== props.node.path || !props.node.isDirectory) return
+  // A pending initial read may contain an old snapshot. Refresh after it settles.
+  if (loading.value) {
+    refreshPending = true
+    return
+  }
+  loaded.value = false
+  if (expanded.value) await loadChildren()
+})
+onBeforeUnmount(cancelRenameTimer)
 </script>
 
 <template>
@@ -271,7 +357,7 @@ watch(selected, (isSelected) => {
         'is-drop-target': dropTarget,
       }"
       :title="node.path"
-      :draggable="Boolean(terminalPath)"
+      :draggable="!renaming && Boolean(terminalPath)"
       tabindex="0"
       @click="selectNode"
       @dblclick="handleDoubleClick"
@@ -305,7 +391,14 @@ watch(selected, (isSelected) => {
           :class="[iconDetails.icon, iconDetails.className]"
           aria-hidden="true"
         />
-        <span class="tree-label">{{ node.name }}</span>
+        <input
+          v-if="renaming" ref="renameInput" v-model="renameName" class="tree-rename-input"
+          :aria-label="`Rename ${node.name}`" :disabled="renameBusy" :aria-invalid="Boolean(renameError)"
+          @click.stop @dblclick.stop @pointerdown.stop @keydown.stop
+          @keydown.enter.prevent="submitRename" @keydown.esc.prevent="cancelRename"
+          @blur="!renameError && cancelRename()"
+        >
+        <span v-else class="tree-label" @click="handleNameClick">{{ node.name }}</span>
         <i
           v-if="node.isSymbolicLink"
           class="mdi mdi-arrow-top-right-thin-circle-outline tree-link-badge"
@@ -322,6 +415,8 @@ watch(selected, (isSelected) => {
         {{ formattedModifiedAt }}
       </time>
     </div>
+
+    <div v-if="renaming && renameError" class="tree-state text-danger" role="alert">{{ renameError }}</div>
 
     <template v-if="node.isDirectory">
       <div
@@ -354,6 +449,7 @@ watch(selected, (isSelected) => {
           :node="child"
           :home-path="homePath"
           :panel-side="panelSide"
+          :provider-id="providerId"
           :depth="depth + 1"
           :selected-path="selectedPath"
           :list-directory="listDirectory"

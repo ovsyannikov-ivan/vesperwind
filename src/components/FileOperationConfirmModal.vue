@@ -186,8 +186,8 @@ onBeforeUnmount(() => {
               Cancel
             </button>
             <button
-              class="btn btn-sm"
               :class="displayedRequest?.action === 'delete' ? 'btn-danger' : 'btn-primary'"
+              class="btn btn-sm"
               type="button"
               :disabled="busy"
               @click="$emit('confirm')"

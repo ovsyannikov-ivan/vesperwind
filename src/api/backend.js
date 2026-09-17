@@ -1,3 +1,8 @@
-// The current runtime uses Socket.io. A future desktop build can replace this
-// binding with a Tauri invoke/events adapter without changing domain APIs.
-export { socketTransport as backend } from './transports/socket.js'
+import { socketTransport } from './transports/socket.js'
+import { tauriTransport } from './transports/tauri.js'
+
+export const isTauriRuntime = () =>
+  typeof window !== 'undefined' && Boolean(window.__TAURI_INTERNALS__)
+
+// Runtime selection lives at the API boundary so Vue code remains backend-agnostic.
+export const backend = isTauriRuntime() ? tauriTransport : socketTransport

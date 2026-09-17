@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { useFilesystem } from '../composables/useFilesystem.js'
 import { buildPathBreadcrumbs } from '../utils/pathBreadcrumbs.js'
 import FileTree from './FileTree.vue'
+import { entryChange, relocatePath } from '../composables/useEntryChanges.js'
 
 const props = defineProps({
   context: {
@@ -20,6 +21,7 @@ const { listDirectory } = useFilesystem()
 const selectedPath = ref(
   props.activeFilePath || props.context.sourceRootPath,
 )
+watch(entryChange, (change) => { selectedPath.value = relocatePath(selectedPath.value, change) })
 const breadcrumbsRef = ref(null)
 const root = computed(() => ({
   name:

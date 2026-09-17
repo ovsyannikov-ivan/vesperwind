@@ -1,12 +1,13 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { entryNameError } from '../shared/entryName.js'
 import {
   fileManagerRoot,
   resolveInsideRoot,
   verifyRealPathInsideRoot,
 } from './filesystem.js'
 
-const supportedActions = new Set(['copy', 'move', 'link', 'delete'])
+const supportedActions = new Set(['copy', 'move', 'link', 'delete', 'create-file', 'create-folder', 'rename'])
 
 const createOperationError = (code, message) => {
   const error = new Error(message)
@@ -82,9 +83,33 @@ export const performFileOperation = async ({
   action,
   sourcePath,
   targetDirectory,
+  name,
+  filesystemId = 'local',
+  targetFilesystemId,
 }) => {
+  if (filesystemId !== 'local' || (targetFilesystemId && targetFilesystemId !== 'local')) {
+    throw createOperationError('EFILESYSTEM_ID', 'This filesystem is not available')
+  }
   if (!supportedActions.has(action)) {
     throw createOperationError('EINVAL', 'Unknown file operation')
+  }
+
+  if (['create-file', 'create-folder', 'rename'].includes(action)) {
+    const message = entryNameError(name)
+    if (message) throw createOperationError('EINVALID_NAME', message)
+  }
+
+  if (action === 'create-file' || action === 'create-folder') {
+    const parent = resolveInsideRoot(targetDirectory)
+    await verifyRealPathInsideRoot(parent)
+    const destinationPath = resolveInsideRoot(path.join(parent, name))
+    if (action === 'create-folder') {
+      await fs.mkdir(destinationPath)
+    } else {
+      const handle = await fs.open(destinationPath, 'wx')
+      await handle.close()
+    }
+    return { action, sourcePath: null, targetDirectory: parent, destinationPath }
   }
 
   const resolvedSource = resolveInsideRoot(sourcePath)
@@ -97,6 +122,17 @@ export const performFileOperation = async ({
   }
 
   const sourceStats = await fs.lstat(resolvedSource)
+
+  if (action === 'rename') {
+    const parent = path.dirname(resolvedSource)
+    await verifyRealPathInsideRoot(parent)
+    const destinationPath = resolveInsideRoot(path.join(parent, name))
+    if (destinationPath !== resolvedSource) {
+      await ensureDestinationAvailable(destinationPath)
+      await fs.rename(resolvedSource, destinationPath)
+    }
+    return { action, sourcePath: resolvedSource, targetDirectory: parent, destinationPath }
+  }
 
   if (action === 'delete') {
     await verifyRealPathInsideRoot(path.dirname(resolvedSource))

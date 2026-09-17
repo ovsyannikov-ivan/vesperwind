@@ -9,9 +9,11 @@ test('round-trips a validated file drag payload', () => {
   const value = createFileDragPayload(
     { path: '/Users/ivan/Documents/report.pdf', name: 'report.pdf' },
     'left',
+    'local',
   )
 
   assert.deepEqual(parseFileDragPayload(value), {
+    providerId: 'local',
     path: '/Users/ivan/Documents/report.pdf',
     name: 'report.pdf',
     isDirectory: false,
@@ -26,6 +28,18 @@ test('rejects malformed and incomplete drag payloads', () => {
     parseFileDragPayload(
       JSON.stringify({
         path: '/tmp/file',
+        name: 'file',
+        isDirectory: false,
+        panelSide: 'left',
+      }),
+    ),
+    null,
+  )
+  assert.equal(
+    parseFileDragPayload(
+      JSON.stringify({
+        path: '/tmp/file',
+        providerId: 'local',
         name: 'file',
         isDirectory: false,
         panelSide: 'middle',

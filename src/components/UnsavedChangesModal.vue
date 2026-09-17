@@ -77,7 +77,8 @@ onBeforeUnmount(() => {
       <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
           <div class="modal-header">
-            <h1 id="unsaved-changes-title" class="modal-title fs-6">
+            <h1 id="unsaved-changes-title" class="modal-title fs-6 d-flex align-items-center gap-2">
+              <i class="mdi mdi-content-save-alert-outline" aria-hidden="true" />
               Save changes?
             </h1>
           </div>

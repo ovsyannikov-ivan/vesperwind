@@ -26,7 +26,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['close', 'previous', 'next'])
+const emit = defineEmits(['close', 'previous', 'next', 'retry'])
 const modalElement = ref(null)
 const stageElement = ref(null)
 const videoPlayer = ref(null)
@@ -162,8 +162,19 @@ onBeforeUnmount(() => {
           </div>
 
           <div ref="stageElement" class="modal-body media-viewer-stage">
+            <div v-if="displayedMedia?.loading" class="pdf-viewer-message">
+              <span class="spinner-border spinner-border-sm" aria-hidden="true" />
+              {{ displayedMedia.statusMessage || 'Preparing file…' }}
+            </div>
+            <div v-else-if="displayedMedia?.error" class="pdf-viewer-message text-danger" role="alert">
+              <i class="mdi mdi-alert-outline" aria-hidden="true" />
+              <span>{{ displayedMedia.error.message }}</span>
+              <button class="btn btn-sm btn-outline-secondary" type="button" @click="$emit('retry')">
+                Retry
+              </button>
+            </div>
             <img
-              v-if="displayedMedia && displayedKind === 'image'"
+              v-else-if="displayedMedia?.url && displayedKind === 'image'"
               :key="displayedMedia.path"
               class="media-viewer-image"
               :src="displayedMedia.url"
@@ -172,7 +183,7 @@ onBeforeUnmount(() => {
               @error="playbackError = 'This image could not be displayed by the browser'"
             >
             <CustomMediaPlayer
-              v-else-if="displayedMedia && displayedKind === 'video'"
+              v-else-if="displayedMedia?.url && displayedKind === 'video'"
               ref="videoPlayer"
               :key="displayedMedia.path"
               class="media-viewer-video"
