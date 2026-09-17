@@ -65,7 +65,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['select', 'open', 'drop-request'])
+const emit = defineEmits(['select', 'open', 'drop-request', 'context-menu'])
 const { settings } = useSettings()
 const expanded = ref(false)
 const loaded = ref(false)
@@ -204,6 +204,23 @@ const handleDoubleClick = () => {
   emit('open', props.node)
 }
 
+const handleContextMenu = (event) => {
+  cancelRenameTimer()
+  event.preventDefault()
+  event.stopPropagation()
+
+  if (props.depth === 0) {
+    return
+  }
+
+  selectNode()
+  emit('context-menu', {
+    node: props.node,
+    x: event.clientX,
+    y: event.clientY,
+  })
+}
+
 const forwardOpen = (payload) => {
   if (payload?.node) {
     emit('open', payload)
@@ -214,6 +231,12 @@ const forwardOpen = (payload) => {
     node: payload,
     siblings: children.value,
   })
+}
+
+const forwardContextMenu = (payload) => {
+  emit('context-menu', payload?.siblings
+    ? payload
+    : { ...payload, siblings: children.value })
 }
 
 const handleKeydown = (event) => {
@@ -298,7 +321,10 @@ const handleDrop = (event) => {
     event.dataTransfer.getData(FILE_ENTRY_MIME),
   )
 
-  if (!source || source.path === props.node.path) {
+  if (
+    !source ||
+    (source.providerId === props.providerId && source.path === props.node.path)
+  ) {
     return
   }
 
@@ -357,10 +383,12 @@ onBeforeUnmount(cancelRenameTimer)
         'is-drop-target': dropTarget,
       }"
       :title="node.path"
+      :data-directory-drop-target="node.isDirectory ? '' : undefined"
       :draggable="!renaming && Boolean(terminalPath)"
       tabindex="0"
       @click="selectNode"
       @dblclick="handleDoubleClick"
+      @contextmenu="handleContextMenu"
       @keydown="handleKeydown"
       @dragstart="handleDragStart"
       @dragend="handleDragEnd"
@@ -458,6 +486,7 @@ onBeforeUnmount(cancelRenameTimer)
           @select="$emit('select', $event)"
           @open="forwardOpen"
           @drop-request="$emit('drop-request', $event)"
+          @context-menu="forwardContextMenu"
         />
       </ul>
     </template>

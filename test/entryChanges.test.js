@@ -12,6 +12,23 @@ test('rename relocates an entry and descendants, not similarly named siblings', 
   assert.equal(relocatePath('/work/a', { action: 'create-file' }), '/work/a')
 })
 
+test('rename relocation understands Windows path separators', () => {
+  const change = {
+    action: 'rename',
+    sourcePath: 'C:\\Work\\a',
+    destinationPath: 'C:\\Work\\b',
+  }
+
+  assert.equal(
+    relocatePath('C:\\Work\\a\\nested\\file.txt', change),
+    'C:\\Work\\b\\nested\\file.txt',
+  )
+  assert.equal(
+    relocatePath('C:\\Work\\another\\file.txt', change),
+    'C:\\Work\\another\\file.txt',
+  )
+})
+
 test('entry names permit Unicode, spaces and dotfiles but reject path components', () => {
   for (const name of ['Отчёт.txt', 'my folder', '.gitignore', ' file ']) {
     assert.equal(entryNameError(name), '')

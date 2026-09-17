@@ -38,7 +38,7 @@ defineProps({
   },
 })
 
-defineEmits(['select', 'open', 'drop-request'])
+defineEmits(['select', 'open', 'drop-request', 'context-menu'])
 </script>
 
 <template>
@@ -56,6 +56,7 @@ defineEmits(['select', 'open', 'drop-request'])
       @select="$emit('select', $event)"
       @open="$emit('open', $event)"
       @drop-request="$emit('drop-request', $event)"
+      @context-menu="$emit('context-menu', $event)"
     />
   </ul>
 </template>

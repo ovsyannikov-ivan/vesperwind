@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process'
+import { resolveTauriCli } from './tauri-cli.js'
 
-const cli = new URL('../node_modules/@tauri-apps/cli/tauri.js', import.meta.url)
-const child = spawn(process.execPath, [cli.pathname, 'build'], {
+const cli = resolveTauriCli()
+const child = spawn(process.execPath, [cli, 'build'], {
   stdio: 'inherit',
   env: {
     ...process.env,

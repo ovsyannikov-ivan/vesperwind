@@ -3,6 +3,10 @@ import { entryChange, relocatePath } from './useEntryChanges.js'
 import { canPreviewMedia, getMediaKind } from '../../shared/mediaTypes.js'
 import { LOCAL_FILESYSTEM_PROVIDER } from '../api/filesystemLocation.js'
 import { media as mediaApi } from '../api/media.js'
+import {
+  getFilesystemPathName,
+  isSameOrDescendantPath,
+} from '../utils/filesystemPath.js'
 
 export const createMediaDescriptor = (
   node,
@@ -17,9 +21,6 @@ export const createMediaDescriptor = (
   statusMessage: 'Preparing file…',
   error: null,
 })
-
-const isSameOrInsidePath = (parentPath, candidatePath) =>
-  candidatePath === parentPath || candidatePath.startsWith(`${parentPath}/`)
 
 const buildPlaylist = (node, siblings, kind, providerId) => {
   const candidates = Array.isArray(siblings) ? siblings : []
@@ -45,7 +46,9 @@ export const useMediaViewer = () => {
     const relocate = (item) => {
       if (!item || item.providerId !== change.providerId) return item
       const path = relocatePath(item.path, change)
-      return path === item.path ? item : { ...item, path, name: path.split('/').at(-1), url: '', error: null }
+      return path === item.path
+        ? item
+        : { ...item, path, name: getFilesystemPathName(path), url: '', error: null }
     }
     activeAudio.value = relocate(activeAudio.value)
     if (viewer.value) viewer.value.items = viewer.value.items.map(relocate)
@@ -177,7 +180,7 @@ export const useMediaViewer = () => {
     if (requestDetails.action === 'delete') {
       if (
         activeAudio.value &&
-        isSameOrInsidePath(sourcePath, activeAudio.value.path)
+        isSameOrDescendantPath(sourcePath, activeAudio.value.path)
       ) {
         activeAudio.value = null
       }
@@ -185,7 +188,7 @@ export const useMediaViewer = () => {
       if (viewer.value) {
         const currentPath = currentViewerMedia.value?.path
         const nextItems = viewer.value.items.filter(
-          (item) => !isSameOrInsidePath(sourcePath, item.path),
+          (item) => !isSameOrDescendantPath(sourcePath, item.path),
         )
 
         if (nextItems.length === 0) {
@@ -210,7 +213,7 @@ export const useMediaViewer = () => {
     }
 
     const relocateMedia = (mediaItem) => {
-      if (!mediaItem || !isSameOrInsidePath(sourcePath, mediaItem.path)) {
+      if (!mediaItem || !isSameOrDescendantPath(sourcePath, mediaItem.path)) {
         return mediaItem
       }
 

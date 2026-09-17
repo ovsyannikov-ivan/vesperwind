@@ -37,3 +37,29 @@ test('does not expose a path outside the configured root', () => {
 
   assert.deepEqual(breadcrumbs, [{ name: 'ivan', path: '/Users/ivan' }])
 })
+
+test('builds Windows drive breadcrumbs without producing a drive-relative path', () => {
+  const breadcrumbs = buildPathBreadcrumbs(
+    { name: 'C:\\', path: 'C:\\' },
+    'C:\\Users\\ivan\\Documents',
+  )
+
+  assert.deepEqual(breadcrumbs, [
+    { name: 'C:\\', path: 'C:\\' },
+    { name: 'Users', path: 'C:\\Users' },
+    { name: 'ivan', path: 'C:\\Users\\ivan' },
+    { name: 'Documents', path: 'C:\\Users\\ivan\\Documents' },
+  ])
+})
+
+test('builds Windows breadcrumbs relative to a configured home root', () => {
+  const breadcrumbs = buildPathBreadcrumbs(
+    { name: 'ivan', path: 'C:\\Users\\ivan' },
+    'C:\\Users\\ivan\\Documents',
+  )
+
+  assert.deepEqual(breadcrumbs, [
+    { name: 'ivan', path: 'C:\\Users\\ivan' },
+    { name: 'Documents', path: 'C:\\Users\\ivan\\Documents' },
+  ])
+})

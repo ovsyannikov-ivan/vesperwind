@@ -1,6 +1,7 @@
 <script setup>
 import Dropdown from 'bootstrap/js/dist/dropdown'
 import { onBeforeUnmount, ref, watch } from 'vue'
+import { runtime } from '../api/runtime.js'
 const createButton = ref(null)
 let createDropdown
 watch(createButton, (button) => {
@@ -59,19 +60,21 @@ const selectCreate = (kind) => {
 
 <template>
   <header class="app-toolbar">
-    <div class="brand-mark" aria-label="Vesperwind file manager">
-      <img
-        class="brand-icon"
-        src="/icons/app_icon.png"
-        width="24"
-        height="24"
-        alt=""
-        aria-hidden="true"
-      />
-      <span>Vesperwind</span>
-    </div>
+    <template v-if="runtime.mode === 'browser'">
+      <div class="brand-mark" aria-label="Vesperwind file manager">
+        <img
+          class="brand-icon"
+          src="/icons/app_icon.png"
+          width="24"
+          height="24"
+          alt=""
+          aria-hidden="true"
+        />
+        <span>Vesperwind</span>
+      </div>
 
-    <div class="toolbar-divider" />
+      <div class="toolbar-divider" />
+    </template>
 
     <div class="btn-group btn-group-sm" role="group" aria-label="Workspace mode">
       <button

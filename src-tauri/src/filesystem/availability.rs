@@ -16,6 +16,9 @@ pub enum AvailabilityState {
 }
 
 #[derive(Debug)]
+// Cloud-only states are constructed by the macOS implementation. Other
+// platforms still match them in the shared state machine.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) enum Inspection {
     Ready,
     Materializing {

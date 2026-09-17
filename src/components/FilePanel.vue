@@ -1,11 +1,13 @@
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useFilesystem } from '../composables/useFilesystem.js'
 import { useSettings } from '../composables/useSettings.js'
 import { buildPathBreadcrumbs } from '../utils/pathBreadcrumbs.js'
+import { getFilesystemPathName } from '../utils/filesystemPath.js'
 import FileTree from './FileTree.vue'
 import { entryChange, relocatePath } from '../composables/useEntryChanges.js'
 import { LOCAL_FILESYSTEM_PROVIDER } from '../api/filesystemLocation.js'
+import { FILE_ENTRY_MIME, parseFileDragPayload } from '../utils/fileDrag.js'
 
 const props = defineProps({
   side: {
@@ -32,6 +34,7 @@ const emit = defineEmits([
   'collapse',
   'drop-request',
   'open-file',
+  'context-menu',
   'state-change',
 ])
 const { getRoot, listDirectory } = useFilesystem(props.providerId)
@@ -44,6 +47,7 @@ const selectedPath = ref('')
 const loading = ref(true)
 const error = ref(null)
 const breadcrumbsRef = ref(null)
+const rootDropTarget = ref(false)
 const breadcrumbs = computed(() =>
   buildPathBreadcrumbs(filesystemRoot.value, root.value?.path),
 )
@@ -114,6 +118,89 @@ const openNode = (payload) => {
   }
 }
 
+const entryContext = (payload) => ({
+  node: { ...payload.node, providerId: props.providerId },
+  siblings: Array.isArray(payload.siblings) ? payload.siblings : [payload.node],
+  filesystemId: props.providerId,
+  sourcePane: props.side,
+  sourceRootPath: root.value?.path,
+  sourceRootName: root.value?.name,
+  filesystemRoot: filesystemRoot.value,
+  homePath: homePath.value,
+})
+
+const openEntryContextMenu = (payload) => {
+  selectNode(payload.node)
+  emit('context-menu', {
+    ...entryContext(payload),
+    x: payload.x,
+    y: payload.y,
+  })
+}
+
+const carriesFileEntry = (event) =>
+  Array.from(event.dataTransfer?.types || []).includes(FILE_ENTRY_MIME)
+
+const isDirectoryDropTarget = (event) =>
+  Boolean(event.target?.closest?.('[data-directory-drop-target]'))
+
+const clearRootDropTarget = () => {
+  rootDropTarget.value = false
+}
+
+const handlePanelDragOver = (event) => {
+  if (!root.value?.isDirectory || !carriesFileEntry(event)) {
+    clearRootDropTarget()
+    return
+  }
+
+  if (isDirectoryDropTarget(event)) {
+    clearRootDropTarget()
+    return
+  }
+
+  event.preventDefault()
+  event.dataTransfer.dropEffect = 'copy'
+  rootDropTarget.value = true
+}
+
+const handlePanelDragLeave = (event) => {
+  if (event.currentTarget.contains(event.relatedTarget)) {
+    return
+  }
+
+  clearRootDropTarget()
+}
+
+const handlePanelDrop = (event) => {
+  clearRootDropTarget()
+
+  if (!root.value?.isDirectory || isDirectoryDropTarget(event) || !carriesFileEntry(event)) {
+    return
+  }
+
+  event.preventDefault()
+  event.stopPropagation()
+  const source = parseFileDragPayload(event.dataTransfer.getData(FILE_ENTRY_MIME))
+
+  if (!source || (source.providerId === props.providerId && source.path === root.value.path)) {
+    return
+  }
+
+  emit('drop-request', {
+    source,
+    target: {
+      providerId: props.providerId,
+      path: root.value.path,
+      name: root.value.name,
+      isDirectory: true,
+    },
+    targetPanel: props.side,
+    x: event.clientX,
+    y: event.clientY,
+  })
+}
+
 const navigateToBreadcrumb = (crumb) => {
   if (crumb.path === root.value?.path) {
     return
@@ -155,14 +242,25 @@ watch(
   },
 )
 
-onMounted(loadRoot)
+onMounted(() => {
+  loadRoot()
+  window.addEventListener('dragend', clearRootDropTarget)
+  window.addEventListener('drop', clearRootDropTarget)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('dragend', clearRootDropTarget)
+  window.removeEventListener('drop', clearRootDropTarget)
+})
+
+defineExpose({ openNode })
 
 watch(entryChange, (change) => {
   if (change?.action !== 'rename') return
   const relocateNode = (node) => {
     if (!node) return node
     const path = relocatePath(node.path, change)
-    return path === node.path ? node : { ...node, path, name: path.split('/').at(-1) }
+    return path === node.path ? node : { ...node, path, name: getFilesystemPathName(path) }
   }
   root.value = relocateNode(root.value)
   selectedNode.value = relocateNode(selectedNode.value)
@@ -173,9 +271,12 @@ watch(entryChange, (change) => {
 <template>
   <section
     class="file-panel"
-    :class="{ 'is-active': active }"
+    :class="{ 'is-active': active, 'is-root-drop-target': rootDropTarget }"
     :aria-label="`${side} file panel`"
     @pointerdown="$emit('activate')"
+    @dragover.capture="handlePanelDragOver"
+    @dragleave="handlePanelDragLeave"
+    @drop="handlePanelDrop"
   >
     <header class="panel-header">
       <div class="panel-title">
@@ -251,6 +352,7 @@ watch(entryChange, (change) => {
           @select="selectNode"
           @open="openNode"
           @drop-request="$emit('drop-request', $event)"
+          @context-menu="openEntryContextMenu"
         />
       </div>
     </div>

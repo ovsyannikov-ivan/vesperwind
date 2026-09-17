@@ -1,41 +1,20 @@
-const trimTrailingSeparators = (value) => {
-  if (value === '/') {
-    return value
-  }
-
-  return value.replace(/\/+$/, '')
-}
+import {
+  buildFilesystemPathLevels,
+  getFilesystemPathName,
+} from './filesystemPath.js'
 
 export const buildPathBreadcrumbs = (filesystemRoot, currentPath) => {
   if (!filesystemRoot?.path) {
     return []
   }
 
-  const rootPath = trimTrailingSeparators(filesystemRoot.path)
-  const targetPath = trimTrailingSeparators(currentPath || rootPath)
-  const rootCrumb = {
-    name: filesystemRoot.name || rootPath,
-    path: rootPath,
-  }
-  const isInsideRoot =
-    targetPath === rootPath ||
-    (rootPath === '/' ? targetPath.startsWith('/') : targetPath.startsWith(`${rootPath}/`))
-
-  if (!isInsideRoot || targetPath === rootPath) {
-    return [rootCrumb]
-  }
-
-  const relativePath =
-    rootPath === '/' ? targetPath.slice(1) : targetPath.slice(rootPath.length + 1)
-  let accumulatedPath = rootPath
-
-  return relativePath.split('/').reduce(
-    (crumbs, segment) => {
-      accumulatedPath =
-        accumulatedPath === '/' ? `/${segment}` : `${accumulatedPath}/${segment}`
-      crumbs.push({ name: segment, path: accumulatedPath })
-      return crumbs
-    },
-    [rootCrumb],
+  return buildFilesystemPathLevels(filesystemRoot.path, currentPath).map(
+    (path, index) => ({
+      name:
+        index === 0
+          ? filesystemRoot.name || getFilesystemPathName(path)
+          : getFilesystemPathName(path),
+      path,
+    }),
   )
 }

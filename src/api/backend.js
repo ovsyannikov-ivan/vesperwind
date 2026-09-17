@@ -5,4 +5,6 @@ export const isTauriRuntime = () =>
   typeof window !== 'undefined' && Boolean(window.__TAURI_INTERNALS__)
 
 // Runtime selection lives at the API boundary so Vue code remains backend-agnostic.
-export const backend = isTauriRuntime() ? tauriTransport : socketTransport
+export const backendRuntimeMode = isTauriRuntime() ? 'tauri' : 'browser'
+export const backend =
+  backendRuntimeMode === 'tauri' ? tauriTransport : socketTransport

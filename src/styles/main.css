@@ -477,6 +477,12 @@ button:focus-visible,
   border-color: var(--active-panel-border);
 }
 
+.file-panel.is-root-drop-target {
+  box-shadow:
+    inset 0 0 0 2px var(--bs-primary),
+    inset 0 0 16px rgba(var(--bs-primary-rgb), 0.22);
+}
+
 .panel-header,
 .terminal-header {
   display: flex;
@@ -1530,6 +1536,35 @@ body.is-resizing-horizontal {
   padding: 0.35rem;
   border-radius: var(--bs-dropdown-border-radius);
   z-index: 1090;
+}
+
+.file-entry-context-menu {
+  position: fixed;
+  width: 13rem;
+  padding: 0.35rem;
+  border-radius: var(--bs-dropdown-border-radius);
+  z-index: 1090;
+}
+
+.file-entry-context-menu .dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  border-radius: var(--bs-border-radius-sm);
+}
+
+.file-entry-context-menu .dropdown-item .mdi {
+  width: 1.1rem;
+  flex: 0 0 1.1rem;
+  text-align: center;
+  font-size: 1rem;
+}
+
+.file-entry-context-menu .dropdown-item:hover,
+.file-entry-context-menu .dropdown-item:focus,
+.file-entry-context-menu .dropdown-item:active {
+  color: #ffffff !important;
+  background-color: var(--bs-primary);
 }
 
 .file-operation-menu .dropdown-header {

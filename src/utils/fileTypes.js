@@ -30,3 +30,17 @@ export const isWorkspaceDocumentType = (type) =>
   workspaceDocumentTypes.has(type)
 
 export const isMediaOpenType = (type) => mediaTypes.has(type)
+
+export const getEntryOpenAction = (entry, editableFiles = []) => {
+  if (entry?.isDirectory) {
+    return 'open'
+  }
+
+  const type = getFileOpenType(entry?.name, editableFiles)
+
+  if (type === 'text') {
+    return 'edit'
+  }
+
+  return type ? 'view' : null
+}

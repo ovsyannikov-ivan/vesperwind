@@ -34,6 +34,7 @@ const startServer = async () => {
     { registerSettingsHandlers },
     { serveStaticAsset },
     { registerTextFileHandlers },
+    { registerRuntimeHandlers },
   ] = await Promise.all([
     import('./filesystem.js'),
     import('./fileOperations.js'),
@@ -42,6 +43,7 @@ const startServer = async () => {
     import('./settings.js'),
     import('./staticAssets.js'),
     import('./textFiles.js'),
+    import('./runtime.js'),
   ])
 
   const handleRequest = async (request, response) => {
@@ -86,6 +88,7 @@ const startServer = async () => {
     registerSettingsHandlers(socket)
     registerTextFileHandlers(socket)
     registerTerminalHandlers(socket, { cwd: fileManagerRoot })
+    registerRuntimeHandlers(socket)
   })
 
   httpServer.on('error', (error) => {

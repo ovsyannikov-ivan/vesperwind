@@ -14,16 +14,6 @@ const getSocket = () => {
 }
 
 const request = (eventName, payload = {}, options = {}) => {
-  if (eventName === 'runtime:info') {
-    return Promise.resolve({
-      ok: true,
-      runtime: 'node',
-      version: '0.1.0',
-      buildTimestamp: null,
-      gitCommit: null,
-    })
-  }
-
   if (eventName === 'content:prepare') {
     return Promise.resolve({
       ok: true,

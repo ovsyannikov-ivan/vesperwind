@@ -7,6 +7,7 @@ import { useLayout } from '../composables/useLayout.js'
 import { useMediaViewer } from '../composables/useMediaViewer.js'
 import { useSettings } from '../composables/useSettings.js'
 import {
+  getEntryOpenAction,
   getFileOpenType,
   isMediaOpenType,
   isWorkspaceDocumentType,
@@ -15,6 +16,7 @@ import AudioPlayerBar from './AudioPlayerBar.vue'
 import CreateEntryModal from './CreateEntryModal.vue'
 import FilePanel from './FilePanel.vue'
 import FileOperationConfirmModal from './FileOperationConfirmModal.vue'
+import FileEntryContextMenu from './FileEntryContextMenu.vue'
 import FileOperationMenu from './FileOperationMenu.vue'
 import MediaViewerModal from './MediaViewerModal.vue'
 import SettingsModal from './SettingsModal.vue'
@@ -50,6 +52,8 @@ const {
   syncAfterFileOperation,
 } = useMediaViewer()
 const filesContainer = ref(null)
+const leftPanel = ref(null)
+const rightPanel = ref(null)
 const workspace = ref(null)
 const workspaceMode = ref('files')
 const activePanel = ref('left')
@@ -84,6 +88,7 @@ const operationError = ref('')
 const confirmationRequest = ref(null)
 const confirmationBusy = ref(false)
 const confirmationError = ref('')
+const entryContextRequest = ref(null)
 const panelStates = reactive({
   left: {
     currentDirectory: null,
@@ -129,6 +134,7 @@ const commandAvailability = computed(() => {
       createRequest.value ||
       dropRequest.value ||
       confirmationRequest.value ||
+      entryContextRequest.value ||
       viewer.value ||
       operationBusy.value ||
       confirmationBusy.value ||
@@ -151,6 +157,12 @@ const commandAvailability = computed(() => {
   }
 })
 const editorAvailable = computed(() => editorTabs.value.length > 0)
+const entryContextOpenAction = computed(() =>
+  getEntryOpenAction(
+    entryContextRequest.value?.node,
+    settings.value.editor.editableFiles,
+  ),
+)
 
 const activate = (side) => {
   activePanel.value = side
@@ -285,11 +297,52 @@ const runFileOperation = (action, source, targetDirectory) => {
 }
 
 const openFileOperationMenu = (requestDetails) => {
+  entryContextRequest.value = null
   activePanel.value = requestDetails.targetPanel
   dropRequest.value = requestDetails
   operationBusy.value = false
   activeOperation.value = ''
   operationError.value = ''
+}
+
+const openEntryContextMenu = (requestDetails) => {
+  activePanel.value = requestDetails.sourcePane
+  entryContextRequest.value = requestDetails
+}
+
+const closeEntryContextMenu = () => {
+  entryContextRequest.value = null
+}
+
+const executeEntryContextOpen = () => {
+  const requestDetails = entryContextRequest.value
+
+  if (!requestDetails || !entryContextOpenAction.value) {
+    return
+  }
+
+  entryContextRequest.value = null
+  const panel = requestDetails.sourcePane === 'left' ? leftPanel.value : rightPanel.value
+  panel?.openNode(requestDetails)
+}
+
+const executeEntryContextDelete = () => {
+  const requestDetails = entryContextRequest.value
+
+  if (!requestDetails) {
+    return
+  }
+
+  entryContextRequest.value = null
+  activePanel.value = requestDetails.sourcePane
+  confirmationError.value = ''
+  confirmationRequest.value = {
+    action: 'delete',
+    source: requestDetails.node,
+    sourcePanel: requestDetails.sourcePane,
+    targetDirectory: null,
+    targetPanel: null,
+  }
 }
 
 const closeFileOperationMenu = () => {
@@ -341,6 +394,7 @@ const openCommanderConfirmation = (action) => {
   const sourcePanel = panelStates[activePanel.value]
   const targetSide = activePanel.value === 'left' ? 'right' : 'left'
 
+  entryContextRequest.value = null
   confirmationError.value = ''
   confirmationRequest.value = {
     action,
@@ -459,6 +513,7 @@ onBeforeUnmount(() => {
     <div ref="workspace" class="workspace">
       <div v-show="workspaceMode === 'files'" ref="filesContainer" class="files-container">
         <FilePanel
+          ref="leftPanel"
           v-if="layout.leftVisible"
           side="left"
           :active="activePanel === 'left'"
@@ -467,6 +522,7 @@ onBeforeUnmount(() => {
           @activate="activate('left')"
           @collapse="hideLeft"
           @drop-request="openFileOperationMenu"
+          @context-menu="openEntryContextMenu"
           @open-file="openFile"
           @state-change="updatePanelState"
         />
@@ -478,6 +534,7 @@ onBeforeUnmount(() => {
         />
 
         <FilePanel
+          ref="rightPanel"
           v-if="layout.rightVisible"
           side="right"
           :active="activePanel === 'right'"
@@ -486,6 +543,7 @@ onBeforeUnmount(() => {
           @activate="activate('right')"
           @collapse="hideRight"
           @drop-request="openFileOperationMenu"
+          @context-menu="openEntryContextMenu"
           @open-file="openFile"
           @state-change="updatePanelState"
         />
@@ -551,6 +609,15 @@ onBeforeUnmount(() => {
       :error="operationError"
       @select="executeFileOperation"
       @cancel="closeFileOperationMenu"
+    />
+    <FileEntryContextMenu
+      v-if="entryContextRequest"
+      :key="`${entryContextRequest.node.path}:${entryContextRequest.x}:${entryContextRequest.y}`"
+      :request="entryContextRequest"
+      :open-action="entryContextOpenAction"
+      @open="executeEntryContextOpen"
+      @delete="executeEntryContextDelete"
+      @cancel="closeEntryContextMenu"
     />
   </main>
 </template>

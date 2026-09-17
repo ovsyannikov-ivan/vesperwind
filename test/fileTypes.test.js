@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  getEntryOpenAction,
   getFileOpenType,
   isMediaOpenType,
   isWorkspaceDocumentType,
@@ -22,4 +23,11 @@ test('keeps PDF out of Monaco even when it appears in editable settings', () => 
   assert.equal(isWorkspaceDocumentType('pdf'), true)
   assert.equal(isWorkspaceDocumentType('text'), true)
   assert.equal(isMediaOpenType('pdf'), false)
+})
+
+test('derives context-menu actions from the shared opening strategy', () => {
+  assert.equal(getEntryOpenAction({ name: 'src', isDirectory: true }, editableFiles), 'open')
+  assert.equal(getEntryOpenAction({ name: 'App.vue' }, editableFiles), 'edit')
+  assert.equal(getEntryOpenAction({ name: 'manual.pdf' }, editableFiles), 'view')
+  assert.equal(getEntryOpenAction({ name: 'archive.zip' }, editableFiles), null)
 })

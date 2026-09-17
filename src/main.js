@@ -4,7 +4,9 @@ import '@mdi/font/css/materialdesignicons.min.css'
 import '@xterm/xterm/css/xterm.css'
 import './styles/main.css'
 import App from './App.vue'
+import { runtime } from './api/runtime.js'
 
+void runtime.getInfo()
 createApp(App).mount('#app')
 
 if ('serviceWorker' in navigator && window.isSecureContext) {
