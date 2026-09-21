@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { resolveTauriCli } from './tauri-cli.js'
 
 const cli = resolveTauriCli()
-const child = spawn(process.execPath, [cli, 'build'], {
+const child = spawn(process.execPath, [cli, 'build', ...process.argv.slice(2)], {
   stdio: 'inherit',
   env: {
     ...process.env,

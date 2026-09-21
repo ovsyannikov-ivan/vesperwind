@@ -1,169 +1,217 @@
 # Vesperwind
 
-Vesperwind is a desktop-first, two-panel browser file manager for a local machine. The
-first prototype focuses on filesystem navigation and a real PTY-backed terminal.
+Vesperwind is a cross-platform, desktop-first dual-pane file manager and remote
+workspace. It keeps file management at the center, then adds the tools needed to
+work with those files: SSH/SFTP, document tabs, terminals, PDF and media viewers,
+and an editor.
 
-## Run
+> **Project status:** early alpha and under active development. Vesperwind is not
+> production-ready, and there are no official GitHub Release installers yet.
 
-Requirements: macOS, Node.js 22.13 or newer, and the native build tools required by
-`node-pty` (normally provided by Xcode Command Line Tools).
+## What it can do
 
-The project postinstall step also restores the executable bit on the packaged
-`node-pty` macOS spawn helper when required.
+- Manage local files in a Commander-style dual-pane interface.
+- Connect to SSH/SFTP hosts, including hosts on custom ports, with persistent
+  connection profiles, host-key verification, and keepalive handling. Passwords
+  and private-key passphrases are kept in memory for the current session only.
+- Browse SFTP files and transfer files and folders between local and remote
+  panels. Copy, move, rename, delete, drag-and-drop, keyboard actions, and context
+  menus share the same file-operation layer.
+- Edit local and remote text files in a multi-tab Monaco workspace. The dark
+  editor theme is a generated port of Visual Studio Code's official Dark 2026
+  theme.
+- Read PDFs with lazy page rendering, thumbnails, page navigation, zoom, text
+  selection, and search. Remote PDFs use byte-range access instead of being
+  downloaded into memory first.
+- View local and remote images and play audio/video through the same
+  provider-neutral content API.
+- Use multiple tabs of real local PTY terminals and SSH terminals.
 
-PTY sessions keep the user's shell environment but remove npm prefix variables
-that conflict with NVM, so launching Vesperwind through `npm run dev` does not add
-an `npm_config_prefix` warning to the terminal.
+The browser and Node SEA modes use the HTML/media-chrome player. The Tauri macOS
+build also contains an **experimental** native libmpv video backend with a custom
+local/SFTP stream and a native OpenGL render surface. On macOS it has an
+experimental FP16 Extended Dynamic Range path for HDR10 and HLG, with live EDR
+headroom and fallback diagnostics. Dolby Vision metadata is reported, but full RPU
+or enhancement-layer processing is not bundled. Its arm64 development bundle is
+not yet a signed or notarized release, and the Windows libmpv bundle and DXGI HDR
+renderer are not yet available. See [Native libmpv integration](docs/libmpv.md)
+for the exact build, HDR matrix, and licensing status.
+
+## Screenshots
+
+A sanitized screenshot set will be added before the first public presentation.
+The planned set covers the dual-pane local/SFTP view, Monaco Document Workspace,
+PDF viewer, multi-tab terminal, and the native player once its manual smoke test is
+complete. No placeholder or fabricated UI images are included.
+
+## Architecture
+
+Vesperwind has one Vue 3 frontend built with Vite and Bootstrap 5. Monaco Editor,
+PDF.js, xterm.js, and media-chrome provide the editor, document, terminal, and web
+media foundations.
+
+The frontend talks to a transport-neutral API. It can use either the Node.js /
+Socket.io backend or the Tauri v2 / Rust backend without putting backend URLs,
+Socket.io calls, or Tauri commands in Vue components. Files are addressed as a
+provider plus a path; `LocalProvider` and `SftpProvider` use that same contract.
+
+The shared frontend runs in three modes:
+
+- **Browser + Node backend** for development and local browser use;
+- **Node SEA standalone** for a single-executable Node distribution;
+- **Tauri desktop** for the native Rust-backed application.
+
+These are runtime choices for the same application, not three separate products.
+
+## Development
+
+### Requirements
+
+- Node.js 22.13 or newer and npm. The SEA build specifically requires Node.js
+  25.5 or newer.
+- Native build tools for `node-pty` and `ssh2` dependencies.
+- Rust stable when running or building Tauri.
+
+Install the exact dependency tree and run the browser/Node development mode:
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
-Open <http://127.0.0.1:5173>. Vite proxies Socket.io and WebSocket traffic to the
-backend on `127.0.0.1:3001`.
+Open <http://127.0.0.1:5173>. The backend listens on `127.0.0.1:3001`, and Vite
+proxies the API and Socket.io traffic. Backend source changes require restarting
+the command; frontend changes use Vite HMR.
 
-The development runner keeps Vite and the backend in one foreground process group,
-checks both ports before startup, and stops the complete group together. Backend
-source changes require restarting `npm run dev`; frontend changes still use Vite HMR.
-
-The filesystem root defaults to the current user's home directory. Override it for
-a single run:
+Run the Tauri development app:
 
 ```bash
-FILE_MANAGER_ROOT=/ npm run dev
+npm run dev:tauri
 ```
 
-The standalone executable accepts the same runtime configuration directly:
-
-```bash
-./vesperwind --root /Users/ivan -p 3101
-./vesperwind -r /Users/ivan --port 3101 --host 127.0.0.1
-```
-
-Use `-h`/`--help` for the complete option list and `-v`/`--version` for the
-Vesperwind version. CLI arguments take priority over `FILE_MANAGER_ROOT`, `PORT`,
-and `HOST`; environment variables take priority over the built-in defaults.
-
-## Security
-
-Vesperwind does not provide built-in authentication.
-
-By default, the server listens on `127.0.0.1` and is accessible only from the
-local machine. This is the recommended mode. Do not expose Vesperwind directly
-to the Internet or an untrusted LAN with `--host 0.0.0.0`.
-
-For remote access, use an SSH tunnel:
-
-```bash
-ssh -L 3101:127.0.0.1:3101 user@server
-```
-
-Then open [http://127.0.0.1:3101](http://127.0.0.1:3101).
-
-Vesperwind must remain bound to `127.0.0.1` on the remote machine. The SSH
-tunnel does not require `--host 0.0.0.0`.
-
-When Vesperwind is intentionally started with a host other than `127.0.0.1`,
-`localhost`, or `::1`, it prints a warning that the unauthenticated server is
-listening on a non-loopback interface. The warning does not block startup.
-
-The backend resolves and validates every requested directory against this root.
-Directory contents are loaded lazily and cached inside the corresponding tree node.
-Files and folders can be dragged onto a folder in either panel. The drop menu offers
-move, copy, and relative symbolic-link operations; the backend rejects paths outside
-the configured root, name collisions, and recursive folder operations.
-
-The toolbar and keyboard provide Commander-style operations for the selected item:
-`F5` copies to the directory open in the opposite panel, `F6` moves there, and `F8`
-deletes. Every command requires confirmation in a Bootstrap modal; deleting a folder
-is recursive and displays an explicit irreversible-action warning.
-
-Double-clicking a browser-compatible audio file opens a persistent player above the
-panels. Double-clicking an image or an MP4, M4V, MOV, WebM, or OGV video opens a
-Bootstrap media modal with fullscreen support. Image and video viewers build a
-carousel from matching files in the same loaded directory and support mouse controls
-plus the left and right arrow keys. Media is streamed from a guarded `/api/media`
-endpoint with byte-range support for seeking. Formats such as MKV still receive a
-video icon but are not offered to the browser player.
-
-Double-clicking a configured text or code file opens the tabbed Monaco Editor
-Workspace. Its compact lazy tree inherits the current directory and source side of
-the panel that opened the file. Tabs retain that context independently, support
-syntax highlighting, per-tab undo/redo history, explicit Save and Revert controls,
-and `Cmd+S`/`Ctrl+S`. Unsaved changes are protected when closing a tab or leaving
-the browser page. PDF files open in the same workspace as document tabs, rendered
-locally with PDF.js. The viewer provides continuous vertical scrolling, a collapsible
-thumbnail sidebar, page navigation, zoom, Fit Width, Fit Page, and fullscreen controls.
-Each PDF tab retains its own current page, zoom mode, scroll position, and thumbnail
-sidebar state. Pages and thumbnails are rendered lazily, and distant canvas buffers are
-released to keep large documents from consuming memory unnecessarily.
-The Files and Editor toolbar buttons switch workspaces without unmounting either
-file panel or the PTY terminal.
-
-The web client includes a manifest, favicon, Apple touch icon, install icons, and a
-minimal service worker so it can be installed as a standalone PWA from a secure
-context such as `127.0.0.1`. The service worker deliberately does not cache the app
-shell: Vesperwind still requires its local backend and should always load the current
-frontend assets.
-
-`VESPERWIND_SETTINGS_PATH` optionally overrides the user settings file location. On
-macOS it defaults to `~/Library/Application Support/Vesperwind/settings.json`.
-
-Default settings and their versioned schema live in `shared/defaultSettings.js`,
-so they can be bundled into a future standalone executable. Mutable user settings
-intentionally remain outside `dist/assets`: bundled assets are read-only and may be
-replaced during application updates.
-
-The appearance setting supports Bootstrap's `system`, `dark`, and `light` color
-modes. System mode follows the current macOS appearance automatically. Settings
-also contain the normalized, case-insensitive editable-file rules used to decide
-which files open in Monaco; extensions and exact names such as `.env` or
-`Dockerfile` are supported.
-
-## Structure
-
-- `server/filesystem.js` — safe directory reads, sorting, and filesystem errors.
-- `server/fileOperations.js` — validated copy, move, and symbolic-link operations.
-- `server/media.js` — root-validated media and PDF streaming with byte ranges.
-- `server/terminal.js` — lifecycle and Socket.io bridge for `node-pty`.
-- `server/settings.js` — versioned JSON settings storage and Socket.io handlers.
-- `server/textFiles.js` — root-validated UTF-8 reads and writes for editor tabs.
-- `server/index.js` — local HTTP and Socket.io server.
-- `src/components` — file manager, recursive trees, Monaco/PDF workspace, terminal, toolbar, splitters.
-- `src/composables` — filesystem operations, settings, terminal, and persistent layout state.
-- `public` — favicon, PWA manifest, service worker, and application icon assets.
-- `shared/defaultSettings.js` — defaults and normalization shared by browser and backend.
-
-## Checks
+Run automated checks and frontend production builds:
 
 ```bash
 npm test
 npm run build
 ```
 
-With the dev server running, this verifies a live directory request and an
-interactive PTY round trip:
+With the browser development server already running, `npm run test:smoke` checks
+a live filesystem request and a PTY round trip.
+
+### Build commands
 
 ```bash
-npm run test:smoke
+npm run build          # Vite frontend
+npm run build:tauri    # Tauri application and platform bundle
+npm run build:sea      # Node SEA standalone (Node >= 25.5; currently macOS)
 ```
 
-## Standalone staging and SEA
+On macOS, `npm run build:tauri -- --bundles app` builds only the `.app`; this is
+useful in a non-interactive or locked session where Tauri's DMG layout step cannot
+control Finder.
 
-Create a self-contained staging directory with the frontend, bundled backend, and
-the native PTY assets:
+`npm run build:staging` creates the SEA staging directory and is currently limited
+to macOS because it packages the macOS `node-pty` assets. Build output is written
+to ignored `dist/`, `staging/`, and `src-tauri/target/` directories.
+
+The local filesystem root defaults to the current user's home directory in the
+Node runtime. To choose another root for one run:
 
 ```bash
-npm run build:staging
+FILE_MANAGER_ROOT=/path/to/root npm run dev
 ```
 
-The result is written to `staging/` and can run without the project `node_modules`.
-With Node.js 25.5 or newer, build and ad-hoc-sign the macOS Single Executable
-Application:
+`VESPERWIND_SETTINGS_PATH` can point the Node runtime at a different settings file.
+Do not place a settings file containing personal connection profiles in the
+repository.
 
-```bash
-npm run build:sea
-```
+### Platform prerequisites
 
-The executable is written to `staging/vesperwind`.
+**macOS**
+
+- Xcode Command Line Tools;
+- Rust stable with the Apple target for Tauri;
+- Node.js and npm;
+- Python 3, CMake, Git, and the tools documented in
+  [docs/libmpv.md](docs/libmpv.md) only when rebuilding the vendored libmpv
+  runtime.
+
+The current native media bundle is an arm64 development artifact. Distribution
+still requires Developer ID signing and notarization.
+
+**Windows**
+
+- 64-bit Node.js and npm;
+- Rust's MSVC toolchain;
+- Visual Studio Build Tools with “Desktop development with C++” and a Windows SDK;
+- the Microsoft Edge WebView2 runtime required by Tauri.
+
+The main Tauri/file-management paths have been exercised on Windows, but the new
+SSH/SFTP, document-search, and native libmpv work still needs a complete Windows
+regression pass. Native libmpv DLL packaging is not complete.
+
+**Linux**
+
+The browser/Node architecture is portable, but Linux is not currently a supported
+or release-tested target. There is no Linux Tauri/libmpv package at this stage.
+
+## Security notes
+
+The Node server has no built-in HTTP authentication. It binds to `127.0.0.1` by
+default; do not expose it directly to the Internet or an untrusted LAN. If remote
+browser access is needed, keep Vesperwind on loopback and use an SSH tunnel.
+
+SSH host fingerprints are stored with connection profiles. Passwords and key
+passphrases are not saved. As an early-alpha application, Vesperwind should still
+be used only with data and hosts for which you have an independent backup and an
+appropriate security boundary.
+
+Please report vulnerabilities privately to the repository owner until a dedicated
+security contact and policy are published.
+
+## Roadmap
+
+### Implemented
+
+- Dual-pane local file management and reusable file actions;
+- SSH/SFTP profiles, host-key verification, local/remote transfers, and SSH
+  terminals;
+- Monaco and PDF document tabs, remote editing, search, and provider-neutral
+  ranged content access;
+- image viewing, web audio/video playback, and multi-tab terminals.
+
+### Experimental
+
+- Tauri native libmpv playback on macOS, including local/SFTP custom streams,
+  seeking, audio/subtitle track state, fullscreen geometry synchronization, and
+  FP16 macOS EDR output for HDR10/HLG;
+- self-contained arm64 macOS libmpv dependency bundle;
+- large remote media and PDF behavior across varied SSH servers.
+
+### Planned
+
+- Native OS “Open With” integration;
+- Finder/Explorer drag-and-drop integration;
+- Windows libmpv rendering and self-contained DLL packaging;
+- a Windows DXGI FP16/Advanced Color libmpv presentation backend;
+- VideoToolbox/D3D11VA hardware decoding and further HDR/color-management work;
+- enhanced remote media recovery and buffering behavior;
+- external-editor synchronization;
+- additional filesystem providers.
+
+## Contributing
+
+Small, focused changes are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
+development checks and security expectations.
+
+## License
+
+Vesperwind's own source code is licensed under the [MIT License](LICENSE):
+Copyright (c) 2026 Ivan Ovsyannikov.
+
+Third-party components retain their own licenses. In particular, the bundled
+libmpv/FFmpeg runtime is not relicensed under MIT; its exact LGPL-compatible build
+configuration, notices, and source-provision information are documented in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and
+[docs/libmpv.md](docs/libmpv.md).

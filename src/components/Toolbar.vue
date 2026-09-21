@@ -51,6 +51,7 @@ const emit = defineEmits([
   'create',
   'show-files',
   'show-editor',
+  'open-remote',
 ])
 const selectCreate = (kind) => {
   createDropdown?.hide()
@@ -101,6 +102,11 @@ const selectCreate = (kind) => {
         Editor
       </button>
     </div>
+
+    <button class="btn btn-sm toolbar-button toolbar-toggle ms-1" type="button" title="Manage SSH/SFTP connections" @click="$emit('open-remote')">
+      <i class="mdi mdi-server-network" aria-hidden="true" />
+      Remote
+    </button>
 
     <div class="toolbar-divider" />
 

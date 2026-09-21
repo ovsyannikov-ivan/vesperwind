@@ -261,6 +261,140 @@ button:focus-visible,
   object-fit: contain;
 }
 
+.custom-media-player.native-mpv-player {
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+}
+
+.native-mpv-surface {
+  position: relative;
+  display: grid;
+  min-height: 0;
+  flex: 1 1 auto;
+  place-items: center;
+  background: #000;
+}
+
+.native-mpv-controls {
+  display: flex;
+  min-height: 66px;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.25rem 0.55rem 0.4rem;
+  color: #fff;
+  background: #111;
+}
+
+.native-mpv-controls.is-hidden {
+  cursor: default;
+}
+
+.native-mpv-controls.is-hidden > * {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.native-mpv-controls-main {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.native-mpv-controls-spacer {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.native-mpv-time {
+  min-width: 6.5rem;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.native-mpv-seek {
+  width: 100%;
+  min-width: 0;
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.native-mpv-volume {
+  width: 5.5rem;
+  flex: 0 0 5.5rem;
+  margin: 0;
+}
+
+.native-mpv-track-menu {
+  position: static;
+  display: block;
+  width: max-content;
+  align-self: flex-end;
+  min-width: 14rem;
+  max-width: min(28rem, 70vw);
+  max-height: min(55vh, 28rem);
+  overflow-y: auto;
+  margin: 0;
+  padding: 0.35rem;
+  font-size: var(--bs-dropdown-font-size);
+}
+
+.native-mpv-track-menu .dropdown-item {
+  overflow: hidden;
+  border-radius: var(--bs-border-radius-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.native-mpv-delay-item {
+  padding: 0.25rem 0.75rem 0.35rem;
+}
+
+.native-mpv-diagnostics {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.45rem 1rem;
+  max-height: min(36vh, 16rem);
+  overflow: auto;
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  color: #e8e8e8;
+  background: #171717;
+  font-size: 0.75rem;
+}
+
+.native-mpv-diagnostics > div {
+  min-width: 0;
+}
+
+.native-mpv-diagnostics dt {
+  color: #a9a9a9;
+  font-weight: 500;
+}
+
+.native-mpv-diagnostics dd {
+  overflow-wrap: anywhere;
+  margin: 0.1rem 0 0;
+}
+
+.native-mpv-delay-label {
+  display: flex;
+  min-width: 12rem;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--bs-dropdown-color);
+  font-size: var(--bs-dropdown-font-size);
+}
+
+.native-mpv-delay {
+  width: 8rem;
+  margin: 0;
+}
+
 .custom-media-player.is-video .custom-media-player-controls {
   width: 100%;
   align-items: center;
@@ -968,15 +1102,57 @@ body.is-resizing-horizontal {
 }
 
 .terminal-header {
+  display: flex;
+  height: 31px;
+  flex: 0 0 31px;
+  align-items: stretch;
+  justify-content: space-between;
   border-bottom-color: var(--border);
   background: var(--terminal-header-bg);
 }
+
+.terminal-tabs {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: stretch;
+  overflow-x: auto;
+}
+
+.terminal-tab,
+.terminal-add-button {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 0;
+  border-right: 1px solid var(--border);
+  color: var(--text-muted);
+  background: transparent;
+  font-size: 0.78rem;
+}
+
+.terminal-tab { max-width: 220px; }
+.terminal-tab.is-active { color: var(--text); background: var(--terminal-bg); }
+.terminal-add-button { height: 100%; font-size: 17px; }
+.terminal-tab-close { padding: 0 2px; border-radius: 3px; font-size: 16px; line-height: 1; }
+.terminal-tab-close:hover { color: #fff; background: var(--danger); }
+.terminal-tab-status { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--text-muted); }
+.terminal-tab-status.status-ready { background: var(--status-ready); }
+.terminal-tab-status.status-error,
+.terminal-tab-status.status-disconnected { background: var(--danger); }
+.terminal-workspace { position: relative; min-height: 0; flex: 1 1 auto; }
+.terminal-workspace > .terminal-container { position: absolute; inset: 0; }
 
 .terminal-actions {
   display: flex;
   align-items: center;
   gap: 2px;
 }
+
+.panel-provider-label { max-width: 130px; overflow: hidden; text-overflow: ellipsis; font-size: 0.65rem; }
+.remote-connections-list { max-height: 330px; overflow: auto; }
 
 .terminal-status {
   color: var(--text-muted);
@@ -1336,6 +1512,43 @@ body.is-resizing-horizontal {
   flex: 1 1 auto;
 }
 
+.pdf-find-bar {
+  display: flex;
+  min-width: 0;
+  min-height: 37px;
+  flex: 0 0 37px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.pdf-find-bar > .mdi {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+
+.pdf-find-input {
+  width: min(18rem, 40vw);
+  min-width: 8rem;
+}
+
+.pdf-find-status {
+  min-width: 5.5rem;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.pdf-find-case-icon {
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
 .pdf-content {
   display: flex;
   min-width: 0;
@@ -1460,6 +1673,81 @@ body.is-resizing-horizontal {
   overflow: hidden;
   background: #ffffff;
   box-shadow: 0 3px 14px #00000059;
+}
+
+.pdf-page-text-layer {
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  overflow: clip;
+  color-scheme: only light;
+  opacity: 1;
+  line-height: 1;
+  letter-spacing: normal;
+  text-align: initial;
+  text-size-adjust: none;
+  transform-origin: 0 0;
+  word-spacing: normal;
+  forced-color-adjust: none;
+}
+
+.pdf-page-text-layer :is(span, br) {
+  position: absolute;
+  color: transparent;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+  white-space: pre;
+}
+
+.pdf-page-text-layer > :not(.markedContent),
+.pdf-page-text-layer .markedContent span:not(.markedContent) {
+  --font-height: 0;
+  --scale-x: 1;
+  --rotate: 0deg;
+  z-index: 1;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+
+.pdf-page-text-layer .markedContent {
+  display: contents;
+}
+
+.pdf-page-text-layer .highlight {
+  margin: -1px;
+  padding: 1px;
+  border-radius: 3px;
+  background: rgb(255 196 0 / 45%);
+}
+
+.pdf-page-text-layer .highlight.appended {
+  position: initial;
+}
+
+.pdf-page-text-layer .highlight.begin {
+  border-radius: 3px 0 0 3px;
+}
+
+.pdf-page-text-layer .highlight.middle {
+  border-radius: 0;
+}
+
+.pdf-page-text-layer .highlight.end {
+  border-radius: 0 3px 3px 0;
+}
+
+.pdf-page-text-layer .highlight.selected {
+  background: rgb(255 125 0 / 62%);
+  scroll-margin: 54px 12px;
+}
+
+.pdf-page-text-layer ::selection {
+  color: transparent;
+  background: rgb(0 102 255 / 30%);
 }
 
 .pdf-page-error {
@@ -1737,6 +2025,40 @@ body.is-resizing-horizontal {
   height: 100vh;
   min-height: 100vh;
 }
+
+.media-viewer-stage.is-runtime-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: grid;
+  width: 100vw;
+  height: 100vh;
+  place-items: center;
+  background: #000;
+}
+
+.media-viewer-fullscreen-exit {
+  position: fixed;
+  top: max(14px, env(safe-area-inset-top));
+  right: max(14px, env(safe-area-inset-right));
+  z-index: 2010;
+  display: grid;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid #ffffff55;
+  border-radius: 50%;
+  color: #fff;
+  background: #111c;
+  font-size: 22px;
+}
+.media-viewer-fullscreen-exit:hover,
+.media-viewer-fullscreen-exit:focus-visible { color: #fff; background: #333; outline: 2px solid #fff; }
+.media-control-button { display: grid; width: 40px; padding: 0; place-items: center; border: 0; color: #fff; background: transparent; font-size: 22px; }
+.media-viewer-stage.is-runtime-fullscreen .media-viewer-image,
+.media-viewer-stage.is-runtime-fullscreen .media-viewer-video { max-width: 100vw; max-height: 100vh; }
+.media-viewer-stage.is-runtime-fullscreen .custom-media-player.is-video { width: 100vw; height: 100vh; }
 
 .media-viewer-stage:fullscreen .media-viewer-image,
 .media-viewer-stage:fullscreen .media-viewer-video {

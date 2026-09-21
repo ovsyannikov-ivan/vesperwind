@@ -24,10 +24,14 @@ export const useFileOperations = (providerId = LOCAL_FILESYSTEM_PROVIDER) => {
     filesystem.link(location(source), location(targetDirectory))
 
   const deleteEntry = (source) => filesystem.remove(location(source))
-  const createEntry = async (kind, directory, name) =>
-    notifyEntryChange(await (kind === 'folder' ? filesystem.createFolder : filesystem.createFile)(location(directory), name), providerId)
-  const renameEntry = async (sourcePath, name) =>
-    notifyEntryChange(await filesystem.rename(location(sourcePath), name), providerId)
+  const createEntry = async (kind, directory, name) => {
+    const target = location(directory)
+    return notifyEntryChange(await (kind === 'folder' ? filesystem.createFolder : filesystem.createFile)(target, name), target.providerId)
+  }
+  const renameEntry = async (sourcePath, name) => {
+    const source = location(sourcePath)
+    return notifyEntryChange(await filesystem.rename(source, name), source.providerId)
+  }
 
   return {
     copyEntry,

@@ -30,6 +30,11 @@ const normalize = (response) =>
   )
 
 const prepare = async (fileRef, { signal, onStatus } = {}) => {
+  if (fileRef?.providerId && fileRef.providerId !== LOCAL_FILESYSTEM_PROVIDER) {
+    const response = { ok: true, preparation: { state: 'READY', operationId: null, progress: 1, userMessage: 'Remote file is ready', elapsedMs: 0 } }
+    onStatus?.(response.preparation)
+    return response
+  }
   const payload = {
     filesystemId: fileRef?.providerId || LOCAL_FILESYSTEM_PROVIDER,
     path: fileRef?.path,

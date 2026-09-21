@@ -17,11 +17,15 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['open-file'])
-const { listDirectory } = useFilesystem()
+const { listDirectory } = useFilesystem(props.context.filesystemId)
 const selectedPath = ref(
   props.activeFilePath || props.context.sourceRootPath,
 )
-watch(entryChange, (change) => { selectedPath.value = relocatePath(selectedPath.value, change) })
+watch(entryChange, (change) => {
+  if (change?.providerId === props.context.filesystemId) {
+    selectedPath.value = relocatePath(selectedPath.value, change)
+  }
+})
 const breadcrumbsRef = ref(null)
 const root = computed(() => ({
   name:
@@ -100,6 +104,7 @@ watch(
       <FileTree
         :root="root"
         :home-path="context.homePath"
+        :provider-id="context.filesystemId"
         :panel-side="context.sourcePane"
         :selected-path="selectedPath"
         :list-directory="listDirectory"

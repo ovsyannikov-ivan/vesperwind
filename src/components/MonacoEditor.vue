@@ -1,7 +1,16 @@
 <script setup>
 import * as monaco from 'monaco-editor'
+import 'monaco-editor/editor/contrib/find/browser/findController'
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import '../editor/monacoEnvironment.js'
+import { registerEditorLanguages } from '../editor/languages.js'
+import {
+  dark2026Theme,
+  VESPERWIND_DARK_2026_THEME_ID,
+} from '../editor/themes/dark2026.js'
+
+registerEditorLanguages(monaco)
+monaco.editor.defineTheme(VESPERWIND_DARK_2026_THEME_ID, dark2026Theme)
 
 const props = defineProps({
   activeTab: {
@@ -26,7 +35,9 @@ let resizeObserver = null
 let contentSubscription = null
 
 const currentTheme = () =>
-  document.documentElement.dataset.bsTheme === 'light' ? 'vs' : 'vs-dark'
+  document.documentElement.dataset.bsTheme === 'light'
+    ? 'vs'
+    : VESPERWIND_DARK_2026_THEME_ID
 
 const modelUri = (tab) =>
   monaco.Uri.from({
@@ -115,6 +126,33 @@ const runCommand = (command) => {
 const undo = () => runCommand('undo')
 const redo = () => runCommand('redo')
 
+const runFindAction = async (...actionIds) => {
+  if (!editor?.getModel()) {
+    return false
+  }
+
+  for (const actionId of actionIds) {
+    const action = editor.getAction(actionId)
+
+    if (action?.isSupported()) {
+      await action.run()
+      return true
+    }
+  }
+
+  return false
+}
+
+const openFind = () => runFindAction('actions.find')
+const openReplace = () =>
+  runFindAction(
+    'editor.action.startFindReplace',
+    'editor.action.startFindReplaceAction',
+  )
+const findNext = () => runFindAction('editor.action.nextMatchFindAction')
+const findPrevious = () =>
+  runFindAction('editor.action.previousMatchFindAction')
+
 const revertToSaved = () => {
   const model = editor?.getModel()
 
@@ -127,7 +165,15 @@ const revertToSaved = () => {
   emitHistoryState()
 }
 
-defineExpose({ undo, redo, revertToSaved })
+defineExpose({
+  undo,
+  redo,
+  revertToSaved,
+  openFind,
+  openReplace,
+  findNext,
+  findPrevious,
+})
 
 onMounted(() => {
   editor = monaco.editor.create(container.value, {

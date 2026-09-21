@@ -1,7 +1,9 @@
 <script setup>
 import Modal from 'bootstrap/js/dist/modal'
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import CustomMediaPlayer from './CustomMediaPlayer.vue'
+import { fullscreen } from '../api/fullscreen.js'
+import { mediaOverlay } from '../api/mediaOverlay.js'
 
 const props = defineProps({
   open: {
@@ -33,19 +35,40 @@ const videoPlayer = ref(null)
 const displayedMedia = ref(null)
 const displayedKind = ref('')
 const playbackError = ref('')
+const isFullscreen = ref(false)
+const playerBackend = ref('')
+const isNativeVideo = computed(() => displayedKind.value === 'video' && playerBackend.value === 'mpv')
 let modal = null
+let unsubscribeFullscreen = null
+let unsubscribeOverlayAction = null
 
-const requestClose = () => {
+const handlePlaybackError = (error) => {
+  playbackError.value = error?.message || 'This video could not be played'
+}
+
+const requestClose = async () => {
+  if (isFullscreen.value) await fullscreen.exit()
   emit('close')
 }
 
 const enterFullscreen = async () => {
-  if (stageElement.value?.requestFullscreen) {
-    await stageElement.value.requestFullscreen()
-  }
+  await fullscreen.enter(stageElement.value)
+}
+const exitFullscreen = () => fullscreen.exit()
+const toggleFullscreen = () => isFullscreen.value ? exitFullscreen() : enterFullscreen()
+const handleOverlayAction = (payload) => {
+  if (payload?.action === 'close') void requestClose()
+  else if (payload?.action === 'fullscreen') void toggleFullscreen()
+  else if (payload?.action === 'previous') emit('previous')
+  else if (payload?.action === 'next') emit('next')
 }
 
 const handleKeydown = (event) => {
+  if (event.key === 'Escape' && isFullscreen.value) {
+    event.preventDefault()
+    exitFullscreen()
+    return
+  }
   if (!props.open || props.total < 2) {
     return
   }
@@ -61,6 +84,7 @@ const handleKeydown = (event) => {
 
 const handleHidden = () => {
   videoPlayer.value?.pause()
+  if (isFullscreen.value) void fullscreen.exit()
 
   if (props.open) {
     emit('close')
@@ -75,6 +99,7 @@ watch(
       displayedMedia.value = media
       displayedKind.value = kind
       playbackError.value = ''
+      playerBackend.value = ''
     }
   },
   { immediate: true },
@@ -99,6 +124,10 @@ onMounted(() => {
   modal = new Modal(modalElement.value)
   modalElement.value.addEventListener('hidden.bs.modal', handleHidden)
   window.addEventListener('keydown', handleKeydown)
+  unsubscribeFullscreen = fullscreen.onChange((value) => {
+    isFullscreen.value = value
+  })
+  unsubscribeOverlayAction = mediaOverlay.onAction(handleOverlayAction)
 
   if (props.open) {
     modal.show()
@@ -108,6 +137,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   modalElement.value?.removeEventListener('hidden.bs.modal', handleHidden)
   window.removeEventListener('keydown', handleKeydown)
+  unsubscribeFullscreen?.()
+  unsubscribeOverlayAction?.()
   modal?.dispose()
   modal = null
 })
@@ -123,8 +154,8 @@ onBeforeUnmount(() => {
       aria-hidden="true"
     >
       <div class="modal-dialog modal-xl modal-dialog-centered media-viewer-dialog">
-        <div class="modal-content">
-          <div class="modal-header">
+        <div class="modal-content" :class="{ 'is-native-video': isNativeVideo }">
+          <div v-if="!isNativeVideo" class="modal-header">
             <h1
               id="media-viewer-title"
               class="modal-title fs-6 d-flex align-items-center gap-2 text-truncate"
@@ -143,7 +174,7 @@ onBeforeUnmount(() => {
             </h1>
             <div class="d-flex align-items-center gap-2 ms-auto">
               <button
-                v-if="displayedKind === 'image'"
+                v-if="['image', 'video'].includes(displayedKind)"
                 class="media-viewer-header-action"
                 type="button"
                 title="Enter fullscreen"
@@ -189,11 +220,20 @@ onBeforeUnmount(() => {
               class="media-viewer-video"
               kind="video"
               :src="displayedMedia.url"
+              :provider-id="displayedMedia.providerId"
+              :path="displayedMedia.path"
               autoplay
-              @error="playbackError = 'This video codec could not be played by the browser'"
+              :title="displayedMedia.name"
+              :position="position"
+              :total="total"
+              :fullscreen="isFullscreen"
+              @backend="playerBackend = $event"
+              @fullscreen="toggleFullscreen"
+              @error="handlePlaybackError"
             />
+            <button v-if="isFullscreen && !isNativeVideo" class="btn media-viewer-fullscreen-exit" type="button" title="Exit fullscreen" aria-label="Exit fullscreen" @click="exitFullscreen"><i class="mdi mdi-close" aria-hidden="true" /></button>
 
-            <template v-if="total > 1">
+            <template v-if="total > 1 && !isNativeVideo">
               <button
                 class="btn media-viewer-navigation is-previous"
                 type="button"
@@ -218,7 +258,7 @@ onBeforeUnmount(() => {
             </template>
 
             <div
-              v-if="playbackError"
+              v-if="playbackError && !isNativeVideo"
               class="alert alert-danger media-viewer-error"
               role="alert"
             >

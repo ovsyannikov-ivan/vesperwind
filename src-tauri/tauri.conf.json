@@ -10,6 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "macOSPrivateApi": true,
     "security": {
       "csp": "default-src 'self'; img-src 'self' data: blob: vesperwind-media: http://127.0.0.1:*; media-src 'self' blob: vesperwind-media: http://127.0.0.1:*; connect-src 'self' ipc: http://ipc.localhost vesperwind-media: http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; font-src 'self' data:; worker-src 'self' blob:"
     },
@@ -29,6 +30,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": [
+      "vendor/libmpv/**/*"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

@@ -134,6 +134,22 @@ const nodePtyUtilsPlugin = {
   },
 }
 
+// ssh2 uses cpu-features only as an optional cipher-ordering accelerator.
+// SEA must stay free of an additional platform-specific native addon.
+const sshCpuFeaturesFallbackPlugin = {
+  name: 'vesperwind-ssh-cpu-features-fallback',
+  setup(build) {
+    build.onResolve({ filter: /^cpu-features$/ }, () => ({
+      path: 'cpu-features-fallback',
+      namespace: 'vesperwind',
+    }))
+    build.onLoad({ filter: /.*/, namespace: 'vesperwind' }, () => ({
+      loader: 'js',
+      contents: 'module.exports = () => undefined;',
+    }))
+  },
+}
+
 const createSeaConfig = async () => {
   const assetFiles = await walkFiles(stagingAssetsDirectory)
   const assets = Object.fromEntries(
@@ -158,7 +174,12 @@ const createSeaConfig = async () => {
 }
 
 const buildStaging = async () => {
-  await fs.rm(stagingDirectory, { recursive: true, force: true })
+  await fs.rm(stagingDirectory, {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+    retryDelay: 100,
+  })
   await viteBuild({
     build: {
       outDir: distDirectory,
@@ -178,7 +199,7 @@ const buildStaging = async () => {
     target: 'node22.13',
     sourcemap: false,
     minify: false,
-    plugins: [nodePtyUtilsPlugin],
+    plugins: [nodePtyUtilsPlugin, sshCpuFeaturesFallbackPlugin],
   })
   await createSeaConfig()
   await fs.writeFile(

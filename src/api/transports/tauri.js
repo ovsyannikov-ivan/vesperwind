@@ -12,10 +12,27 @@ const requestCommands = Object.freeze({
   'content:cancel': 'content_cancel',
   'runtime:info': 'runtime_info',
   'media:source': 'media_source',
+  'player:capabilities': 'player_capabilities',
+  'player:open': 'player_open',
+  'player:play': 'player_play',
+  'player:pause': 'player_pause',
+  'player:seek': 'player_seek',
+  'player:set-volume': 'player_set_volume',
+  'player:set-muted': 'player_set_muted',
+  'player:select-track': 'player_select_track',
+  'player:set-subtitle-delay': 'player_set_subtitle_delay',
+  'player:set-geometry': 'player_set_geometry',
+  'player:set-overlay': 'player_set_overlay',
+  'player:overlay-snapshot': 'player_overlay_snapshot',
+  'player:snapshot': 'player_snapshot',
+  'player:close': 'player_close',
   'settings:get': 'settings_get',
   'settings:update': 'settings_update',
   'settings:reset': 'settings_reset',
   'terminal:create': 'terminal_create',
+  'ssh:connect': 'ssh_connect',
+  'ssh:disconnect': 'ssh_disconnect',
+  'ssh:status': 'ssh_status',
 })
 
 const sendCommands = Object.freeze({
@@ -24,7 +41,7 @@ const sendCommands = Object.freeze({
   'terminal:close': 'terminal_close',
 })
 
-const pushEvents = new Set(['terminal:output', 'terminal:exit'])
+const pushEvents = new Set(['terminal:output', 'terminal:exit', 'ssh:status', 'player:state'])
 
 const normalizeInvokeError = (error) => ({
   ok: false,

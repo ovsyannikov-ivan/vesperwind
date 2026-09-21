@@ -258,10 +258,11 @@ export const serializeOperationError = (error) => ({
     'The file operation failed',
 })
 
-export const registerFileOperationHandlers = (socket) => {
+export const registerFileOperationHandlers = (socket, { ssh } = {}) => {
   socket.on('filesystem:operate', async (payload, acknowledge) => {
     try {
-      const result = await performFileOperation(payload || {})
+      const remote = payload?.filesystemId?.startsWith('sftp:') || payload?.targetFilesystemId?.startsWith('sftp:')
+      const result = remote ? await ssh.operate(payload || {}) : await performFileOperation(payload || {})
       acknowledge?.({ ok: true, result })
     } catch (error) {
       acknowledge?.({ ok: false, error: serializeOperationError(error) })

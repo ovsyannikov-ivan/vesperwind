@@ -1,6 +1,11 @@
 <script setup>
-import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist'
+import { GlobalWorkerOptions, TextLayer, getDocument } from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
+import {
+  EventBus,
+  FindState,
+  PDFFindController,
+} from 'pdfjs-dist/web/pdf_viewer.mjs'
 import {
   computed,
   nextTick,
@@ -10,6 +15,7 @@ import {
   watch,
 } from 'vue'
 import { calculatePdfOutputScale } from '../utils/pdfRendering.js'
+import { buildPdfTextMatchSegments } from '../utils/pdfTextSearch.js'
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
@@ -34,20 +40,29 @@ const emit = defineEmits(['state-change', 'prepare-retry'])
 const viewerElement = ref(null)
 const scrollElement = ref(null)
 const thumbnailElement = ref(null)
+const findInputElement = ref(null)
 const documentLoading = ref(false)
 const errorMessage = ref('')
 const isFullscreen = ref(false)
 const loaded = ref(false)
 const pages = ref([])
 const displayScale = ref(1)
+const findOpen = ref(false)
+const findQuery = ref('')
+const findCaseSensitive = ref(false)
+const findPending = ref(false)
+const findNotFound = ref(false)
+const findMatches = ref({ current: 0, total: 0 })
 
 const pageElements = new Map()
 const canvasElements = new Map()
+const textLayerElements = new Map()
 const thumbnailElements = new Map()
 const thumbnailCanvasElements = new Map()
 const nearbyPages = new Set()
 const nearbyThumbnails = new Set()
 const mainRenderTasks = new Map()
+const textLayers = new Map()
 const thumbnailRenderTasks = new Map()
 
 let mounted = false
@@ -66,6 +81,10 @@ let thumbnailRenderQueue = []
 let mainQueueRunning = false
 let thumbnailQueueRunning = false
 let restoringView = false
+let findEventBus = null
+let findController = null
+let findMatchesCountListener = null
+let findControlStateListener = null
 
 const sourceUrl = computed(() => props.tab.sourceUrl || '')
 const currentPage = computed(() => props.tab.currentPage || 1)
@@ -79,6 +98,21 @@ const canGoPrevious = computed(() => ready.value && currentPage.value > 1)
 const canGoNext = computed(
   () => ready.value && currentPage.value < pageCount.value,
 )
+const findStatus = computed(() => {
+  if (!findQuery.value) {
+    return 'Type to search'
+  }
+
+  if (findPending.value && findMatches.value.total === 0) {
+    return 'Searching…'
+  }
+
+  if (findNotFound.value || findMatches.value.total === 0) {
+    return 'No results'
+  }
+
+  return `${findMatches.value.current} / ${findMatches.value.total}`
+})
 
 const updateState = (state) => {
   emit('state-change', props.tab.id, state)
@@ -164,8 +198,91 @@ const cancelTask = (tasks, pageNumber) => {
   tasks.delete(pageNumber)
 }
 
+const clearTextLayer = (pageNumber) => {
+  textLayers.get(pageNumber)?.cancel()
+  textLayers.delete(pageNumber)
+  textLayerElements.get(pageNumber)?.replaceChildren()
+  const page = pageState(pageNumber)
+
+  if (page) {
+    page.textLayerRenderedScale = null
+  }
+}
+
+const applyTextLayerHighlights = (pageNumber) => {
+  const textLayer = textLayers.get(pageNumber)
+  const container = textLayerElements.get(pageNumber)
+
+  if (!textLayer || !container) {
+    return
+  }
+
+  const textDivs = textLayer.textDivs
+  const textItems = textLayer.textContentItemsStr
+  const pageIndex = pageNumber - 1
+  const pageMatches = findOpen.value && findQuery.value
+    ? findController?.pageMatches?.[pageIndex] || []
+    : []
+  const pageMatchLengths = findOpen.value && findQuery.value
+    ? findController?.pageMatchesLength?.[pageIndex] || []
+    : []
+  const selectedMatchIndex = findController?.selected?.pageIdx === pageIndex
+    ? findController.selected.matchIdx
+    : -1
+  const segmentedItems = buildPdfTextMatchSegments(
+    textItems,
+    pageMatches,
+    pageMatchLengths,
+    selectedMatchIndex,
+  )
+  let selectedElement = null
+
+  container.classList.toggle(
+    'highlighting',
+    Boolean(findOpen.value && findQuery.value),
+  )
+
+  for (let index = 0; index < textDivs.length; index += 1) {
+    const textDiv = textDivs[index]
+    const segments = segmentedItems[index] || []
+    const fragment = document.createDocumentFragment()
+
+    for (const segment of segments) {
+      if (segment.matchIndex < 0) {
+        fragment.append(document.createTextNode(segment.text))
+        continue
+      }
+
+      const highlight = document.createElement('span')
+      highlight.className = [
+        'highlight',
+        'appended',
+        segment.position === 'single' ? '' : segment.position,
+        segment.selected ? 'selected' : '',
+      ].filter(Boolean).join(' ')
+      highlight.textContent = segment.text
+      fragment.append(highlight)
+
+      if (segment.selected && !selectedElement) {
+        selectedElement = highlight
+      }
+    }
+
+    textDiv.replaceChildren(fragment)
+  }
+
+  if (selectedElement) {
+    findController?.scrollMatchIntoView({
+      element: selectedElement,
+      pageIndex,
+      matchIndex: selectedMatchIndex,
+    })
+  }
+}
+
 const clearMainPage = (pageNumber) => {
   cancelTask(mainRenderTasks, pageNumber)
+  clearTextLayer(pageNumber)
   clearCanvas(canvasElements.get(pageNumber))
   const page = pageState(pageNumber)
 
@@ -196,18 +313,25 @@ const clearRenderedPages = () => {
     task.cancel()
   }
 
+  for (const textLayer of textLayers.values()) {
+    textLayer.cancel()
+  }
+
   for (const task of thumbnailRenderTasks.values()) {
     task.cancel()
   }
 
   mainRenderTasks.clear()
+  textLayers.clear()
   thumbnailRenderTasks.clear()
 
   for (const page of pages.value) {
     clearCanvas(canvasElements.get(page.number))
+    textLayerElements.get(page.number)?.replaceChildren()
     clearCanvas(thumbnailCanvasElements.get(page.number))
     page.rendering = false
     page.renderedScale = null
+    page.textLayerRenderedScale = null
     page.thumbnailRendering = false
     page.thumbnailRendered = false
   }
@@ -285,11 +409,36 @@ const renderMainPage = async (pageNumber, generation) => {
 
     if (props.visible && generation === mainGeneration) {
       page.renderedScale = scale
+      const textContainer = textLayerElements.get(pageNumber)
+
+      if (textContainer) {
+        clearTextLayer(pageNumber)
+        const textLayer = new TextLayer({
+          textContentSource: pdfPage.streamTextContent({
+            includeMarkedContent: true,
+            disableNormalization: true,
+          }),
+          container: textContainer,
+          viewport,
+        })
+        textLayers.set(pageNumber, textLayer)
+        await textLayer.render()
+
+        if (props.visible && generation === mainGeneration) {
+          page.textLayerRenderedScale = scale
+          applyTextLayerHighlights(pageNumber)
+        } else {
+          clearTextLayer(pageNumber)
+        }
+      }
     } else {
       clearCanvas(canvas)
     }
   } catch (error) {
-    if (error?.name !== 'RenderingCancelledException' && generation === mainGeneration) {
+    if (
+      !['RenderingCancelledException', 'AbortException'].includes(error?.name) &&
+      generation === mainGeneration
+    ) {
       page.error = error?.message || 'Unable to render this page.'
     }
   } finally {
@@ -617,6 +766,15 @@ const setCanvasElement = (element, pageNumber) => {
   }
 }
 
+const setTextLayerElement = (element, pageNumber) => {
+  if (element) {
+    textLayerElements.set(pageNumber, element)
+  } else {
+    clearTextLayer(pageNumber)
+    textLayerElements.delete(pageNumber)
+  }
+}
+
 const setThumbnailElement = (element, pageNumber) => {
   const previous = thumbnailElements.get(pageNumber)
 
@@ -794,12 +952,19 @@ const applyScale = async ({ restore = false } = {}) => {
       task.cancel()
     }
 
+    for (const textLayer of textLayers.values()) {
+      textLayer.cancel()
+    }
+
     mainRenderTasks.clear()
+    textLayers.clear()
 
     for (const page of pages.value) {
       clearCanvas(canvasElements.get(page.number))
+      textLayerElements.get(page.number)?.replaceChildren()
       page.rendering = false
       page.renderedScale = null
+      page.textLayerRenderedScale = null
     }
   }
 
@@ -815,6 +980,157 @@ const applyScale = async ({ restore = false } = {}) => {
     await scrollToPage(currentPage.value, 'auto')
   }
 }
+
+const destroyFindController = () => {
+  if (findEventBus && findMatchesCountListener) {
+    findEventBus.off('updatefindmatchescount', findMatchesCountListener)
+  }
+
+  if (findEventBus && findControlStateListener) {
+    findEventBus.off('updatefindcontrolstate', findControlStateListener)
+  }
+
+  findController?.setDocument(null)
+  findController = null
+  findEventBus = null
+  findMatchesCountListener = null
+  findControlStateListener = null
+  findPending.value = false
+  findNotFound.value = false
+  findMatches.value = { current: 0, total: 0 }
+}
+
+const createFindController = () => {
+  destroyFindController()
+  findEventBus = new EventBus()
+  const linkService = {
+    get page() {
+      return currentPage.value
+    },
+    set page(pageNumber) {
+      void scrollToPage(pageNumber, 'auto')
+    },
+    get pagesCount() {
+      return pdfDocument?.numPages || 0
+    },
+  }
+  findController = new PDFFindController({
+    eventBus: findEventBus,
+    linkService,
+    delay: 180,
+    updateMatchesCountOnProgress: true,
+  })
+  findController.onIsPageVisible = (pageNumber) =>
+    pageNumber === currentPage.value || nearbyPages.has(pageNumber)
+  findMatchesCountListener = ({ matchesCount }) => {
+    findMatches.value = matchesCount || { current: 0, total: 0 }
+  }
+  findControlStateListener = ({ state, matchesCount }) => {
+    findMatches.value = matchesCount || { current: 0, total: 0 }
+    findPending.value = state === FindState.PENDING
+    findNotFound.value = state === FindState.NOT_FOUND
+  }
+  findEventBus.on('updatefindmatchescount', findMatchesCountListener)
+  findEventBus.on('updatefindcontrolstate', findControlStateListener)
+  findEventBus.on('updatetextlayermatches', ({ pageIndex }) => {
+    if (pageIndex === -1) {
+      for (const pageNumber of textLayers.keys()) {
+        applyTextLayerHighlights(pageNumber)
+      }
+    } else {
+      applyTextLayerHighlights(pageIndex + 1)
+    }
+  })
+  findController.setDocument(pdfDocument)
+}
+
+const dispatchFind = (type = '', findPrevious = false) => {
+  if (!findController || !findEventBus) {
+    return false
+  }
+
+  findPending.value = Boolean(findQuery.value)
+  findNotFound.value = false
+  findEventBus.dispatch('find', {
+    source: viewerElement.value,
+    type,
+    query: findQuery.value,
+    phraseSearch: true,
+    caseSensitive: findCaseSensitive.value,
+    entireWord: false,
+    highlightAll: true,
+    findPrevious,
+    matchDiacritics: true,
+  })
+  return true
+}
+
+const openFind = async () => {
+  if (!ready.value) {
+    return false
+  }
+
+  findOpen.value = true
+  await nextTick()
+  findInputElement.value?.focus({ preventScroll: true })
+  findInputElement.value?.select()
+
+  if (findQuery.value) {
+    dispatchFind()
+  }
+
+  return true
+}
+
+const closeFind = () => {
+  if (!findOpen.value) {
+    return false
+  }
+
+  findOpen.value = false
+  findEventBus?.dispatch('findbarclose', { source: viewerElement.value })
+  // Resetting the controller makes any pending page-text extraction stop at
+  // its next async boundary. A fresh idle controller keeps the open shortcut
+  // ready without restarting the cancelled search.
+  destroyFindController()
+  for (const pageNumber of textLayers.keys()) {
+    applyTextLayerHighlights(pageNumber)
+  }
+  if (pdfDocument) {
+    createFindController()
+  }
+  focusViewer()
+  return true
+}
+
+const findNext = () => {
+  if (!findOpen.value) {
+    void openFind()
+    return true
+  }
+
+  return dispatchFind('again', false)
+}
+
+const findPrevious = () => {
+  if (!findOpen.value) {
+    void openFind()
+    return true
+  }
+
+  return dispatchFind('again', true)
+}
+
+const handleFindInput = () => {
+  dispatchFind()
+}
+
+const toggleFindCaseSensitive = () => {
+  findCaseSensitive.value = !findCaseSensitive.value
+  dispatchFind('casechange')
+}
+
+defineExpose({ openFind, closeFind, findNext, findPrevious })
 
 const loadDocument = async () => {
   if (
@@ -854,11 +1170,13 @@ const loadDocument = async () => {
       baseHeight: firstViewport.height,
       rendering: false,
       renderedScale: null,
+      textLayerRenderedScale: null,
       thumbnailRendering: false,
       thumbnailRendered: false,
       error: '',
     }))
     loaded.value = true
+    createFindController()
     documentLoading.value = false
     updateState({
       currentPage: nextPage,
@@ -879,6 +1197,8 @@ const loadDocument = async () => {
 }
 
 const destroyDocument = async () => {
+  destroyFindController()
+  findOpen.value = false
   clearRenderedPages()
   mainObserver?.disconnect()
   thumbnailObserver?.disconnect()
@@ -1211,6 +1531,19 @@ onBeforeUnmount(() => {
 
       <button
         class="btn btn-sm toolbar-button toolbar-command pdf-toolbar-icon"
+        :class="{ 'is-active': findOpen }"
+        type="button"
+        title="Find in document (Cmd/Ctrl+F)"
+        aria-label="Find in document"
+        :aria-pressed="findOpen"
+        :disabled="!ready"
+        @click="findOpen ? closeFind() : openFind()"
+      >
+        <i class="mdi mdi-magnify" aria-hidden="true" />
+      </button>
+
+      <button
+        class="btn btn-sm toolbar-button toolbar-command pdf-toolbar-icon"
         type="button"
         :title="isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'"
         :aria-label="isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'"
@@ -1221,6 +1554,63 @@ onBeforeUnmount(() => {
           :class="isFullscreen ? 'mdi-fullscreen-exit' : 'mdi-fullscreen'"
           aria-hidden="true"
         />
+      </button>
+    </div>
+
+    <div v-if="findOpen" class="pdf-find-bar" role="search" aria-label="Find in PDF">
+      <i class="mdi mdi-magnify" aria-hidden="true" />
+      <input
+        ref="findInputElement"
+        v-model="findQuery"
+        class="form-control form-control-sm pdf-find-input"
+        type="search"
+        autocomplete="off"
+        spellcheck="false"
+        aria-label="Find text"
+        placeholder="Find"
+        @input="handleFindInput"
+        @keydown.enter.prevent="findQuery && ($event.shiftKey ? findPrevious() : findNext())"
+      >
+      <span class="pdf-find-status" aria-live="polite">{{ findStatus }}</span>
+      <button
+        class="btn btn-sm toolbar-button toolbar-toggle pdf-toolbar-icon"
+        :class="{ 'is-active': findCaseSensitive }"
+        type="button"
+        title="Match case"
+        aria-label="Match case"
+        :aria-pressed="findCaseSensitive"
+        @click="toggleFindCaseSensitive"
+      >
+        <span class="pdf-find-case-icon" aria-hidden="true">Aa</span>
+      </button>
+      <button
+        class="btn btn-sm toolbar-button toolbar-command pdf-toolbar-icon"
+        type="button"
+        title="Previous match (Shift+Enter)"
+        aria-label="Previous match"
+        :disabled="!findQuery"
+        @click="findPrevious"
+      >
+        <i class="mdi mdi-chevron-up" aria-hidden="true" />
+      </button>
+      <button
+        class="btn btn-sm toolbar-button toolbar-command pdf-toolbar-icon"
+        type="button"
+        title="Next match (Enter)"
+        aria-label="Next match"
+        :disabled="!findQuery"
+        @click="findNext"
+      >
+        <i class="mdi mdi-chevron-down" aria-hidden="true" />
+      </button>
+      <button
+        class="btn btn-sm toolbar-button toolbar-command pdf-toolbar-icon"
+        type="button"
+        title="Close find (Escape)"
+        aria-label="Close find"
+        @click="closeFind"
+      >
+        <i class="mdi mdi-close" aria-hidden="true" />
       </button>
     </div>
 
@@ -1318,6 +1708,10 @@ onBeforeUnmount(() => {
                 width="0"
                 height="0"
                 aria-hidden="true"
+              />
+              <div
+                :ref="(element) => setTextLayerElement(element, page.number)"
+                class="textLayer pdf-page-text-layer"
               />
               <div
                 v-if="page.renderedScale === null && !page.error"

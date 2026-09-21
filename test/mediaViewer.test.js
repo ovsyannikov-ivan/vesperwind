@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 import { useMediaViewer } from '../src/composables/useMediaViewer.js'
 
 const node = (name) => ({
@@ -30,21 +32,71 @@ test('builds an image carousel from sibling files and wraps navigation', () => {
   assert.equal(viewer.currentViewerMedia.value.path, second.path)
 })
 
-test('builds a video carousel without browser-incompatible MKV files', () => {
+test('builds a video carousel with the MKV web fallback source', () => {
   const first = node('first.mp4')
   const second = node('second.mov')
-  const unsupported = node('archive.mkv')
+  const matroska = node('archive.mkv')
   const viewer = useMediaViewer()
 
   viewer.openMedia({
     node: second,
-    siblings: [first, unsupported, second],
+    siblings: [first, matroska, second],
   })
 
   assert.equal(viewer.viewer.value.kind, 'video')
   assert.deepEqual(
     viewer.viewer.value.items.map((item) => item.name),
-    ['first.mp4', 'second.mov'],
+    ['first.mp4', 'archive.mkv', 'second.mov'],
   )
   assert.equal(viewer.currentViewerMedia.value.path, second.path)
+})
+
+test('native audio and subtitle selectors use vertical Bootstrap dropdown menus', () => {
+  const component = fs.readFileSync(
+    fileURLToPath(new URL('../src/media-overlay/MediaOverlay.vue', import.meta.url)),
+    'utf8',
+  )
+
+  assert.match(component, /media-overlay-dropdown/)
+  assert.match(component, /dropdown-menu dropdown-menu-dark show/)
+  assert.match(component, /class="dropdown-item"/)
+  assert.match(component, /handlePointerDown/)
+
+  const styles = fs.readFileSync(
+    fileURLToPath(new URL('../src/media-overlay/media-overlay.css', import.meta.url)),
+    'utf8',
+  )
+  assert.match(styles, /\.media-overlay-dropdown \.dropdown-menu\s*\{[^}]*max-height:/s)
+  assert.match(styles, /--bs-dropdown-font-size:\s*0\.875rem/)
+})
+
+test('native video chrome lives in a transparent child WebView with stable geometry', () => {
+  const projectFile = (path) => fs.readFileSync(
+    fileURLToPath(new URL(`../${path}`, import.meta.url)),
+    'utf8',
+  )
+  const tauri = projectFile('src-tauri/src/lib.rs')
+  const commands = projectFile('src-tauri/src/commands/player.rs')
+  const player = projectFile('src/components/CustomMediaPlayer.vue')
+  const modal = projectFile('src/components/MediaViewerModal.vue')
+
+  assert.match(tauri, /add_child\([\s\S]*"media-overlay"/)
+  assert.match(tauri, /\.transparent\(true\)/)
+  assert.doesNotMatch(tauri, /overlay\.hide\(\)/)
+  assert.doesNotMatch(commands, /overlay\.(?:hide|show)\(\)/)
+  assert.match(commands, /outer\.height\.saturating_sub\(inner\.height\)/)
+  assert.match(player, /class="native-mpv-surface"/)
+  assert.doesNotMatch(player, /native-mpv-controls/)
+  assert.match(modal, /isNativeVideo/)
+  assert.match(modal, /@backend="playerBackend = \$event"/)
+})
+
+test('Enter opens focused files while retaining directory toggle behavior', () => {
+  const component = fs.readFileSync(
+    fileURLToPath(new URL('../src/components/FileTreeNode.vue', import.meta.url)),
+    'utf8',
+  )
+
+  assert.match(component, /if \(props\.node\.isDirectory\) toggle\(\)/)
+  assert.match(component, /else emit\('open', props\.node\)/)
 })

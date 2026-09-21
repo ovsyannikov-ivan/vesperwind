@@ -107,26 +107,33 @@ process.once('exit', () => {
   }
 })
 
-export const registerTerminalHandlers = (socket, { cwd }) => {
-  let session = null
+export const registerTerminalHandlers = (socket, { cwd, ssh }) => {
+  const sessions = new Map()
 
-  const closeSession = () => {
-    if (!session) {
-      return
-    }
-
+  const closeSession = (id) => {
+    const session = sessions.get(id)
+    if (!session) return
     try {
       session.process.kill()
     } catch {
       // The PTY may already have exited.
     }
 
-    session = null
+    sessions.delete(id)
   }
 
   socket.on('terminal:create', async (payload, acknowledge) => {
-    if (session) {
-      acknowledge?.({ ok: true, id: session.id, reused: true })
+    if (payload?.type === 'ssh') {
+      try {
+        const remote = await ssh.createTerminal({
+          connectionId: payload.connectionId,
+          cols: clampInteger(payload?.cols, MIN_COLUMNS, MAX_COLUMNS, 80),
+          rows: clampInteger(payload?.rows, MIN_ROWS, MAX_ROWS, 24),
+        })
+        acknowledge?.({ ok: true, ...remote, reused: false })
+      } catch (error) {
+        acknowledge?.({ ok: false, error: serializeTerminalError(error) })
+      }
       return
     }
 
@@ -145,7 +152,7 @@ export const registerTerminalHandlers = (socket, { cwd }) => {
       })
 
       const id = randomUUID()
-      session = { id, process: terminalProcess }
+      sessions.set(id, { id, process: terminalProcess })
 
       terminalProcess.onData((data) => {
         socket.emit('terminal:output', { id, data })
@@ -154,9 +161,7 @@ export const registerTerminalHandlers = (socket, { cwd }) => {
       terminalProcess.onExit(({ exitCode, signal }) => {
         socket.emit('terminal:exit', { id, exitCode, signal })
 
-        if (session?.id === id) {
-          session = null
-        }
+        sessions.delete(id)
       })
 
       acknowledge?.({ ok: true, id, reused: false })
@@ -166,20 +171,20 @@ export const registerTerminalHandlers = (socket, { cwd }) => {
   })
 
   socket.on('terminal:input', (payload) => {
-    if (!session || payload?.id !== session.id || typeof payload?.data !== 'string') {
-      return
-    }
-
-    session.process.write(payload.data)
+    if (typeof payload?.data !== 'string') return
+    const session = sessions.get(payload?.id)
+    if (session) session.process.write(payload.data)
+    else ssh.writeTerminal(payload?.id, payload.data)
   })
 
   socket.on('terminal:resize', (payload) => {
-    if (!session || payload?.id !== session.id) {
-      return
-    }
-
     const columns = clampInteger(payload?.cols, MIN_COLUMNS, MAX_COLUMNS, 80)
     const rows = clampInteger(payload?.rows, MIN_ROWS, MAX_ROWS, 24)
+    const session = sessions.get(payload?.id)
+    if (!session) {
+      ssh.resizeTerminal(payload?.id, columns, rows)
+      return
+    }
 
     try {
       session.process.resize(columns, rows)
@@ -189,12 +194,15 @@ export const registerTerminalHandlers = (socket, { cwd }) => {
   })
 
   socket.on('terminal:close', (payload, acknowledge) => {
-    if (session && (!payload?.id || payload.id === session.id)) {
-      closeSession()
-    }
+    if (payload?.id) {
+      closeSession(payload.id)
+      ssh.closeTerminal(payload.id)
+    } else for (const id of sessions.keys()) closeSession(id)
 
     acknowledge?.({ ok: true })
   })
 
-  socket.on('disconnect', closeSession)
+  socket.on('disconnect', () => {
+    for (const id of sessions.keys()) closeSession(id)
+  })
 }

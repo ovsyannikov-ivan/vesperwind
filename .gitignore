@@ -5,4 +5,16 @@ src-tauri/target/
 .DS_Store
 *.log
 .env
-.env.local
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+.ssh/
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+settings.json
+settings.local.json

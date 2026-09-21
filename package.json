@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "A desktop-first, two-panel browser file manager with a real local terminal.",
+  "description": "A cross-platform, desktop-first dual-pane file manager and remote workspace.",
   "scripts": {
     "dev": "node scripts/dev.js",
     "dev:backend": "node server/index.js",
@@ -30,6 +30,7 @@
     "pdfjs-dist": "^6.3.289",
     "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.1",
+    "ssh2": "^1.17.0",
     "vue": "^3.5.42"
   },
   "devDependencies": {

@@ -35,6 +35,7 @@ const startServer = async () => {
     { serveStaticAsset },
     { registerTextFileHandlers },
     { registerRuntimeHandlers },
+    { registerSshHandlers },
   ] = await Promise.all([
     import('./filesystem.js'),
     import('./fileOperations.js'),
@@ -44,7 +45,10 @@ const startServer = async () => {
     import('./staticAssets.js'),
     import('./textFiles.js'),
     import('./runtime.js'),
+    import('./ssh.js'),
   ])
+
+  const sshConnections = new Map()
 
   const handleRequest = async (request, response) => {
     if (request.url === '/health') {
@@ -53,7 +57,7 @@ const startServer = async () => {
       return
     }
 
-    if (await serveMedia(request, response)) {
+    if (await serveMedia(request, response, { sshConnections })) {
       return
     }
 
@@ -83,11 +87,12 @@ const startServer = async () => {
   })
 
   io.on('connection', (socket) => {
-    registerFilesystemHandlers(socket)
-    registerFileOperationHandlers(socket)
+    const ssh = registerSshHandlers(socket, { connections: sshConnections })
+    registerFilesystemHandlers(socket, { ssh })
+    registerFileOperationHandlers(socket, { ssh })
     registerSettingsHandlers(socket)
-    registerTextFileHandlers(socket)
-    registerTerminalHandlers(socket, { cwd: fileManagerRoot })
+    registerTextFileHandlers(socket, { ssh })
+    registerTerminalHandlers(socket, { cwd: fileManagerRoot, ssh })
     registerRuntimeHandlers(socket)
   })
 

@@ -8,10 +8,91 @@ use std::{
 };
 use uuid::Uuid;
 
-const SETTINGS_VERSION: u64 = 4;
+const SETTINGS_VERSION: u64 = 6;
+const EDITOR_FORMATS_V6: &[&str] = &[
+    ".jsx",
+    ".tsx",
+    ".markdown",
+    ".toml",
+    ".properties",
+    ".rs",
+    ".go",
+    ".java",
+    ".c",
+    ".cpp",
+    ".h",
+    ".hpp",
+    ".cs",
+    ".rb",
+    ".swift",
+    ".kt",
+    ".kts",
+    ".scala",
+    ".lua",
+    ".pl",
+    ".pm",
+    ".r",
+    ".dart",
+    ".gradle",
+    "Dockerfile",
+    "Makefile",
+    ".gitignore",
+    ".dockerignore",
+    "nginx.conf",
+    "httpd.conf",
+];
 const DEFAULT_EDITABLE_FILES: &[&str] = &[
-    ".js", ".mjs", ".cjs", ".ts", ".vue", ".json", ".html", ".css", ".scss", ".md", ".txt", ".xml",
-    ".yaml", ".yml", ".ini", ".conf", ".sh", ".py", ".php", ".sql", ".env",
+    ".js",
+    ".mjs",
+    ".cjs",
+    ".jsx",
+    ".ts",
+    ".tsx",
+    ".vue",
+    ".json",
+    ".html",
+    ".css",
+    ".scss",
+    ".md",
+    ".markdown",
+    ".txt",
+    ".xml",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".ini",
+    ".conf",
+    ".properties",
+    ".sh",
+    ".py",
+    ".php",
+    ".sql",
+    ".env",
+    ".rs",
+    ".go",
+    ".java",
+    ".c",
+    ".cpp",
+    ".h",
+    ".hpp",
+    ".cs",
+    ".rb",
+    ".swift",
+    ".kt",
+    ".kts",
+    ".scala",
+    ".lua",
+    ".pl",
+    ".pm",
+    ".r",
+    ".dart",
+    ".gradle",
+    "Dockerfile",
+    "Makefile",
+    ".gitignore",
+    ".dockerignore",
+    "nginx.conf",
+    "httpd.conf",
 ];
 
 #[derive(Debug)]
@@ -154,6 +235,7 @@ fn default_settings() -> Value {
         "appearance": { "theme": "system", "locale": "" },
         "filesystem": { "hiddenNameSuffixes": [".localized"] },
         "editor": { "editableFiles": DEFAULT_EDITABLE_FILES },
+        "connections": [],
     })
 }
 
@@ -188,14 +270,50 @@ fn normalize_settings(value: &Value) -> Value {
             )
         },
         "editor": {
-            "editableFiles": normalize_string_list(
-                value.pointer("/editor/editableFiles"),
-                DEFAULT_EDITABLE_FILES,
-                300,
-                true,
-            )
+            "editableFiles": normalize_editable_files(value)
         },
+        "connections": normalize_connections(value.get("connections")),
     })
+}
+
+fn normalize_editable_files(value: &Value) -> Vec<String> {
+    let mut files = normalize_string_list(
+        value.pointer("/editor/editableFiles"),
+        DEFAULT_EDITABLE_FILES,
+        300,
+        true,
+    );
+    let version = value.get("version").and_then(Value::as_u64);
+    if version.is_some_and(|version| version < SETTINGS_VERSION) {
+        let mut seen: HashSet<String> = files.iter().map(|item| item.to_lowercase()).collect();
+        for item in EDITOR_FORMATS_V6 {
+            if seen.insert(item.to_lowercase()) {
+                files.push((*item).to_string());
+            }
+        }
+    }
+    files
+}
+
+fn normalize_connections(value: Option<&Value>) -> Vec<Value> {
+    let mut seen = HashSet::new();
+    value.and_then(Value::as_array).into_iter().flatten().take(100).filter_map(|item| {
+        let id = item.get("id")?.as_str()?.trim();
+        let name = item.get("name")?.as_str()?.trim();
+        let host = item.get("host")?.as_str()?.trim();
+        let username = item.get("username")?.as_str()?.trim();
+        let port = item.get("port")?.as_u64()?;
+        if id.is_empty() || id.len() > 80 || !id.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c)) || name.is_empty() || host.is_empty() || username.is_empty() || !(1..=65535).contains(&port) || !seen.insert(id.to_string()) { return None; }
+        let auth_type = if item.get("authType").and_then(Value::as_str) == Some("password") { "password" } else { "privateKey" };
+        let trusted = item.get("trustedFingerprint").and_then(Value::as_str).filter(|value| value.starts_with("SHA256:")).unwrap_or("");
+        Some(json!({
+            "id": id, "name": name, "host": host, "port": port, "username": username,
+            "authType": auth_type,
+            "privateKeyPath": if auth_type == "privateKey" { item.get("privateKeyPath").and_then(Value::as_str).unwrap_or("").trim() } else { "" },
+            "initialPath": item.get("initialPath").and_then(Value::as_str).unwrap_or("").trim(),
+            "trustedFingerprint": trusted,
+        }))
+    }).collect()
 }
 
 fn normalize_string_list(

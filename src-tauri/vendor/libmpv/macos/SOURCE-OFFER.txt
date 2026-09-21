@@ -1,0 +1,18 @@
+Vesperwind libmpv runtime source and relinking information
+
+The complete corresponding source, exact version pins, local source patches, and
+build/relink instructions for this bundle are recorded in:
+
+  scripts/build-libmpv-macos.sh
+  docs/libmpv.md
+  src-tauri/vendor/libmpv/manifest.json
+
+The source archives are fetched from the named upstream projects and verified by
+SHA-256 before use. For at least three years after distribution, the Vesperwind
+project will also provide the corresponding source and build material on request,
+for no more than the reasonable cost of physically providing it. Open an issue at:
+
+  https://github.com/ovsyannikov-ivan/vesperwind
+
+The libraries are dynamically linked and kept as replaceable files beside libmpv.
+No technical measure prevents relinking or replacing the LGPL libraries.

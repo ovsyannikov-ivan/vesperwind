@@ -23,6 +23,10 @@ const props = defineProps({
     type: String,
     default: LOCAL_FILESYSTEM_PROVIDER,
   },
+  providerLabel: {
+    type: String,
+    default: 'Local',
+  },
   filesystemRevision: {
     type: Number,
     default: 0,
@@ -79,9 +83,10 @@ const loadRoot = async () => {
 
   filesystemRoot.value = response.root
   homePath.value = response.homePath || ''
-  root.value = response.root
-  selectedNode.value = response.root
-  selectedPath.value = response.root.path
+  const initial = response.initial || response.root
+  root.value = initial
+  selectedNode.value = initial
+  selectedPath.value = initial.path
 }
 
 const selectNode = (node) => {
@@ -256,7 +261,7 @@ onBeforeUnmount(() => {
 defineExpose({ openNode })
 
 watch(entryChange, (change) => {
-  if (change?.action !== 'rename') return
+  if (change?.action !== 'rename' || change.providerId !== props.providerId) return
   const relocateNode = (node) => {
     if (!node) return node
     const path = relocatePath(node.path, change)
@@ -282,6 +287,7 @@ watch(entryChange, (change) => {
       <div class="panel-title">
         <i class="mdi mdi-folder-multiple-outline" aria-hidden="true" />
         <strong>{{ side === 'left' ? 'Left' : 'Right' }}</strong>
+        <span class="badge text-bg-secondary panel-provider-label">{{ providerLabel }}</span>
         <nav
           v-if="breadcrumbs.length"
           ref="breadcrumbsRef"

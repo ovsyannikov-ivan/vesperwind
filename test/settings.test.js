@@ -24,7 +24,7 @@ test('creates a versioned JSON settings file with defaults', async () => {
   const storedSettings = JSON.parse(await fs.readFile(fixturePath, 'utf8'))
 
   assert.equal(settingsFilePath, fixturePath)
-  assert.equal(settings.version, 4)
+  assert.equal(settings.version, 6)
   assert.equal(settings.appearance.theme, 'system')
   assert.equal(settings.appearance.locale, '')
   assert.deepEqual(settings.filesystem.hiddenNameSuffixes, ['.localized'])

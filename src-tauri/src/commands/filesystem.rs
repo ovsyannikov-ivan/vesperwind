@@ -35,6 +35,16 @@ pub struct WriteTextPayload {
 #[tauri::command]
 pub fn filesystem_root(state: State<'_, AppState>, payload: FilesystemRootPayload) -> Value {
     let result = (|| {
+        if let Some(provider) = payload
+            .filesystem_id
+            .as_deref()
+            .filter(|value| *value != "local")
+        {
+            let (root, initial, home) = state.ssh.root(provider)?;
+            return Ok::<_, NativeError>(
+                json!({ "ok": true, "root": root, "initial": initial, "homePath": home }),
+            );
+        }
         filesystem::Filesystem::require_local(payload.filesystem_id.as_deref())?;
         Ok::<_, NativeError>(json!({
             "ok": true,
@@ -49,6 +59,14 @@ pub fn filesystem_root(state: State<'_, AppState>, payload: FilesystemRootPayloa
 pub fn filesystem_list(state: State<'_, AppState>, payload: FilesystemPathPayload) -> Value {
     let path = payload.path.unwrap_or_default();
     let result = (|| {
+        if let Some(provider) = payload
+            .filesystem_id
+            .as_deref()
+            .filter(|value| *value != "local")
+        {
+            let entries = state.ssh.list(provider, &path)?;
+            return Ok::<_, NativeError>(json!({ "ok": true, "path": path, "entries": entries }));
+        }
         filesystem::Filesystem::require_local(payload.filesystem_id.as_deref())?;
         let entries = state.filesystem.list_directory(&path)?;
         Ok::<_, NativeError>(json!({ "ok": true, "path": path, "entries": entries }))
@@ -62,6 +80,16 @@ pub async fn filesystem_read_text(
     payload: FilesystemPathPayload,
 ) -> Result<Value, String> {
     let path = payload.path.unwrap_or_default();
+    if let Some(provider) = payload
+        .filesystem_id
+        .as_deref()
+        .filter(|value| *value != "local")
+    {
+        return Ok(match state.ssh.read_text(provider, &path) {
+            Ok((content, modified)) => json!({"ok":true,"content":content,"modifiedAt":modified}),
+            Err(error) => failure(error),
+        });
+    }
     let real =
         match require_content_ready(&state.filesystem, payload.filesystem_id.as_deref(), &path) {
             Ok(real) => real,
@@ -102,6 +130,16 @@ pub async fn filesystem_write_text(
         Some(content) => content,
         None => return Ok(failure(NativeError::new("EINVAL", "Invalid file contents"))),
     };
+    if let Some(provider) = payload
+        .filesystem_id
+        .as_deref()
+        .filter(|value| *value != "local")
+    {
+        return Ok(match state.ssh.write_text(provider, &path, &content) {
+            Ok(modified) => json!({"ok":true,"modifiedAt":modified}),
+            Err(error) => failure(error),
+        });
+    }
     if content.len() as u64 > MAX_TEXT_FILE_BYTES {
         return Ok(failure(NativeError::new(
             "EFILE_TOO_LARGE",
@@ -144,6 +182,27 @@ pub async fn filesystem_operate(
     state: State<'_, AppState>,
     payload: OperationRequest,
 ) -> Result<Value, String> {
+    let remote = payload
+        .filesystem_id
+        .as_deref()
+        .is_some_and(|value| value.starts_with("sftp:"))
+        || payload
+            .target_filesystem_id
+            .as_deref()
+            .is_some_and(|value| value.starts_with("sftp:"));
+    if remote {
+        let filesystem: Arc<filesystem::Filesystem> = Arc::clone(&state.filesystem);
+        let ssh = Arc::clone(&state.ssh);
+        return Ok(
+            match tauri::async_runtime::spawn_blocking(move || ssh.operate(&filesystem, payload))
+                .await
+            {
+                Ok(Ok(result)) => success("result", result),
+                Ok(Err(error)) => failure(error),
+                Err(error) => failure(NativeError::new("EFILE_OPERATION", error.to_string())),
+            },
+        );
+    }
     let filesystem: Arc<filesystem::Filesystem> = Arc::clone(&state.filesystem);
     Ok(
         match tauri::async_runtime::spawn_blocking(move || {

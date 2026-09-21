@@ -2,6 +2,7 @@ use crate::error::NativeError;
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
 use std::{
+    collections::HashMap,
     fs,
     io::{Read, Write},
     path::{Path, PathBuf},
@@ -15,12 +16,11 @@ const DEFAULT_LS_COLORS: &str = "ExGxFxDxxxExExBxBxExExxA";
 const ZSH_STARTUP_FILES: &[&str] = &[".zshenv", ".zprofile", ".zshrc", ".zlogin", ".zlogout"];
 
 pub struct TerminalManager {
-    session: Mutex<Option<TerminalSession>>,
+    sessions: Mutex<HashMap<String, TerminalSession>>,
     zsh_startup_directory: Mutex<Option<PathBuf>>,
 }
 
 struct TerminalSession {
-    id: String,
     writer: Box<dyn Write + Send>,
     master: Box<dyn MasterPty + Send>,
     killer: Box<dyn ChildKiller + Send + Sync>,
@@ -43,7 +43,7 @@ struct TerminalExit {
 impl TerminalManager {
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
-            session: Mutex::new(None),
+            sessions: Mutex::new(HashMap::new()),
             zsh_startup_directory: Mutex::new(None),
         })
     }
@@ -55,13 +55,10 @@ impl TerminalManager {
         columns: u16,
         rows: u16,
     ) -> Result<(String, bool), NativeError> {
-        let mut session = self
-            .session
+        let mut sessions = self
+            .sessions
             .lock()
             .unwrap_or_else(|value| value.into_inner());
-        if let Some(active) = session.as_ref() {
-            return Ok((active.id.clone(), true));
-        }
 
         let shell = std::env::var("SHELL").unwrap_or_else(|_| default_shell());
         let pair = native_pty_system()
@@ -103,13 +100,15 @@ impl TerminalManager {
         let mut reader = pair.master.try_clone_reader().map_err(terminal_error)?;
         let writer = pair.master.take_writer().map_err(terminal_error)?;
         let id = Uuid::new_v4().to_string();
-        *session = Some(TerminalSession {
-            id: id.clone(),
-            writer,
-            master: pair.master,
-            killer,
-        });
-        drop(session);
+        sessions.insert(
+            id.clone(),
+            TerminalSession {
+                writer,
+                master: pair.master,
+                killer,
+            },
+        );
+        drop(sessions);
 
         let output_id = id.clone();
         let output_app = app.clone();
@@ -178,22 +177,22 @@ impl TerminalManager {
     }
 
     pub fn write(&self, id: &str, data: &str) {
-        let mut session = self
-            .session
+        let mut sessions = self
+            .sessions
             .lock()
             .unwrap_or_else(|value| value.into_inner());
-        if let Some(active) = session.as_mut().filter(|active| active.id == id) {
+        if let Some(active) = sessions.get_mut(id) {
             let _ = active.writer.write_all(data.as_bytes());
             let _ = active.writer.flush();
         }
     }
 
     pub fn resize(&self, id: &str, columns: u16, rows: u16) {
-        let session = self
-            .session
+        let sessions = self
+            .sessions
             .lock()
             .unwrap_or_else(|value| value.into_inner());
-        if let Some(active) = session.as_ref().filter(|active| active.id == id) {
+        if let Some(active) = sessions.get(id) {
             let _ = active.master.resize(PtySize {
                 rows,
                 cols: columns,
@@ -204,15 +203,16 @@ impl TerminalManager {
     }
 
     pub fn close(&self, id: Option<&str>) {
-        let mut session = self
-            .session
+        let mut sessions = self
+            .sessions
             .lock()
             .unwrap_or_else(|value| value.into_inner());
-        let should_close = session
-            .as_ref()
-            .is_some_and(|active| id.is_none() || id == Some(active.id.as_str()));
-        if should_close {
-            if let Some(mut active) = session.take() {
+        if let Some(id) = id {
+            if let Some(mut active) = sessions.remove(id) {
+                let _ = active.killer.kill();
+            }
+        } else {
+            for (_, mut active) in sessions.drain() {
                 let _ = active.killer.kill();
             }
         }
@@ -231,13 +231,11 @@ impl TerminalManager {
     }
 
     fn clear_if_active(&self, id: &str) {
-        let mut session = self
-            .session
+        let mut sessions = self
+            .sessions
             .lock()
             .unwrap_or_else(|value| value.into_inner());
-        if session.as_ref().is_some_and(|active| active.id == id) {
-            session.take();
-        }
+        sessions.remove(id);
     }
 
     fn ensure_zsh_startup_directory(&self) -> Result<PathBuf, NativeError> {

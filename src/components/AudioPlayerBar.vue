@@ -36,6 +36,8 @@ watch(
       class="audio-player-control"
       kind="audio"
       :src="media.url"
+      :provider-id="media.providerId"
+      :path="media.path"
       autoplay
       @error="playbackError = 'This audio codec could not be played'"
     />

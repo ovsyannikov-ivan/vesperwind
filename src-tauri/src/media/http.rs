@@ -1,11 +1,9 @@
 use super::{can_serve, content_type, parse_range};
 use crate::{
-    error::NativeError,
-    filesystem::{availability::require_content_ready, Filesystem},
+    error::NativeError, filesystem::Filesystem, provider_content::ContentSource, ssh::SshManager,
 };
 use std::{
-    fs::{self, File},
-    io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write},
+    io::{self, BufRead, BufReader, Write},
     net::{TcpListener, TcpStream},
     sync::Arc,
 };
@@ -20,7 +18,7 @@ pub struct MediaHttpServer {
 }
 
 impl MediaHttpServer {
-    pub fn start(filesystem: Arc<Filesystem>) -> io::Result<Arc<Self>> {
+    pub fn start(filesystem: Arc<Filesystem>, ssh: Arc<SshManager>) -> io::Result<Arc<Self>> {
         let listener = TcpListener::bind(("127.0.0.1", 0))?;
         let port = listener.local_addr()?.port();
         let server = Arc::new(Self {
@@ -36,12 +34,13 @@ impl MediaHttpServer {
                     match connection {
                         Ok(stream) => {
                             let filesystem = Arc::clone(&filesystem);
+                            let ssh = Arc::clone(&ssh);
                             let token = expected_token.clone();
                             let _ = std::thread::Builder::new()
                                 .name("vesperwind-media-request".to_string())
                                 .spawn(move || {
                                     if let Err(error) =
-                                        handle_connection(stream, &filesystem, &token)
+                                        handle_connection(stream, &filesystem, &ssh, &token)
                                     {
                                         eprintln!(
                                             "[vesperwind-media-http] connection_error={error:?}"
@@ -80,6 +79,7 @@ struct ParsedRequest {
 fn handle_connection(
     stream: TcpStream,
     filesystem: &Filesystem,
+    ssh: &Arc<SshManager>,
     expected_token: &str,
 ) -> io::Result<()> {
     stream.set_read_timeout(Some(std::time::Duration::from_secs(10)))?;
@@ -142,34 +142,14 @@ fn handle_connection(
         );
     }
 
-    let real = match require_content_ready(filesystem, provider_id, requested) {
-        Ok(real) => real,
+    let source = match ContentSource::open(filesystem, ssh, provider_id, requested) {
+        Ok(source) => source,
         Err(error) => {
             let (status, reason) = status_for_error(&error);
             return write_request_error(&mut stream, &request, requested, status, reason, &error);
         }
     };
-    let metadata = match fs::metadata(&real) {
-        Ok(metadata) if metadata.is_file() => metadata,
-        Ok(_) => {
-            return write_request_error(
-                &mut stream,
-                &request,
-                requested,
-                400,
-                "Bad Request",
-                &NativeError::new("ENOTFILE", "The requested path is not a file"),
-            )
-        }
-        Err(error) => {
-            let native = NativeError::from_io(&error, "Unable to inspect media file")
-                .with_path(&real)
-                .with_native_error(error.to_string());
-            let (status, reason) = status_for_error(&native);
-            return write_request_error(&mut stream, &request, requested, status, reason, &native);
-        }
-    };
-    let size = metadata.len();
+    let size = source.metadata().size;
     let range = match parse_range(request.range.as_deref(), size) {
         Ok(range) => range,
         Err(error) => {
@@ -185,7 +165,7 @@ fn handle_connection(
     write!(
         stream,
         "HTTP/1.1 {status} {reason}\r\nContent-Type: {}\r\nContent-Length: {length}\r\nAccept-Ranges: bytes\r\nCache-Control: no-store\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Expose-Headers: Accept-Ranges, Content-Length, Content-Range\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n",
-        content_type(&real.to_string_lossy())
+        content_type(requested)
     )?;
     if range.is_some() {
         write!(stream, "Content-Range: bytes {start}-{end}/{size}\r\n")?;
@@ -203,18 +183,15 @@ fn handle_connection(
         return stream.flush();
     }
 
-    let mut file = File::open(&real).map_err(|error| {
-        log_stream_error(&request, requested, &real, "open", &error);
-        error
-    })?;
-    file.seek(SeekFrom::Start(start)).map_err(|error| {
-        log_stream_error(&request, requested, &real, "seek", &error);
-        error
-    })?;
-    let copied = io::copy(&mut file.take(length), &mut stream).map_err(|error| {
-        log_stream_error(&request, requested, &real, "stream", &error);
-        error
-    })?;
+    let copied = source
+        .copy_range(ssh, start, length, &mut stream)
+        .map_err(|error| {
+            eprintln!(
+                "[vesperwind-media-http] method={} path={requested:?} range={:?} action=stream error={error:?}",
+                request.method, request.range
+            );
+            io::Error::other(error.message)
+        })?;
     if copied != length {
         return Err(io::Error::new(
             io::ErrorKind::UnexpectedEof,
@@ -323,19 +300,6 @@ fn log_request_error(request: &ParsedRequest, path: &str, status: u16, error: &N
     );
 }
 
-fn log_stream_error(
-    request: &ParsedRequest,
-    requested: &str,
-    real: &std::path::Path,
-    action: &str,
-    error: &io::Error,
-) {
-    eprintln!(
-        "[vesperwind-media-http] method={} path={requested:?} decoded_path={requested:?} real_path={real:?} range={:?} action={action} error={error:?}",
-        request.method, request.range
-    );
-}
-
 fn status_for_error(error: &NativeError) -> (u16, &'static str) {
     match error.code.as_str() {
         "EFILE_NOT_FOUND" | "ENOENT" => (404, "Not Found"),
@@ -346,6 +310,7 @@ fn status_for_error(error: &NativeError) -> (u16, &'static str) {
         | "ECLOUD_OFFLINE"
         | "ECONTENT_MATERIALIZING" => (503, "Service Unavailable"),
         "EINVAL" | "EFILESYSTEM_ID" => (400, "Bad Request"),
+        "ESSH_DISCONNECTED" => (503, "Service Unavailable"),
         _ => (500, "Internal Server Error"),
     }
 }
@@ -353,7 +318,7 @@ fn status_for_error(error: &NativeError) -> (u16, &'static str) {
 #[cfg(test)]
 mod tests {
     use super::MediaHttpServer;
-    use crate::filesystem::Filesystem;
+    use crate::{filesystem::Filesystem, ssh::SshManager};
     use std::{
         fs::{self, File},
         io::{Read, Seek, SeekFrom, Write},
@@ -427,7 +392,7 @@ mod tests {
         file.write_all(b"vesperwind-tail!").unwrap();
 
         let filesystem = Arc::new(Filesystem::from_root(&root, root.clone()).unwrap());
-        let server = MediaHttpServer::start(filesystem).unwrap();
+        let server = MediaHttpServer::start(filesystem, SshManager::new()).unwrap();
         let source = server.source(Some("local"), &path.to_string_lossy());
 
         let small_source = server.source(Some("local"), &small_path.to_string_lossy());

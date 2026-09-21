@@ -2,6 +2,10 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useEditorLayout } from '../composables/useEditorLayout.js'
 import { useEditorWorkspace } from '../composables/useEditorWorkspace.js'
+import {
+  DOCUMENT_FIND_INTENTS,
+  getDocumentFindIntent,
+} from '../utils/documentFindShortcuts.js'
 import EditorTree from './EditorTree.vue'
 import MonacoEditor from './MonacoEditor.vue'
 import PdfViewer from './PdfViewer.vue'
@@ -19,6 +23,7 @@ const props = defineProps({
 const emit = defineEmits(['show-files', 'open-file', 'empty'])
 const workspaceElement = ref(null)
 const monacoEditor = ref(null)
+const pdfViewerRefs = new Map()
 const pendingClose = ref(null)
 const pendingRevert = ref(null)
 const closeBusy = ref(false)
@@ -222,6 +227,41 @@ const confirmRevert = () => {
   pendingRevert.value = null
 }
 
+const setPdfViewerRef = (element, tabId) => {
+  if (element) {
+    pdfViewerRefs.set(tabId, element)
+  } else {
+    pdfViewerRefs.delete(tabId)
+  }
+}
+
+const runDocumentFindIntent = (intent) => {
+  if (activeTextTab.value) {
+    const actions = {
+      [DOCUMENT_FIND_INTENTS.OPEN]: 'openFind',
+      [DOCUMENT_FIND_INTENTS.OPEN_REPLACE]: 'openReplace',
+      [DOCUMENT_FIND_INTENTS.NEXT]: 'findNext',
+      [DOCUMENT_FIND_INTENTS.PREVIOUS]: 'findPrevious',
+    }
+    const action = actions[intent]
+    return action ? monacoEditor.value?.[action]?.() : false
+  }
+
+  if (activeTab.value?.type === 'pdf') {
+    const viewer = pdfViewerRefs.get(activeTab.value.id)
+    const actions = {
+      [DOCUMENT_FIND_INTENTS.OPEN]: 'openFind',
+      [DOCUMENT_FIND_INTENTS.NEXT]: 'findNext',
+      [DOCUMENT_FIND_INTENTS.PREVIOUS]: 'findPrevious',
+      [DOCUMENT_FIND_INTENTS.CLOSE]: 'closeFind',
+    }
+    const action = actions[intent]
+    return action ? viewer?.[action]?.() : false
+  }
+
+  return false
+}
+
 const handleEditorKeydown = (event) => {
   if (
     !props.visible ||
@@ -229,6 +269,31 @@ const handleEditorKeydown = (event) => {
     pendingRevert.value ||
     document.querySelector('.modal.show')
   ) {
+    return
+  }
+
+  const findIntent = getDocumentFindIntent(event)
+
+  if (findIntent) {
+    const targetIsMonaco = event.target?.closest?.('.monaco-editor-host')
+
+    if (activeTextTab.value && targetIsMonaco) {
+      return
+    }
+
+    if (
+      activeTab.value?.type === 'pdf' &&
+      findIntent === DOCUMENT_FIND_INTENTS.OPEN_REPLACE
+    ) {
+      return
+    }
+
+    const handled = runDocumentFindIntent(findIntent)
+
+    if (handled) {
+      event.preventDefault()
+      event.stopPropagation()
+    }
     return
   }
 
@@ -400,6 +465,7 @@ onBeforeUnmount(() => {
       />
       <PdfViewer
         v-for="tab in pdfTabs"
+        :ref="(element) => setPdfViewerRef(element, tab.id)"
         v-show="tab.id === activeTab?.id"
         :key="tab.id"
         :tab="tab"

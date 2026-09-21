@@ -1,11 +1,11 @@
 import { backend } from './backend.js'
 import { normalizeApiResponse } from './response.js'
 
-const createSession = async ({ cols, rows }) => {
+const createSession = async ({ cols, rows, type = 'local', connectionId = null }) => {
   const response = normalizeApiResponse(
     await backend.request(
       'terminal:create',
-      { cols, rows },
+      { cols, rows, type, connectionId },
       { timeout: 15_000 },
     ),
     'ETERMINAL_CREATE',
@@ -19,6 +19,7 @@ const createSession = async ({ cols, rows }) => {
   return {
     ok: true,
     sessionId: response.id,
+    title: response.title || (type === 'local' ? 'Local' : connectionId),
     reused: response.reused === true,
   }
 }
@@ -41,6 +42,7 @@ const onExit = (callback) =>
       sessionId: payload?.id,
       exitCode: payload?.exitCode,
       signal: payload?.signal,
+      disconnected: payload?.disconnected === true,
     })
   })
 

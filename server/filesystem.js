@@ -167,13 +167,18 @@ const errorMessages = {
 
 export const serializeFilesystemError = (error, requestedPath) => ({
   code: error?.code || 'EFILESYSTEM',
-  message: errorMessages[error?.code] || 'Unable to read this folder',
+  message: errorMessages[error?.code] || error?.message || 'Unable to read this folder',
   path: typeof requestedPath === 'string' ? requestedPath : null,
 })
 
-export const registerFilesystemHandlers = (socket) => {
-  socket.on('filesystem:root', async (_payload, acknowledge) => {
+export const registerFilesystemHandlers = (socket, { ssh } = {}) => {
+  socket.on('filesystem:root', async (payload, acknowledge) => {
     try {
+      if (payload?.filesystemId && payload.filesystemId !== 'local') {
+        const connection = await ssh.ensure(payload.filesystemId)
+        acknowledge?.({ ok: true, root: connection.rootEntry(), initial: connection.initialEntry(), homePath: connection.homePath })
+        return
+      }
       const root = await getRootEntry()
       acknowledge?.({ ok: true, root, homePath: homeDirectory })
     } catch (error) {
@@ -188,6 +193,11 @@ export const registerFilesystemHandlers = (socket) => {
     const requestedPath = payload?.path
 
     try {
+      if (payload?.filesystemId && payload.filesystemId !== 'local') {
+        const entries = await (await ssh.ensure(payload.filesystemId)).list(requestedPath)
+        acknowledge?.({ ok: true, path: requestedPath, entries })
+        return
+      }
       const entries = await listDirectory(requestedPath)
       acknowledge?.({ ok: true, path: requestedPath, entries })
     } catch (error) {

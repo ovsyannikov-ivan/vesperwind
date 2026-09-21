@@ -8,6 +8,10 @@ use tauri::{AppHandle, State};
 pub struct TerminalCreatePayload {
     cols: Option<i64>,
     rows: Option<i64>,
+    #[serde(rename = "type")]
+    terminal_type: Option<String>,
+    #[serde(rename = "connectionId")]
+    connection_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -36,6 +40,21 @@ pub fn terminal_create(
 ) -> Value {
     let columns = clamp(payload.cols, 2, 500, 80);
     let rows = clamp(payload.rows, 1, 300, 24);
+    if payload.terminal_type.as_deref() == Some("ssh") {
+        let Some(connection_id) = payload.connection_id.as_deref() else {
+            return failure(NativeError::new(
+                "EINVAL",
+                "A remote connection is required",
+            ));
+        };
+        return match state
+            .ssh
+            .create_terminal(app, connection_id, columns.into(), rows.into())
+        {
+            Ok((id, title)) => json!({"ok":true,"id":id,"title":title,"reused":false}),
+            Err(error) => failure(error),
+        };
+    }
     match state
         .terminal
         .create(app, state.filesystem.root(), columns, rows)
@@ -49,6 +68,7 @@ pub fn terminal_create(
 pub fn terminal_input(state: State<'_, AppState>, payload: TerminalInputPayload) -> Value {
     if let (Some(id), Some(data)) = (payload.id.as_deref(), payload.data.as_deref()) {
         state.terminal.write(id, data);
+        state.ssh.terminal_write(id, data.to_string());
     }
     json!({ "ok": true })
 }
@@ -61,6 +81,11 @@ pub fn terminal_resize(state: State<'_, AppState>, payload: TerminalResizePayloa
             clamp(payload.cols, 2, 500, 80),
             clamp(payload.rows, 1, 300, 24),
         );
+        state.ssh.terminal_resize(
+            id,
+            clamp(payload.cols, 2, 500, 80).into(),
+            clamp(payload.rows, 1, 300, 24).into(),
+        );
     }
     json!({ "ok": true })
 }
@@ -68,6 +93,9 @@ pub fn terminal_resize(state: State<'_, AppState>, payload: TerminalResizePayloa
 #[tauri::command]
 pub fn terminal_close(state: State<'_, AppState>, payload: TerminalClosePayload) -> Value {
     state.terminal.close(payload.id.as_deref());
+    if let Some(id) = payload.id.as_deref() {
+        state.ssh.terminal_close(id);
+    }
     json!({ "ok": true })
 }
 

@@ -21,6 +21,8 @@ export const videoExtensions = new Set([
   'flv',
   'mpeg',
   'mpg',
+  'ts',
+  'm2ts',
 ])
 
 export const audioExtensions = new Set([
@@ -54,7 +56,16 @@ export const imageExtensions = new Set([
 
 export const pdfExtensions = new Set(['pdf'])
 
-const previewableVideoExtensions = new Set(['mp4', 'm4v', 'mov', 'webm', 'ogv'])
+const previewableVideoExtensions = new Set([
+  'mp4',
+  'm4v',
+  'mov',
+  'webm',
+  'ogv',
+  'mkv',
+  'ts',
+  'm2ts',
+])
 const previewableAudioExtensions = new Set([
   'mp3',
   'm4a',
@@ -85,6 +96,9 @@ const contentTypes = {
   mov: 'video/quicktime',
   webm: 'video/webm',
   ogv: 'video/ogg',
+  mkv: 'video/x-matroska',
+  ts: 'video/mp2t',
+  m2ts: 'video/mp2t',
   mp3: 'audio/mpeg',
   m4a: 'audio/mp4',
   aac: 'audio/aac',

@@ -8,7 +8,7 @@ import {
 } from '../shared/mediaTypes.js'
 import { parseByteRange } from '../server/media.js'
 
-test('classifies common browser media and icon-only video formats', () => {
+test('classifies common browser media including Matroska fallback', () => {
   assert.equal(getMediaKind('clip.MP4'), 'video')
   assert.equal(getMediaKind('archive.mkv'), 'video')
   assert.equal(getMediaKind('recording.m4a'), 'audio')
@@ -16,7 +16,7 @@ test('classifies common browser media and icon-only video formats', () => {
   assert.equal(getMediaKind('photo.JPEG'), 'image')
   assert.equal(getMediaKind('notes.txt'), null)
   assert.equal(canPreviewMedia('clip.mov'), true)
-  assert.equal(canPreviewMedia('archive.mkv'), false)
+  assert.equal(canPreviewMedia('archive.mkv'), true)
   assert.equal(canPreviewMedia('photo.png'), true)
   assert.equal(canPreviewMedia('manual.pdf'), false)
   assert.equal(canServePreview('manual.PDF'), true)
@@ -24,6 +24,7 @@ test('classifies common browser media and icon-only video formats', () => {
 
 test('returns explicit media content types', () => {
   assert.equal(getMediaContentType('clip.m4v'), 'video/x-m4v')
+  assert.equal(getMediaContentType('archive.mkv'), 'video/x-matroska')
   assert.equal(getMediaContentType('voice.mp3'), 'audio/mpeg')
   assert.equal(getMediaContentType('sound.flac'), 'audio/flac')
   assert.equal(getMediaContentType('photo.jpeg'), 'image/jpeg')

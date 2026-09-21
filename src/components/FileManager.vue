@@ -20,6 +20,7 @@ import FileEntryContextMenu from './FileEntryContextMenu.vue'
 import FileOperationMenu from './FileOperationMenu.vue'
 import MediaViewerModal from './MediaViewerModal.vue'
 import SettingsModal from './SettingsModal.vue'
+import RemoteConnectionsModal from './RemoteConnectionsModal.vue'
 import Splitter from './Splitter.vue'
 import TerminalPanel from './TerminalPanel.vue'
 import Toolbar from './Toolbar.vue'
@@ -59,13 +60,18 @@ const workspaceMode = ref('files')
 const activePanel = ref('left')
 const connected = ref(connection.isConnected())
 const settingsOpen = ref(false)
+const remoteConnectionsOpen = ref(false)
+const panelProviders = reactive({
+  left: { providerId: 'local', label: 'Local' },
+  right: { providerId: 'local', label: 'Local' },
+})
 const createRequest = ref(null)
 const createBusy = ref(false)
 const createError = ref('')
 const openCreate = (kind) => {
   if (!commandAvailability.value.create) return
   createError.value = ''
-  createRequest.value = { kind, directory: panelStates[activePanel.value].currentDirectory.path }
+  createRequest.value = { kind, directory: panelStates[activePanel.value].currentDirectory }
 }
 const submitCreate = async (name) => {
   if (!createRequest.value || createBusy.value) return
@@ -79,6 +85,11 @@ const submitCreate = async (name) => {
   } catch (error) {
     createError.value = error.message || 'Unable to create this item'
   } finally { createBusy.value = false }
+}
+const handleRemoteConnected = ({ providerId, profile, targetPanel }) => {
+  panelProviders[targetPanel] = { providerId, label: profile.name }
+  activePanel.value = targetPanel
+  filesystemRevision.value += 1
 }
 const filesystemRevision = ref(0)
 const dropRequest = ref(null)
@@ -501,6 +512,7 @@ onBeforeUnmount(() => {
       @create="openCreate"
       @show-files="showFiles"
       @show-editor="showEditor"
+      @open-remote="remoteConnectionsOpen = true"
     />
 
     <AudioPlayerBar
@@ -513,9 +525,12 @@ onBeforeUnmount(() => {
     <div ref="workspace" class="workspace">
       <div v-show="workspaceMode === 'files'" ref="filesContainer" class="files-container">
         <FilePanel
+          :key="`left:${panelProviders.left.providerId}`"
           ref="leftPanel"
           v-if="layout.leftVisible"
           side="left"
+          :provider-id="panelProviders.left.providerId"
+          :provider-label="panelProviders.left.label"
           :active="activePanel === 'left'"
           :filesystem-revision="filesystemRevision"
           :style="leftPanelStyle"
@@ -534,9 +549,12 @@ onBeforeUnmount(() => {
         />
 
         <FilePanel
+          :key="`right:${panelProviders.right.providerId}`"
           ref="rightPanel"
           v-if="layout.rightVisible"
           side="right"
+          :provider-id="panelProviders.right.providerId"
+          :provider-label="panelProviders.right.label"
           :active="activePanel === 'right'"
           :filesystem-revision="filesystemRevision"
           :style="rightPanelStyle"
@@ -580,6 +598,7 @@ onBeforeUnmount(() => {
     </div>
 
     <SettingsModal :open="settingsOpen" @close="settingsOpen = false" />
+    <RemoteConnectionsModal :open="remoteConnectionsOpen" :active-panel="activePanel" @close="remoteConnectionsOpen = false" @connected="handleRemoteConnected" />
     <CreateEntryModal :request="createRequest" :busy="createBusy" :error="createError" @confirm="submitCreate" @cancel="!createBusy && (createRequest = null)" />
     <MediaViewerModal
       :open="Boolean(viewer)"

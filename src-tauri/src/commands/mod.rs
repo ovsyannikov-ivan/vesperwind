@@ -1,8 +1,10 @@
 pub mod content;
 pub mod filesystem;
 pub mod media;
+pub mod player;
 pub mod runtime;
 pub mod settings;
+pub mod ssh;
 pub mod terminal;
 
 use crate::error::NativeError;

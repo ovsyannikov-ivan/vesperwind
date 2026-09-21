@@ -61,7 +61,7 @@ const LIGHT_TERMINAL_THEME = {
 const getTerminalTheme = (theme) =>
   theme === 'light' ? LIGHT_TERMINAL_THEME : DARK_TERMINAL_THEME
 
-export const useTerminal = (containerRef, visibleRef) => {
+export const useTerminal = (containerRef, visibleRef, sessionOptions = {}) => {
   const status = ref('connecting')
   const errorMessage = ref('')
   const sessionId = ref(null)
@@ -104,16 +104,20 @@ export const useTerminal = (containerRef, visibleRef) => {
     const response = await terminalApi.createSession({
       cols: terminal.cols,
       rows: terminal.rows,
+      type: sessionOptions.type || 'local',
+      connectionId: sessionOptions.connectionId || null,
     })
     creatingSession = false
 
     if (!response?.ok) {
       status.value = 'error'
       errorMessage.value = response?.error?.message || 'Unable to reach the terminal backend'
+      terminal.writeln(`\r\n\x1b[31m[${errorMessage.value}]\x1b[0m`)
       return
     }
 
     sessionId.value = response.sessionId
+    if (response.title) sessionOptions.onTitle?.(response.title)
     status.value = 'ready'
     fit()
   }
@@ -123,7 +127,7 @@ export const useTerminal = (containerRef, visibleRef) => {
       return
     }
 
-    if (!sessionId.value || payload.sessionId === sessionId.value) {
+    if (sessionId.value && payload.sessionId === sessionId.value) {
       terminal.write(normalizeTerminalOutput(payload.data))
     }
   }
@@ -134,8 +138,10 @@ export const useTerminal = (containerRef, visibleRef) => {
     }
 
     sessionId.value = null
-    status.value = 'exited'
-    terminal?.writeln(`\r\n\x1b[90m[Process exited with code ${payload.exitCode}]\x1b[0m`)
+    status.value = payload.disconnected ? 'disconnected' : 'exited'
+    terminal?.writeln(payload.disconnected
+      ? '\r\n\x1b[31m[SSH connection disconnected]\x1b[0m'
+      : `\r\n\x1b[90m[Process exited with code ${payload.exitCode}]\x1b[0m`)
   }
 
   const handleConnect = () => {
@@ -283,5 +289,6 @@ export const useTerminal = (containerRef, visibleRef) => {
     dropActive,
     fit,
     restart,
+    sessionId,
   }
 }

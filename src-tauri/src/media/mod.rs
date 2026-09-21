@@ -1,14 +1,9 @@
 pub mod http;
 
 use crate::{
-    error::NativeError,
-    filesystem::{availability::require_content_ready, Filesystem},
+    error::NativeError, filesystem::Filesystem, provider_content::ContentSource, ssh::SshManager,
 };
-use std::{
-    fs::{self, File},
-    io::{Read, Seek, SeekFrom},
-    sync::Arc,
-};
+use std::sync::Arc;
 use tauri::http::{header, Method, Request, Response, StatusCode};
 
 // Tauri custom-protocol responses have an in-memory body. Keep open-ended
@@ -16,7 +11,11 @@ use tauri::http::{header, Method, Request, Response, StatusCode};
 // media file before the WebView can ask for the next chunk.
 const MAX_RANGE_RESPONSE_LENGTH: u64 = 1024 * 1024;
 
-pub fn serve(filesystem: &Arc<Filesystem>, request: Request<Vec<u8>>) -> Response<Vec<u8>> {
+pub fn serve(
+    filesystem: &Arc<Filesystem>,
+    ssh: &Arc<SshManager>,
+    request: Request<Vec<u8>>,
+) -> Response<Vec<u8>> {
     let method = request.method().clone();
     let path = requested_path(&request).unwrap_or_else(|| "<missing>".to_string());
     let range = request
@@ -26,7 +25,7 @@ pub fn serve(filesystem: &Arc<Filesystem>, request: Request<Vec<u8>>) -> Respons
         .unwrap_or("<none>")
         .to_string();
 
-    match serve_inner(filesystem, &request) {
+    match serve_inner(filesystem, ssh, &request) {
         Ok(response) => {
             if media_debug_enabled() {
                 let content_length = response
@@ -67,6 +66,7 @@ fn media_debug_enabled() -> bool {
 
 fn serve_inner(
     filesystem: &Filesystem,
+    ssh: &Arc<SshManager>,
     request: &Request<Vec<u8>>,
 ) -> Result<Response<Vec<u8>>, (StatusCode, NativeError, Option<u64>)> {
     if request.method() != Method::GET && request.method() != Method::HEAD {
@@ -81,8 +81,6 @@ fn serve_inner(
     let parameters: std::collections::HashMap<_, _> = url::form_urlencoded::parse(query.as_bytes())
         .into_owned()
         .collect();
-    Filesystem::require_local(parameters.get("filesystemId").map(String::as_str))
-        .map_err(|error| (StatusCode::BAD_REQUEST, error, None))?;
     let requested = parameters
         .get("path")
         .filter(|path| !path.is_empty())
@@ -103,27 +101,14 @@ fn serve_inner(
             None,
         ));
     }
-    let real = require_content_ready(
+    let source = ContentSource::open(
         filesystem,
+        ssh,
         parameters.get("filesystemId").map(String::as_str),
         requested,
     )
     .map_err(|error| (status_for_availability_error(&error), error, None))?;
-    let metadata = fs::metadata(&real).map_err(|error| {
-        (
-            StatusCode::NOT_FOUND,
-            media_io_error(&error, "Unable to inspect media file", &real),
-            None,
-        )
-    })?;
-    if !metadata.is_file() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            NativeError::new("ENOTFILE", "The requested path is not a file"),
-            None,
-        ));
-    }
-    let size = metadata.len();
+    let size = source.metadata().size;
     let range_header = request
         .headers()
         .get(header::RANGE)
@@ -144,43 +129,16 @@ fn serve_inner(
     let body = if request.method() == Method::HEAD || length == 0 {
         Vec::new()
     } else {
-        let mut file = File::open(&real).map_err(|error| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                media_io_error(&error, "Unable to open media file", &real),
-                Some(size),
-            )
-        })?;
-        file.seek(SeekFrom::Start(start)).map_err(|error| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                media_io_error(&error, "Unable to seek media file", &real),
-                Some(size),
-            )
-        })?;
-        let body_length = usize::try_from(length).map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                NativeError::new("EOVERFLOW", "Requested media range is too large"),
-                Some(size),
-            )
-        })?;
-        let mut body = vec![0; body_length];
-        file.take(length).read_exact(&mut body).map_err(|error| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                media_io_error(&error, "Unable to read media file", &real),
-                Some(size),
-            )
-        })?;
-        body
+        source
+            .read_range(ssh, start, length)
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error, Some(size)))?
     };
 
     let mut builder = Response::builder()
         .status(status)
         .header(header::ACCEPT_RANGES, "bytes")
         .header(header::CACHE_CONTROL, "no-store")
-        .header(header::CONTENT_TYPE, content_type(&real.to_string_lossy()))
+        .header(header::CONTENT_TYPE, content_type(requested))
         .header(header::CONTENT_LENGTH, length.to_string())
         .header("access-control-allow-origin", "*")
         .header("x-content-type-options", "nosniff");
@@ -203,12 +161,6 @@ fn status_for_availability_error(error: &NativeError) -> StatusCode {
         "EFILESYSTEM_ID" | "EINVAL" => StatusCode::BAD_REQUEST,
         _ => StatusCode::INTERNAL_SERVER_ERROR,
     }
-}
-
-fn media_io_error(error: &std::io::Error, action: &str, path: &std::path::Path) -> NativeError {
-    let mut native = NativeError::from_io(error, action).with_path(path);
-    native.message = format!("{action}: {error}");
-    native
 }
 
 fn parse_range(header: Option<&str>, size: u64) -> Result<Option<(u64, u64)>, NativeError> {
@@ -294,6 +246,9 @@ fn can_serve(path: &str) -> bool {
             | "mov"
             | "webm"
             | "ogv"
+            | "mkv"
+            | "ts"
+            | "m2ts"
             | "mp3"
             | "m4a"
             | "aac"
@@ -324,6 +279,8 @@ fn content_type(path: &str) -> &'static str {
         "mov" => "video/quicktime",
         "webm" => "video/webm",
         "ogv" => "video/ogg",
+        "mkv" => "video/x-matroska",
+        "ts" | "m2ts" => "video/mp2t",
         "mp3" => "audio/mpeg",
         "m4a" => "audio/mp4",
         "aac" => "audio/aac",
@@ -347,7 +304,7 @@ fn content_type(path: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{parse_range, serve, MAX_RANGE_RESPONSE_LENGTH};
-    use crate::filesystem::Filesystem;
+    use crate::{filesystem::Filesystem, ssh::SshManager};
     use std::{
         fs::{self, File},
         io::{Seek, SeekFrom, Write},
@@ -364,6 +321,7 @@ mod tests {
     struct Fixture {
         root: PathBuf,
         filesystem: Arc<Filesystem>,
+        ssh: Arc<SshManager>,
         large_pdf: PathBuf,
         small_pdf: PathBuf,
         unicode_pdf: PathBuf,
@@ -400,6 +358,7 @@ mod tests {
             Self {
                 root,
                 filesystem,
+                ssh: SshManager::new(),
                 large_pdf,
                 small_pdf,
                 unicode_pdf,
@@ -449,6 +408,7 @@ mod tests {
         let fixture = Fixture::new();
         let get = serve(
             &fixture.filesystem,
+            &fixture.ssh,
             fixture.request(Method::GET, &fixture.small_pdf, None),
         );
         assert_eq!(get.status(), StatusCode::OK);
@@ -459,6 +419,7 @@ mod tests {
 
         let head = serve(
             &fixture.filesystem,
+            &fixture.ssh,
             fixture.request(Method::HEAD, &fixture.small_pdf, None),
         );
         assert_eq!(head.status(), StatusCode::OK);
@@ -471,6 +432,7 @@ mod tests {
         let fixture = Fixture::new();
         let response = serve(
             &fixture.filesystem,
+            &fixture.ssh,
             fixture.request(Method::GET, &fixture.unicode_pdf, Some("bytes=0-7")),
         );
         assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
@@ -497,6 +459,7 @@ mod tests {
         ] {
             let response = serve(
                 &fixture.filesystem,
+                &fixture.ssh,
                 fixture.request(Method::GET, &fixture.large_pdf, Some(&range)),
             );
             let expected_length = expected_end - expected_start + 1;
@@ -529,6 +492,7 @@ mod tests {
         let fixture = Fixture::new();
         let response = serve(
             &fixture.filesystem,
+            &fixture.ssh,
             fixture.request(Method::GET, &fixture.large_pdf, Some("bytes=0-")),
         );
         assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
@@ -548,6 +512,7 @@ mod tests {
         let fixture = Fixture::new();
         let response = serve(
             &fixture.filesystem,
+            &fixture.ssh,
             fixture.request(
                 Method::GET,
                 &fixture.large_pdf,
@@ -567,6 +532,7 @@ mod tests {
         let fixture = Fixture::new();
         let response = serve(
             &fixture.filesystem,
+            &fixture.ssh,
             fixture.request(Method::HEAD, &fixture.large_pdf, Some("bytes=65536-131071")),
         );
         assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);

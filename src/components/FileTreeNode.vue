@@ -247,8 +247,10 @@ const handleKeydown = (event) => {
     return
   }
   if (event.key === 'Enter') {
+    event.preventDefault()
     selectNode()
-    toggle()
+    if (props.node.isDirectory) toggle()
+    else emit('open', props.node)
   }
 
   if (event.key === 'ArrowRight' && props.node.isDirectory && !expanded.value) {

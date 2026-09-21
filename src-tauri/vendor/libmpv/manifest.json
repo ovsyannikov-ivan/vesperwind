@@ -1,0 +1,42 @@
+{
+  "mpvVersion": "0.41.0",
+  "mpvCommit": "2c219aa822df18a1b7fd9abe3e151cd93ad67307",
+  "buildMode": "shared libmpv only; LGPL-compatible; no cplayer",
+  "artifactStatus": "built-from-pinned-source",
+  "licenseReview": "Engineering review complete; release legal review pending",
+  "macos": {
+    "architecture": "arm64",
+    "minimumVersion": "12.0",
+    "audioOutput": "system OpenAL",
+    "audioChannels": "stereo downmix (Apple OpenAL multichannel underruns)",
+    "openalClockCompatibilityPatch": "derive delay from 1024-sample queued buffers; ignore incompatible Apple latency/offset values",
+    "hardwareDecode": false,
+    "entry": "macos/libmpv.2.dylib"
+  },
+  "windows": {
+    "artifactStatus": "not-vendored",
+    "entry": "windows/mpv-2.dll"
+  },
+  "dependencies": {
+    "FFmpeg": "8.0",
+    "FreeType": "2.14.1",
+    "FriBidi": "1.0.16",
+    "HarfBuzz": "11.5.0",
+    "libass": "0.17.4",
+    "libplacebo": "7.351.0 (3188549fba13bbdf3a5a98de2a38c2e71f04e21e)"
+  },
+  "requiredMesonOptions": [
+    "-Dgpl=false",
+    "-Dcplayer=false",
+    "-Dlibmpv=true",
+    "-Ddefault_library=shared"
+  ],
+  "excludedLicenseFeatures": [
+    "GPL mpv sources",
+    "FFmpeg GPL components",
+    "FFmpeg nonfree components",
+    "FFmpeg version3 components"
+  ],
+  "macosEntry": "macos/libmpv.2.dylib",
+  "windowsEntry": "windows/mpv-2.dll"
+}

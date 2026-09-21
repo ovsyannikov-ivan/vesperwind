@@ -82,13 +82,17 @@ const messages = {
 
 const serializeTextFileError = (error, requestedPath) => ({
   code: error?.code || 'ETEXTFILE',
-  message: messages[error?.code] || 'Unable to read or save this file',
+  message: messages[error?.code] || error?.message || 'Unable to read or save this file',
   path: typeof requestedPath === 'string' ? requestedPath : null,
 })
 
-export const registerTextFileHandlers = (socket) => {
+export const registerTextFileHandlers = (socket, { ssh } = {}) => {
   socket.on('filesystem:read-text', async (payload, acknowledge) => {
     try {
+      if (payload?.filesystemId && payload.filesystemId !== 'local') {
+        acknowledge?.({ ok: true, ...(await (await ssh.ensure(payload.filesystemId)).readText(payload?.path)) })
+        return
+      }
       acknowledge?.({
         ok: true,
         ...(await readTextFile(payload?.path, payload?.filesystemId)),
@@ -103,6 +107,10 @@ export const registerTextFileHandlers = (socket) => {
 
   socket.on('filesystem:write-text', async (payload, acknowledge) => {
     try {
+      if (payload?.filesystemId && payload.filesystemId !== 'local') {
+        acknowledge?.({ ok: true, ...(await ssh.get(payload.filesystemId).writeText(payload?.path, payload?.content)) })
+        return
+      }
       acknowledge?.({
         ok: true,
         ...(await writeTextFile(
