@@ -48,6 +48,8 @@ const homePath = ref('')
 const root = ref(null)
 const selectedNode = ref(null)
 const selectedPath = ref('')
+const renameRequest = ref(null)
+let renameRequestSequence = 0
 const loading = ref(true)
 const error = ref(null)
 const breadcrumbsRef = ref(null)
@@ -92,6 +94,18 @@ const loadRoot = async () => {
 const selectNode = (node) => {
   selectedNode.value = node
   selectedPath.value = node.path
+}
+
+const requestRename = (node) => {
+  if (!node) {
+    return
+  }
+
+  selectNode(node)
+  renameRequest.value = {
+    path: node.path,
+    sequence: ++renameRequestSequence,
+  }
 }
 
 const openDirectory = (node) => {
@@ -258,7 +272,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('drop', clearRootDropTarget)
 })
 
-defineExpose({ openNode })
+defineExpose({ openNode, requestRename })
 
 watch(entryChange, (change) => {
   if (change?.action !== 'rename' || change.providerId !== props.providerId) return
@@ -354,6 +368,7 @@ watch(entryChange, (change) => {
           :provider-id="providerId"
           :panel-side="side"
           :selected-path="selectedPath"
+          :rename-request="renameRequest"
           :list-directory="listDirectory"
           @select="selectNode"
           @open="openNode"

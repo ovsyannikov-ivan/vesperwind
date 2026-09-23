@@ -1,10 +1,11 @@
 <script setup>
-import { GlobalWorkerOptions, TextLayer, getDocument } from 'pdfjs-dist'
+import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import {
   EventBus,
   FindState,
   PDFFindController,
+  TextLayerBuilder,
 } from 'pdfjs-dist/web/pdf_viewer.mjs'
 import {
   computed,
@@ -14,7 +15,11 @@ import {
   ref,
   watch,
 } from 'vue'
-import { calculatePdfOutputScale } from '../utils/pdfRendering.js'
+import {
+  calculatePdfOutputScale,
+  getPdfCssPageSize,
+  setPdfTextLayerViewport,
+} from '../utils/pdfRendering.js'
 import { buildPdfTextMatchSegments } from '../utils/pdfTextSearch.js'
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl
@@ -140,10 +145,13 @@ const describeLoadError = (error) => {
 
 const pageState = (pageNumber) => pages.value[pageNumber - 1]
 
-const pageFrameStyle = (page) => ({
-  width: `${Math.max(1, page.baseWidth * displayScale.value)}px`,
-  height: `${Math.max(1, page.baseHeight * displayScale.value)}px`,
-})
+const pageFrameStyle = (page) => {
+  const size = getPdfCssPageSize({
+    width: page.baseWidth * displayScale.value,
+    height: page.baseHeight * displayScale.value,
+  })
+  return { width: `${size.width}px`, height: `${size.height}px` }
+}
 
 const thumbnailFrameStyle = (page) => ({
   width: `${THUMBNAIL_WIDTH}px`,
@@ -211,9 +219,9 @@ const clearTextLayer = (pageNumber) => {
 
 const applyTextLayerHighlights = (pageNumber) => {
   const textLayer = textLayers.get(pageNumber)
-  const container = textLayerElements.get(pageNumber)
+  const container = textLayer?.div
 
-  if (!textLayer || !container) {
+  if (!textLayer || !container?.isConnected) {
     return
   }
 
@@ -390,11 +398,12 @@ const renderMainPage = async (pageNumber, generation) => {
       window.devicePixelRatio,
     )
     const context = canvas.getContext('2d', { alpha: false })
+    const cssSize = getPdfCssPageSize(viewport)
 
     canvas.width = Math.max(1, Math.floor(viewport.width * outputScale))
     canvas.height = Math.max(1, Math.floor(viewport.height * outputScale))
-    canvas.style.width = `${viewport.width}px`
-    canvas.style.height = `${viewport.height}px`
+    canvas.style.width = `${cssSize.width}px`
+    canvas.style.height = `${cssSize.height}px`
 
     const renderTask = pdfPage.render({
       canvasContext: context,
@@ -413,16 +422,29 @@ const renderMainPage = async (pageNumber, generation) => {
 
       if (textContainer) {
         clearTextLayer(pageNumber)
-        const textLayer = new TextLayer({
-          textContentSource: pdfPage.streamTextContent({
-            includeMarkedContent: true,
-            disableNormalization: true,
-          }),
-          container: textContainer,
-          viewport,
+        const textLayer = {
+          textDivs: [],
+          textContentItemsStr: [],
+        }
+        const builder = new TextLayerBuilder({
+          pdfPage,
+          // PDF.js handles selection; Vesperwind keeps its existing match markup.
+          highlighter: {
+            setTextMapping: (textDivs, textContentItemsStr) => {
+              textLayer.textDivs = textDivs
+              textLayer.textContentItemsStr = textContentItemsStr
+            },
+            enable: () => {},
+            disable: () => {},
+          },
+          onAppend: (element) => textContainer.append(element),
         })
+        builder.div.classList.add('pdf-page-text-layer')
+        setPdfTextLayerViewport(builder.div, viewport)
+        textLayer.div = builder.div
+        textLayer.cancel = () => builder.cancel()
         textLayers.set(pageNumber, textLayer)
-        await textLayer.render()
+        await builder.render({ viewport })
 
         if (props.visible && generation === mainGeneration) {
           page.textLayerRenderedScale = scale
@@ -1711,7 +1733,7 @@ onBeforeUnmount(() => {
               />
               <div
                 :ref="(element) => setTextLayerElement(element, page.number)"
-                class="textLayer pdf-page-text-layer"
+                class="pdf-page-text-layer-host"
               />
               <div
                 v-if="page.renderedScale === null && !page.error"

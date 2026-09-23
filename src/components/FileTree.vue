@@ -11,6 +11,10 @@ defineProps({
     type: String,
     default: '',
   },
+  renameRequest: {
+    type: Object,
+    default: null,
+  },
   homePath: {
     type: String,
     default: '',
@@ -49,6 +53,7 @@ defineEmits(['select', 'open', 'drop-request', 'context-menu'])
       :panel-side="panelSide"
       :provider-id="providerId"
       :selected-path="selectedPath"
+      :rename-request="renameRequest"
       :list-directory="listDirectory"
       :compact="compact"
       :scroll-selected-into-view="scrollSelectedIntoView"

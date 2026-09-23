@@ -13,12 +13,12 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['open', 'delete', 'cancel'])
+const emit = defineEmits(['open', 'rename', 'delete', 'cancel'])
 const menuRef = ref(null)
 const firstActionRef = ref(null)
 const menuStyle = computed(() => {
   const width = 208
-  const height = props.openAction ? 92 : 48
+  const height = props.openAction ? 128 : 84
   const left = Math.max(8, Math.min(props.request.x, window.innerWidth - width - 8))
   const top = Math.max(8, Math.min(props.request.y, window.innerHeight - height - 8))
 
@@ -34,7 +34,7 @@ const actionLabel = computed(() => ({
   edit: 'Edit',
   view: 'View',
 }[props.openAction]))
-const captureDeleteRef = (element) => {
+const captureRenameRef = (element) => {
   if (!props.openAction) {
     firstActionRef.value = element
   }
@@ -88,7 +88,16 @@ onBeforeUnmount(() => {
       </button>
       <div v-if="openAction" class="dropdown-divider" />
       <button
-        :ref="captureDeleteRef"
+        :ref="captureRenameRef"
+        class="dropdown-item"
+        type="button"
+        role="menuitem"
+        @click="$emit('rename')"
+      >
+        <i class="mdi mdi-rename-outline" aria-hidden="true" />
+        Rename
+      </button>
+      <button
         class="dropdown-item text-danger"
         type="button"
         role="menuitem"

@@ -37,7 +37,7 @@ test('PDF viewer keeps URL/range loading and uses PDF.js text/find primitives', 
     'utf8',
   )
 
-  assert.match(source, /new TextLayer\(/u)
+  assert.match(source, /new TextLayerBuilder\(/u)
   assert.match(source, /new PDFFindController\(/u)
   assert.match(source, /url: sourceUrl\.value/u)
   assert.match(source, /rangeChunkSize: 64 \* 1024/u)

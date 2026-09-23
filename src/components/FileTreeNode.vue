@@ -34,6 +34,10 @@ const props = defineProps({
     type: String,
     default: '',
   },
+  renameRequest: {
+    type: Object,
+    default: null,
+  },
   homePath: {
     type: String,
     default: '',
@@ -360,6 +364,19 @@ watch(selected, (isSelected) => {
   if (!isSelected) { lastNameClick = 0; cancelRename() }
 })
 
+watch(
+  () => props.renameRequest,
+  async (request) => {
+    if (!request || request.path !== props.node.path || props.depth === 0) {
+      return
+    }
+
+    selectNode()
+    await nextTick()
+    await beginRename()
+  },
+)
+
 watch(entryChange, async (change) => {
   if (change?.targetDirectory !== props.node.path || !props.node.isDirectory) return
   // A pending initial read may contain an old snapshot. Refresh after it settles.
@@ -482,6 +499,7 @@ onBeforeUnmount(cancelRenameTimer)
           :provider-id="providerId"
           :depth="depth + 1"
           :selected-path="selectedPath"
+          :rename-request="renameRequest"
           :list-directory="listDirectory"
           :compact="compact"
           :scroll-selected-into-view="scrollSelectedIntoView"

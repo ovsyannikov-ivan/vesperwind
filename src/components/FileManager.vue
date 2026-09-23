@@ -337,6 +337,19 @@ const executeEntryContextOpen = () => {
   panel?.openNode(requestDetails)
 }
 
+const executeEntryContextRename = () => {
+  const requestDetails = entryContextRequest.value
+
+  if (!requestDetails) {
+    return
+  }
+
+  entryContextRequest.value = null
+  activePanel.value = requestDetails.sourcePane
+  const panel = requestDetails.sourcePane === 'left' ? leftPanel.value : rightPanel.value
+  panel?.requestRename(requestDetails.node)
+}
+
 const executeEntryContextDelete = () => {
   const requestDetails = entryContextRequest.value
 
@@ -635,6 +648,7 @@ onBeforeUnmount(() => {
       :request="entryContextRequest"
       :open-action="entryContextOpenAction"
       @open="executeEntryContextOpen"
+      @rename="executeEntryContextRename"
       @delete="executeEntryContextDelete"
       @cancel="closeEntryContextMenu"
     />
