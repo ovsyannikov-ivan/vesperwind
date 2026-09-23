@@ -143,7 +143,7 @@ pub fn run() {
             tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }
         ) {
             shutdown_terminal.shutdown();
-            shutdown_player.close();
+            shutdown_player.close_all();
             ssh.shutdown();
         }
     });

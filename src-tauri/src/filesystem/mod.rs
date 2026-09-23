@@ -1,3 +1,4 @@
+pub mod alias;
 pub mod availability;
 pub mod operations;
 pub mod paths;
@@ -121,8 +122,15 @@ impl Filesystem {
 
     pub fn list_directory(&self, requested: &str) -> Result<Vec<FileEntry>, NativeError> {
         let resolved = paths::resolve_inside_root(self, requested)?;
-        paths::verify_existing_inside_root(self, &resolved)?;
-        let reader = fs::read_dir(&resolved)
+        let real = paths::verify_existing_inside_root(self, &resolved)?;
+        let metadata = fs::metadata(&real)
+            .map_err(|error| filesystem_error(&error, requested, "Unable to read this folder"))?;
+        if !metadata.is_dir() {
+            return Err(
+                NativeError::new("ENOTDIR", "This item is not a folder").with_path(requested)
+            );
+        }
+        let reader = fs::read_dir(&real)
             .map_err(|error| filesystem_error(&error, requested, "Unable to read this folder"))?;
         let mut entries = Vec::new();
 
@@ -130,7 +138,12 @@ impl Filesystem {
             let item = item.map_err(|error| {
                 filesystem_error(&error, requested, "Unable to read this folder")
             })?;
-            entries.push(entry_from_path(item.path(), item.file_name()));
+            entries.push(entry_from_path(
+                self,
+                item.path(),
+                resolved.join(item.file_name()),
+                item.file_name(),
+            ));
         }
 
         entries.sort_by(
@@ -144,35 +157,57 @@ impl Filesystem {
     }
 }
 
-fn entry_from_path(path: PathBuf, file_name: std::ffi::OsString) -> FileEntry {
+fn entry_from_path(
+    filesystem: &Filesystem,
+    physical_path: PathBuf,
+    display_path: PathBuf,
+    file_name: std::ffi::OsString,
+) -> FileEntry {
     let name = file_name.to_string_lossy().into_owned();
+    let link_metadata = fs::symlink_metadata(&physical_path);
+    let is_finder_alias = alias::is_finder_alias(&physical_path).unwrap_or(false);
+    let resolved = paths::verify_existing_inside_root(filesystem, &physical_path);
 
-    match fs::symlink_metadata(&path) {
-        Ok(metadata) => {
-            let is_directory = metadata.is_dir();
-            FileEntry {
-                name,
-                path: path.to_string_lossy().into_owned(),
-                entry_type: if is_directory { "directory" } else { "file" },
-                is_directory,
-                is_symbolic_link: metadata.file_type().is_symlink(),
-                size: (!is_directory).then_some(metadata.len()),
-                modified_at: metadata.modified().ok().map(format_time),
-                metadata_error: None,
+    match (link_metadata, resolved) {
+        (Ok(link_metadata), Ok(real)) => match fs::metadata(&real) {
+            Ok(metadata) => {
+                let is_directory = metadata.is_dir();
+                FileEntry {
+                    name,
+                    path: display_path.to_string_lossy().into_owned(),
+                    entry_type: if is_directory { "directory" } else { "file" },
+                    is_directory,
+                    is_symbolic_link: link_metadata.file_type().is_symlink() || is_finder_alias,
+                    size: (!is_directory).then_some(metadata.len()),
+                    modified_at: metadata.modified().ok().map(format_time),
+                    metadata_error: None,
+                }
             }
-        }
-        Err(error) => FileEntry {
-            name,
-            path: path.to_string_lossy().into_owned(),
-            entry_type: "file",
-            is_directory: false,
-            is_symbolic_link: false,
-            size: None,
-            modified_at: None,
-            metadata_error: Some(MetadataError {
-                code: NativeError::from_io(&error, "Unable to read metadata").code,
-            }),
+            Err(error) => metadata_error_entry(
+                name,
+                display_path,
+                NativeError::from_io(&error, "Unable to read metadata"),
+            ),
         },
+        (Err(error), _) => metadata_error_entry(
+            name,
+            display_path,
+            NativeError::from_io(&error, "Unable to read metadata"),
+        ),
+        (_, Err(error)) => metadata_error_entry(name, display_path, error),
+    }
+}
+
+fn metadata_error_entry(name: String, path: PathBuf, error: NativeError) -> FileEntry {
+    FileEntry {
+        name,
+        path: path.to_string_lossy().into_owned(),
+        entry_type: "file",
+        is_directory: false,
+        is_symbolic_link: false,
+        size: None,
+        modified_at: None,
+        metadata_error: Some(MetadataError { code: error.code }),
     }
 }
 
@@ -191,4 +226,84 @@ pub fn filesystem_error(error: &std::io::Error, path: &str, fallback: &str) -> N
     }
     .to_string();
     result
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::Filesystem;
+    use std::{fs, path::PathBuf};
+    use uuid::Uuid;
+
+    fn create_finder_alias(target: &std::path::Path, alias: &std::path::Path) {
+        use objc2_foundation::{
+            NSString, NSURLBookmarkCreationOptions, NSURLBookmarkFileCreationOptions, NSURL,
+        };
+        let file_url = |path: &std::path::Path| {
+            NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy()))
+        };
+        let data = file_url(target)
+            .bookmarkDataWithOptions_includingResourceValuesForKeys_relativeToURL_error(
+                NSURLBookmarkCreationOptions::SuitableForBookmarkFile,
+                None,
+                None,
+            )
+            .unwrap();
+        NSURL::writeBookmarkData_toURL_options_error(
+            &data,
+            &file_url(alias),
+            NSURLBookmarkFileCreationOptions::default(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn navigates_directory_alias_with_logical_child_paths() {
+        let root = std::env::temp_dir().join(format!("vesperwind-dir-alias-{}", Uuid::new_v4()));
+        let target = root.join("real-folder");
+        let alias = root.join("Folder alias");
+        fs::create_dir_all(&target).unwrap();
+        fs::write(target.join("note.txt"), b"hello").unwrap();
+        create_finder_alias(&target, &alias);
+        let filesystem = Filesystem::from_root(&root, root.clone()).unwrap();
+
+        let parent_entry = filesystem
+            .list_directory(&root.to_string_lossy())
+            .unwrap()
+            .into_iter()
+            .find(|entry| entry.path == alias.to_string_lossy())
+            .unwrap();
+        assert!(parent_entry.is_directory);
+        assert!(parent_entry.is_symbolic_link);
+
+        let child = filesystem
+            .list_directory(&alias.to_string_lossy())
+            .unwrap()
+            .into_iter()
+            .find(|entry| entry.name == "note.txt")
+            .unwrap();
+        assert_eq!(child.path, alias.join("note.txt").to_string_lossy());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn listing_preserves_real_finder_alias_path_and_uses_target_metadata() {
+        let Some(path) = std::env::var_os("VESPERWIND_FINDER_ALIAS_TEST_PATH") else {
+            return;
+        };
+        let alias = PathBuf::from(path);
+        let parent = alias.parent().unwrap();
+        let root = dirs::home_dir().unwrap();
+        let filesystem = Filesystem::from_root(&root, root.clone()).unwrap();
+        let entries = filesystem
+            .list_directory(&parent.to_string_lossy())
+            .unwrap();
+        let entry = entries
+            .iter()
+            .find(|entry| entry.path == alias.to_string_lossy())
+            .expect("Finder Alias entry");
+
+        assert!(entry.is_symbolic_link);
+        assert!(!entry.is_directory);
+        assert!(entry.size.unwrap() > fs::metadata(alias).unwrap().len());
+    }
 }

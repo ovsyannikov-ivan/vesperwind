@@ -227,10 +227,6 @@ impl MpvApi {
             }
             #[cfg(target_os = "macos")]
             {
-                // Apple's deprecated system OpenAL accepts multichannel format
-                // enums but immediately underruns them. Downmix to its reliable
-                // stereo path until the bundle can use native AudioUnit/CoreAudio.
-                self.set_option(handle, "audio-channels", "stereo")?;
                 // Keep intermediate video processing in floating point. The final
                 // target transfer/peak is updated from the active NSScreen.
                 self.set_option(handle, "fbo-format", "rgba16f")?;
@@ -501,99 +497,187 @@ mod tests {
             std::env::var_os("VESPERWIND_MPV_SMOKE_FILE")
                 .expect("set VESPERWIND_MPV_SMOKE_FILE to a local media file"),
         );
-        let root = path.parent().expect("media parent");
-        let filesystem = Filesystem::from_root(root, root.to_path_buf()).expect("filesystem");
-        let ssh = SshManager::new();
-        let source = ContentSource::open(&filesystem, &ssh, Some("local"), &path.to_string_lossy())
-            .expect("content source");
-        let registry = stream::MpvStreamRegistry::new(ssh);
-        let uri = registry.register(source);
-        let api = MpvApi::load_bundled().expect("bundled libmpv");
-        let handle = unsafe { (api.create)() };
-        assert!(!handle.is_null());
+        let parent = path.parent().expect("media parent");
+        let root = dirs::home_dir()
+            .filter(|home| path.starts_with(home))
+            .unwrap_or_else(|| parent.to_path_buf());
+        let filesystem = Filesystem::from_root(&root, root.clone()).expect("filesystem");
+        let cycles = std::env::var("VESPERWIND_MPV_SMOKE_CYCLES")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(1)
+            .max(1);
+        for cycle in 1..=cycles {
+            let ssh = SshManager::new();
+            let source =
+                ContentSource::open(&filesystem, &ssh, Some("local"), &path.to_string_lossy())
+                    .expect("content source");
+            let registry = stream::MpvStreamRegistry::new(ssh);
+            let uri = registry.register(source);
+            let api = MpvApi::load_bundled().expect("bundled libmpv");
+            let handle = unsafe { (api.create)() };
+            assert!(!handle.is_null());
 
-        for (name, value) in [
-            ("terminal", "no"),
-            ("config", "no"),
-            ("idle", "yes"),
-            ("vo", "null"),
-            ("volume", "0"),
-            ("hwdec", "auto-copy-safe"),
-        ] {
-            api.set_option(handle, name, value).expect(name);
-        }
-        if let Some(log_path) = std::env::var_os("VESPERWIND_MPV_SMOKE_LOG") {
-            api.set_option(handle, "log-file", &log_path.to_string_lossy())
-                .expect("log-file");
-            api.set_option(handle, "msg-level", "all=v")
-                .expect("msg-level");
-        }
-        let protocol = CString::new("vesperwind").unwrap();
-        assert!(
-            unsafe {
-                (api.stream_add)(
-                    handle,
-                    protocol.as_ptr(),
-                    Arc::as_ptr(&registry).cast_mut().cast(),
-                    stream::open_stream,
-                )
-            } >= 0
-        );
-        assert!(unsafe { (api.initialize)(handle) } >= 0);
-        api.command(handle, &["loadfile", &uri, "replace"])
-            .expect("loadfile");
+            for (name, value) in [
+                ("terminal", "no"),
+                ("config", "no"),
+                ("idle", "yes"),
+                ("vo", "null"),
+                ("volume", "0"),
+                ("hwdec", "auto-copy-safe"),
+            ] {
+                api.set_option(handle, name, value).expect(name);
+            }
+            if let Some(log_path) = std::env::var_os("VESPERWIND_MPV_SMOKE_LOG") {
+                api.set_option(handle, "log-file", &log_path.to_string_lossy())
+                    .expect("log-file");
+                api.set_option(handle, "msg-level", "all=v")
+                    .expect("msg-level");
+            }
+            let protocol = CString::new("vesperwind").unwrap();
+            assert!(
+                unsafe {
+                    (api.stream_add)(
+                        handle,
+                        protocol.as_ptr(),
+                        Arc::as_ptr(&registry).cast_mut().cast(),
+                        stream::open_stream,
+                    )
+                } >= 0
+            );
+            assert!(unsafe { (api.initialize)(handle) } >= 0);
+            api.command(handle, &["loadfile", &uri, "replace"])
+                .expect("loadfile");
 
-        let deadline = Instant::now() + Duration::from_secs(15);
-        let mut loaded = false;
-        let mut progressed = false;
-        let mut playback_started = None;
-        let mut media_start = 0.0;
-        let mut media_time = 0.0;
-        while Instant::now() < deadline {
-            match api.wait_event_details(handle, 0.05).event_id {
-                MPV_EVENT_FILE_LOADED => {
-                    loaded = true;
-                    media_start = api.get_double(handle, "time-pos").unwrap_or_default();
-                    api.set_property(handle, "pause", "no").expect("play");
-                    playback_started = Some(Instant::now());
+            let deadline = Instant::now() + Duration::from_secs(15);
+            let mut loaded = false;
+            let mut progressed = false;
+            let mut playback_started = None;
+            let mut media_start = 0.0;
+            let mut media_time = 0.0;
+            while Instant::now() < deadline {
+                match api.wait_event_details(handle, 0.05).event_id {
+                    MPV_EVENT_FILE_LOADED => {
+                        loaded = true;
+                        media_start = api.get_double(handle, "time-pos").unwrap_or_default();
+                        api.set_property(handle, "pause", "no").expect("play");
+                        playback_started = Some(Instant::now());
+                    }
+                    MPV_EVENT_END_FILE if !progressed => break,
+                    _ => {}
                 }
-                MPV_EVENT_END_FILE if !progressed => break,
-                _ => {}
+                media_time = api.get_double(handle, "time-pos").unwrap_or_default();
+                progressed = media_time > 0.1;
+                if playback_started
+                    .is_some_and(|started| started.elapsed() >= Duration::from_secs(2))
+                {
+                    break;
+                }
             }
-            media_time = api.get_double(handle, "time-pos").unwrap_or_default();
-            progressed = media_time > 0.1;
-            if playback_started.is_some_and(|started| started.elapsed() >= Duration::from_secs(2)) {
-                break;
+
+            let duration = api.get_double(handle, "duration").unwrap_or_default();
+            let tracks = api.get_i64(handle, "track-list/count").unwrap_or_default();
+            let initial_ao = api.get_string(handle, "current-ao");
+            let current_vo = api.get_string(handle, "current-vo");
+            let audio_codec = api.get_string(handle, "current-tracks/audio/codec");
+            let hardware_decoder = api.get_string(handle, "hwdec-current");
+            let video_width = api.get_i64(handle, "video-params/w").unwrap_or_default();
+            let video_height = api.get_i64(handle, "video-params/h").unwrap_or_default();
+            eprintln!(
+            "mpv smoke cycle {cycle}/{cycles}: media_delta={:.2}s ao={initial_ao:?} vo={current_vo:?} audio={audio_codec:?} hwdec-current={hardware_decoder:?}",
+            media_time - media_start,
+        );
+
+            let expected_audio_codecs = std::env::var("VESPERWIND_MPV_EXPECT_AUDIO_CODECS")
+                .ok()
+                .map(|value| {
+                    value
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_string)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            for expected_codec in expected_audio_codecs {
+                let audio_track = (0..tracks).find_map(|index| {
+                    let prefix = format!("track-list/{index}");
+                    (api.get_string(handle, &format!("{prefix}/type")).as_deref() == Some("audio")
+                        && api
+                            .get_string(handle, &format!("{prefix}/codec"))
+                            .as_deref()
+                            == Some(expected_codec.as_str()))
+                    .then(|| api.get_i64(handle, &format!("{prefix}/id")))
+                    .flatten()
+                });
+                let track_id = audio_track.unwrap_or_else(|| {
+                    panic!("real MKV has no expected {expected_codec} audio track")
+                });
+                api.set_property(handle, "aid", &track_id.to_string())
+                    .expect("switch audio track");
+
+                let switch_deadline = Instant::now() + Duration::from_secs(3);
+                while Instant::now() < switch_deadline
+                    && api
+                        .get_string(handle, "current-tracks/audio/codec")
+                        .as_deref()
+                        != Some(expected_codec.as_str())
+                {
+                    api.wait_event_details(handle, 0.05);
+                }
+                assert_eq!(
+                    api.get_string(handle, "current-tracks/audio/codec")
+                        .as_deref(),
+                    Some(expected_codec.as_str()),
+                    "audio track switch did not become active"
+                );
+
+                let wall_start = Instant::now();
+                let media_before = api.get_double(handle, "time-pos").unwrap_or_default();
+                while wall_start.elapsed() < Duration::from_millis(1200) {
+                    api.wait_event_details(handle, 0.05);
+                }
+                let media_after = api.get_double(handle, "time-pos").unwrap_or_default();
+                let wall_delta = wall_start.elapsed().as_secs_f64();
+                let media_delta = media_after - media_before;
+                let avsync = api.get_double(handle, "avsync").unwrap_or_default();
+                eprintln!(
+                    "audio switch: codec={expected_codec} aid={track_id} media_delta={media_delta:.3}s wall_delta={wall_delta:.3}s avsync={avsync:.4}s"
+                );
+                assert!(
+                    (media_delta - wall_delta).abs() < 0.5,
+                    "{expected_codec} playback is not realtime: media={media_delta:.3}s wall={wall_delta:.3}s"
+                );
+                assert!(
+                    avsync.abs() < 0.25,
+                    "{expected_codec} A/V sync drift is too large: {avsync:.4}s"
+                );
             }
+            let current_ao = api.get_string(handle, "current-ao");
+            eprintln!("audio output after track switches: {current_ao:?}");
+            api.command(handle, &["stop"]).ok();
+            api.destroy(handle);
+            registry.remove(&uri);
+
+            assert!(loaded, "libmpv did not load the provider stream");
+            assert!(duration > 0.0, "libmpv did not expose media duration");
+            assert!(tracks > 0, "libmpv did not expose media tracks");
+            assert!(
+                video_width > 0 && video_height > 0,
+                "libmpv did not decode video parameters"
+            );
+            assert!(progressed, "libmpv did not decode beyond the first frame");
+            if let Ok(expected) = std::env::var("VESPERWIND_MPV_EXPECT_HWDEC") {
+                assert_eq!(hardware_decoder.as_deref(), Some(expected.as_str()));
+            }
+            if let Ok(expected) = std::env::var("VESPERWIND_MPV_EXPECT_AUDIO_OUTPUT") {
+                assert_eq!(current_ao.as_deref(), Some(expected.as_str()));
+            }
+            assert!(
+                media_time - media_start < 5.0,
+                "libmpv playback clock ran too fast: {:.2}s in 2s wall time",
+                media_time - media_start
+            );
         }
-
-        let duration = api.get_double(handle, "duration").unwrap_or_default();
-        let tracks = api.get_i64(handle, "track-list/count").unwrap_or_default();
-        let current_ao = api.get_string(handle, "current-ao");
-        let current_vo = api.get_string(handle, "current-vo");
-        let audio_codec = api.get_string(handle, "current-tracks/audio/codec");
-        let video_width = api.get_i64(handle, "video-params/w").unwrap_or_default();
-        let video_height = api.get_i64(handle, "video-params/h").unwrap_or_default();
-        eprintln!(
-            "mpv smoke: media_delta={:.2}s ao={current_ao:?} vo={current_vo:?} audio={audio_codec:?}",
-            media_time - media_start
-        );
-        api.command(handle, &["stop"]).ok();
-        api.destroy(handle);
-        registry.remove(&uri);
-
-        assert!(loaded, "libmpv did not load the provider stream");
-        assert!(duration > 0.0, "libmpv did not expose media duration");
-        assert!(tracks > 0, "libmpv did not expose media tracks");
-        assert!(
-            video_width > 0 && video_height > 0,
-            "libmpv did not decode video parameters"
-        );
-        assert!(progressed, "libmpv did not decode beyond the first frame");
-        assert!(
-            media_time - media_start < 5.0,
-            "libmpv playback clock ran too fast: {:.2}s in 2s wall time",
-            media_time - media_start
-        );
     }
 }

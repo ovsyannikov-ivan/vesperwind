@@ -7,10 +7,11 @@
   "macos": {
     "architecture": "arm64",
     "minimumVersion": "12.0",
-    "audioOutput": "system OpenAL",
-    "audioChannels": "stereo downmix (Apple OpenAL multichannel underruns)",
-    "openalClockCompatibilityPatch": "derive delay from 1024-sample queued buffers; ignore incompatible Apple latency/offset values",
-    "hardwareDecode": false,
+    "buildToolchain": "Xcode 27.0 (27A266a), macOS SDK 27.0",
+    "audioOutput": "system CoreAudio",
+    "hardwareDecode": true,
+    "hardwareDecodePolicy": "auto-copy-safe; VideoToolbox copy-back with software fallback",
+    "buildEvidence": "macos/BUILD-INFO.txt",
     "entry": "macos/libmpv.2.dylib"
   },
   "windows": {

@@ -71,3 +71,17 @@ test('renders branding only from the centralized browser runtime mode', async ()
   assert.doesNotMatch(toolbar, /runtime\.getInfo/)
   assert.doesNotMatch(toolbar, /__TAURI|isSea\s*\(|process\.env/)
 })
+
+test('renders Remote as a command rather than a state toggle', async () => {
+  const toolbar = await fs.readFile(
+    path.join(projectRoot, 'src', 'components', 'Toolbar.vue'),
+    'utf8',
+  )
+  const remoteButton = toolbar.match(
+    /<button class="([^"]+)"[^>]+title="Manage SSH\/SFTP connections"/,
+  )
+
+  assert.ok(remoteButton)
+  assert.match(remoteButton[1], /\btoolbar-command\b/)
+  assert.doesNotMatch(remoteButton[1], /\btoolbar-toggle\b/)
+})

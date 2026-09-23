@@ -124,34 +124,30 @@ the following pinned sources:
 The build contains no external `mpv` executable and does not search Homebrew,
 mpv.app, or the host PATH at runtime. All non-system dylibs use `@loader_path` and
 are bundled beside `libmpv.2.dylib`. The remaining system dependencies are macOS
-frameworks/libraries, including OpenGL/CoreText and OpenAL.
+frameworks/libraries, including OpenGL, CoreText, CoreAudio, AudioUnit, and
+AudioToolbox.
 
-The checked-in artifact was built with the Apple Command Line Tools SDK and has
-VideoToolbox disabled; diagnostics must therefore say `software` for this exact
-bundle. The reproducible build script now rejects Command Line Tools and requires a
-full Xcode SDK, enables FFmpeg VideoToolbox, and keeps mpv's direct VideoToolbox/OpenGL
-interop disabled. Vesperwind requests `hwdec=auto-copy-safe`: supported H.264/HEVC
-streams can use VideoToolbox decoding with safe copy-back into the caller-owned
-OpenGL Render API, while unsupported codecs or failed hardware initialization fall
-back to software. A new VideoToolbox-enabled dylib set has not been produced on this
-machine because full Xcode is not installed, so hardware decode is not claimed for
-the checked-in runtime. HDR output remains independent from decoder selection.
+The checked-in artifact was rebuilt with Xcode 27.0 (build 27A266a) and the macOS
+27.0 SDK. FFmpeg has VideoToolbox enabled for H.264 and HEVC while retaining the
+LGPL-compatible `--disable-gpl --disable-nonfree --disable-version3` constraints.
+mpv's direct VideoToolbox/OpenGL interop remains disabled. Vesperwind requests
+`hwdec=auto-copy-safe`, so supported streams use the safe `videotoolbox-copy` path
+into the caller-owned OpenGL Render API and unsupported codecs or failed hardware
+initialization fall back to software. `macos/BUILD-INFO.txt` records the exact SDK,
+configuration macros, FFmpeg hardware-device probe, and decoder availability; the
+bundle verifier checks that evidence and its checksum. Runtime `hwdec-current` is
+reported in the player's Info panel rather than inferred from build configuration.
+HDR output remains independent from decoder selection.
 
-Apple's deprecated OpenAL runtime reports source-latency and source-offset values
-that are not compatible with mpv's playback clock and can make media time advance
-much faster than wall time. The reproducible build applies a narrow macOS
-compatibility patch to mpv's OpenAL output: clock delay is derived from completed
-and queued buffers, using smaller 1,024-sample buffers for roughly 21 ms
-granularity. The checked-in real-file smoke test was run against a 10.45 GB MKV
-through the same `vesperwind://` custom stream used by the application and verifies
-that playback time remains synchronized with wall time.
-
-The same Apple OpenAL implementation advertises multichannel formats but
-immediately underruns them. The macOS runtime therefore downmixes native playback
-to stereo. Source track selection remains available; native multichannel output is
-deferred until the bundle can be rebuilt against AudioUnit/CoreAudio. Native video
-explicitly selects `vo=libmpv`, ensuring decoded frames are presented through the
-caller-owned Render API surface rather than probing a standalone mpv GPU window.
+Xcode 27 no longer ships macOS OpenAL headers, so this bundle uses mpv's native
+CoreAudio output instead of the previous deprecated OpenAL compatibility patch.
+The build script includes mpv's existing CoreFoundation string helper in the
+headless CoreAudio source set; upstream normally adds that implementation only
+with its Cocoa UI feature. No OpenAL shim, latency patch, header copy, or OpenAL
+runtime dependency remains.
+Native video explicitly selects `vo=libmpv`, ensuring decoded frames are presented
+through the caller-owned Render API surface rather than probing a standalone mpv
+GPU window.
 
 This bundle targets macOS 12 or newer and is arm64-only. A universal/x86_64 bundle,
 Developer ID signature, notarization, and Windows DLL closure are release blockers.
@@ -170,7 +166,7 @@ node scripts/verify-libmpv-bundle.js macos
 script accepts `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`, verifies
 that `xcodebuild` and the full macOS SDK are available, verifies archive SHA-256
 values, records the two required compatibility
-source patches, builds every dynamic dependency, rewrites install names, applies
+configuration inputs, builds every dynamic dependency, rewrites install names, applies
 ad-hoc development signatures, copies license texts, and creates bundle checksums.
 
 For development only, `VESPERWIND_LIBMPV_PATH` may point the loader at an explicit

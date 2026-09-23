@@ -53,17 +53,18 @@ fn create_entry(
         .as_deref()
         .ok_or_else(|| NativeError::new("EINVAL", "A destination folder is required"))?;
     let parent = paths::resolve_inside_root(filesystem, target)?;
-    paths::verify_existing_inside_root(filesystem, &parent)?;
-    ensure_directory(&parent)?;
+    let real_parent = paths::verify_existing_inside_root(filesystem, &parent)?;
+    ensure_directory(&real_parent)?;
     let destination = paths::resolve_inside_root(filesystem, &parent.join(name).to_string_lossy())?;
+    let real_destination = real_parent.join(name);
 
     let result = if request.action == "create-folder" {
-        fs::create_dir(&destination)
+        fs::create_dir(&real_destination)
     } else {
         fs::OpenOptions::new()
             .write(true)
             .create_new(true)
-            .open(&destination)
+            .open(&real_destination)
             .map(|_| ())
     };
     result.map_err(|error| operation_io_error(&error))?;
@@ -133,7 +134,7 @@ fn operate_existing(
     let target = paths::resolve_inside_root(filesystem, target_text)?;
     let real_source = paths::verify_existing_inside_root(filesystem, &source)?;
     let real_target = paths::verify_existing_inside_root(filesystem, &target)?;
-    ensure_directory(&target)?;
+    ensure_directory(&real_target)?;
 
     if source_metadata.is_dir() && real_target.starts_with(&real_source) {
         return Err(NativeError::new(
@@ -147,6 +148,7 @@ fn operate_existing(
         .ok_or_else(|| NativeError::new("EINVAL", "Invalid source path"))?;
     let destination =
         paths::resolve_inside_root(filesystem, &target.join(source_name).to_string_lossy())?;
+    let real_destination = real_target.join(source_name);
 
     if destination == source {
         return Err(NativeError::new(
@@ -154,20 +156,25 @@ fn operate_existing(
             "The item is already in this folder",
         ));
     }
-    ensure_available(&destination)?;
+    ensure_available(&real_destination)?;
 
     match request.action.as_str() {
         "copy" => {
             prepare_copy_content(filesystem, &source, &source_metadata)?;
-            copy_entry(&source, &destination, &source_metadata)
+            copy_entry(&source, &real_destination, &source_metadata)
         }
-        "move" => move_entry(filesystem, &source, &destination, &source_metadata),
-        "link" => create_relative_link(&source, &destination, &target, source_metadata.is_dir())
-            .map_err(|error| symlink_operation_error(&error)),
+        "move" => move_entry(filesystem, &source, &real_destination, &source_metadata),
+        "link" => create_relative_link(
+            &source,
+            &real_destination,
+            &real_target,
+            source_metadata.is_dir(),
+        )
+        .map_err(|error| symlink_operation_error(&error)),
         _ => unreachable!(),
     }
     .map_err(|error| {
-        let _ = remove_partial(&destination);
+        let _ = remove_partial(&real_destination);
         error
     })?;
 
@@ -423,6 +430,62 @@ mod tests {
         path::{Path, PathBuf},
     };
     use uuid::Uuid;
+
+    #[cfg(target_os = "macos")]
+    fn create_finder_alias(target: &Path, alias: &Path) {
+        use objc2_foundation::{
+            NSString, NSURLBookmarkCreationOptions, NSURLBookmarkFileCreationOptions, NSURL,
+        };
+        let file_url =
+            |path: &Path| NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy()));
+        let data = file_url(target)
+            .bookmarkDataWithOptions_includingResourceValuesForKeys_relativeToURL_error(
+                NSURLBookmarkCreationOptions::SuitableForBookmarkFile,
+                None,
+                None,
+            )
+            .unwrap();
+        NSURL::writeBookmarkData_toURL_options_error(
+            &data,
+            &file_url(alias),
+            NSURLBookmarkFileCreationOptions::default(),
+        )
+        .unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn rename_and_delete_operate_on_finder_alias_not_its_target() {
+        let root = std::env::temp_dir().join(format!("vesperwind-op-alias-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let target = root.join("movie.mkv");
+        let alias = root.join("Movie alias.mkv");
+        fs::write(&target, b"real media bytes").unwrap();
+        create_finder_alias(&target, &alias);
+        let filesystem = Filesystem::from_root(&root, root.clone()).unwrap();
+
+        let request = |action: &str, source: &Path, name: Option<&str>| OperationRequest {
+            action: action.to_string(),
+            source_path: Some(source.to_string_lossy().into_owned()),
+            target_directory: None,
+            name: name.map(str::to_string),
+            filesystem_id: Some("local".to_string()),
+            target_filesystem_id: Some("local".to_string()),
+        };
+        let renamed = root.join("Renamed alias.mkv");
+        perform(
+            &filesystem,
+            request("rename", &alias, Some("Renamed alias.mkv")),
+        )
+        .unwrap();
+        assert!(target.exists());
+        assert!(crate::filesystem::alias::is_finder_alias(&renamed).unwrap());
+
+        perform(&filesystem, request("delete", &renamed, None)).unwrap();
+        assert!(target.exists());
+        assert!(!renamed.exists());
+        let _ = fs::remove_dir_all(root);
+    }
 
     #[test]
     fn creates_relative_link_targets() {

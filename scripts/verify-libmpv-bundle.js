@@ -22,7 +22,7 @@ const files = await fs.readdir(directory)
 if (files.some((name) => /^mpv(?:\.exe)?$/i.test(name))) {
   throw new Error('The bundle must contain libmpv, not an external mpv process')
 }
-for (const required of ['LICENSES', 'SOURCE-OFFER.txt', 'SHA256SUMS']) {
+for (const required of ['LICENSES', 'SOURCE-OFFER.txt', 'SHA256SUMS', 'BUILD-INFO.txt']) {
   await fs.access(path.join(directory, required))
 }
 
@@ -35,6 +35,21 @@ const run = (command, args, options = {}) => {
 }
 
 if (platformName === 'macos') {
+  if (manifest.macos.hardwareDecode !== true) {
+    throw new Error('macOS manifest must record the verified VideoToolbox build')
+  }
+  const buildInfo = await fs.readFile(path.join(directory, 'BUILD-INFO.txt'), 'utf8')
+  for (const evidence of [
+    'FFmpeg configuration: --disable-gpl --disable-nonfree --disable-version3 --enable-videotoolbox',
+    'FFmpeg config: CONFIG_VIDEOTOOLBOX=1',
+    'FFmpeg config: CONFIG_H264_VIDEOTOOLBOX_HWACCEL=1',
+    'FFmpeg config: CONFIG_HEVC_VIDEOTOOLBOX_HWACCEL=1',
+    'Available hwaccel: videotoolbox',
+    'libavcodec VideoToolbox decoders: h264=yes hevc=yes',
+    'mpv hwdec policy: auto-copy-safe (software fallback retained)',
+  ]) {
+    if (!buildInfo.includes(evidence)) throw new Error(`Missing build evidence: ${evidence}`)
+  }
   run('shasum', ['-a', '256', '-c', 'SHA256SUMS'], { cwd: directory })
   const dylibs = files.filter((name) => name.endsWith('.dylib'))
   for (const name of dylibs) {
@@ -44,6 +59,9 @@ if (platformName === 'macos') {
       throw new Error(`${name} does not contain ${manifest.macos.architecture}`)
     }
     const loadCommands = run('otool', ['-L', library])
+    if (name === path.basename(manifest.macos.entry) && loadCommands.includes('OpenAL.framework')) {
+      throw new Error('libmpv must use CoreAudio; deprecated OpenAL dependency is not allowed')
+    }
     for (const line of loadCommands.split('\n').slice(1)) {
       const dependency = line.match(/^\s+(\S+)\s+\(/)?.[1]
       if (!dependency) continue

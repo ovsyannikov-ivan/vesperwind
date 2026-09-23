@@ -36,14 +36,29 @@ EOF
 fi
 export DEVELOPER_DIR="$developer_dir"
 sdk_root="$(xcrun --sdk macosx --show-sdk-path)"
+sdk_version="$(xcrun --sdk macosx --show-sdk-version)"
+xcode_version="$(xcodebuild -version | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+cmake_bin="$(command -v cmake)"
+pkg_config_bin="$(command -v pkg-config)"
+build_tools_bin="$(dirname "$cmake_bin")"
+if [[ "$(dirname "$pkg_config_bin")" != "$build_tools_bin" ]]; then
+  echo "cmake and pkg-config must be installed in the same build-tools directory" >&2
+  exit 1
+fi
 
 mpv_commit="2c219aa822df18a1b7fd9abe3e151cd93ad67307"
 libplacebo_commit="3188549fba13bbdf3a5a98de2a38c2e71f04e21e"
 
 mkdir -p "$source_root" "$archive_root" "$build_root" "$prefix" "$bundle/LICENSES"
+# Remove artifacts produced by the former deprecated OpenAL compatibility shim.
+rm -rf "$prefix/include/AL"
+rm -f "$prefix/lib/pkgconfig/openal.pc"
 
 download() {
-  local name="$1" url="$2" sha256="$3" destination="$archive_root/$name"
+  local name="$1"
+  local url="$2"
+  local sha256="$3"
+  local destination="$archive_root/$name"
   if [[ ! -f "$destination" ]]; then
     curl --fail --location --retry 3 --output "$destination" "$url"
   fi
@@ -88,6 +103,12 @@ extract fribidi.tar.gz "$source_root/fribidi"
 extract harfbuzz.tar.gz "$source_root/harfbuzz"
 extract libass.tar.gz "$source_root/libass"
 
+# mpv normally pulls these CoreFoundation string helpers through its Cocoa UI
+# feature. A headless libmpv build with CoreAudio also uses them, so include the
+# implementation in the CoreAudio source set without enabling mpv's Cocoa UI.
+perl -0pi -e "s!'audio/out/ao_coreaudio_properties.c'\)!'audio/out/ao_coreaudio_properties.c',\n                     'osdep/utils-mac.c')!" \
+  "$source_root/mpv/meson.build"
+
 rm -rf "$source_root/libplacebo"
 git clone --quiet --filter=blob:none --recurse-submodules \
   --branch v7.351.0 --single-branch \
@@ -100,8 +121,9 @@ fi
 python3 -m venv "$venv"
 "$venv/bin/python" -m pip install --disable-pip-version-check \
   "meson==1.9.1" "ninja==1.13.0"
-export PATH="$venv/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+export PATH="$venv/bin:$build_tools_bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export PKG_CONFIG_PATH="$prefix/lib/pkgconfig"
+export PKG_CONFIG_LIBDIR="$prefix/lib/pkgconfig"
 export CMAKE_PREFIX_PATH="$prefix"
 export MACOSX_DEPLOYMENT_TARGET="$deployment_target"
 common_cflags="-O2 -mmacosx-version-min=$deployment_target -isysroot $sdk_root"
@@ -160,10 +182,56 @@ meson install -C "$build_root/libass"
     --disable-debug --disable-autodetect --disable-gpl --disable-nonfree \
     --disable-version3 --enable-videotoolbox --disable-audiotoolbox \
     --enable-pic --extra-cflags="$common_cflags" \
-    --extra-ldflags="$common_link_args"
+    --extra-ldflags="$common_link_args" | tee "$build_root/ffmpeg-configure.txt"
+  grep -q '^#define CONFIG_VIDEOTOOLBOX 1$' config.h
+  grep -q '^#define CONFIG_H264_VIDEOTOOLBOX_HWACCEL 1$' config_components.h
+  grep -q '^#define CONFIG_HEVC_VIDEOTOOLBOX_HWACCEL 1$' config_components.h
   make -j"$(sysctl -n hw.logicalcpu)"
   make install
 )
+
+cat > "$build_root/verify-videotoolbox.c" <<'EOF'
+#include <libavcodec/avcodec.h>
+#include <libavutil/hwcontext.h>
+#include <stdio.h>
+#include <string.h>
+
+int main(void) {
+    int found_device = 0;
+    int found_h264 = 0;
+    int found_hevc = 0;
+    enum AVHWDeviceType type = AV_HWDEVICE_TYPE_NONE;
+    while ((type = av_hwdevice_iterate_types(type)) != AV_HWDEVICE_TYPE_NONE) {
+        const char *name = av_hwdevice_get_type_name(type);
+        if (name && strcmp(name, "videotoolbox") == 0) {
+            printf("Available hwaccel: %s\n", name);
+            found_device = 1;
+        }
+    }
+
+    void *opaque = NULL;
+    const AVCodec *codec = NULL;
+    while ((codec = av_codec_iterate(&opaque))) {
+        if (!av_codec_is_decoder(codec)) continue;
+        for (int index = 0;; index++) {
+            const AVCodecHWConfig *config = avcodec_get_hw_config(codec, index);
+            if (!config) break;
+            if (config->device_type != AV_HWDEVICE_TYPE_VIDEOTOOLBOX) continue;
+            if (codec->id == AV_CODEC_ID_H264) found_h264 = 1;
+            if (codec->id == AV_CODEC_ID_HEVC) found_hevc = 1;
+        }
+    }
+    printf("libavcodec VideoToolbox decoders: h264=%s hevc=%s\n",
+           found_h264 ? "yes" : "no", found_hevc ? "yes" : "no");
+    return found_device && found_h264 && found_hevc ? 0 : 1;
+}
+EOF
+/usr/bin/clang "$build_root/verify-videotoolbox.c" \
+  -I"$prefix/include" -L"$prefix/lib" \
+  -Wl,-rpath,"$prefix/lib" -lavcodec -lavutil \
+  -o "$build_root/verify-videotoolbox"
+DYLD_LIBRARY_PATH="$prefix/lib" "$build_root/verify-videotoolbox" \
+  | tee "$build_root/videotoolbox-probe.txt"
 
 meson setup --wipe "$build_root/libplacebo" "$source_root/libplacebo" \
   --prefix "$prefix" --buildtype release --default-library shared \
@@ -178,26 +246,6 @@ meson setup --wipe "$build_root/libplacebo" "$source_root/libplacebo" \
 meson compile -C "$build_root/libplacebo"
 meson install -C "$build_root/libplacebo"
 
-# Keep the macOS system OpenAL output for this bundle until the CoreAudio output
-# and its clock/lifecycle behavior have been validated with the embedded player.
-mkdir -p "$prefix/lib/pkgconfig"
-cat > "$prefix/lib/pkgconfig/openal.pc" <<'EOF'
-prefix=/System/Library/Frameworks/OpenAL.framework
-Name: OpenAL
-Description: macOS system OpenAL framework
-Version: 1.1
-Libs: -framework OpenAL
-Cflags: -F/System/Library/Frameworks
-EOF
-perl -0pi -e 's!#include <OpenAL/alext.h>!#include <OpenAL/MacOSX_OALExtensions.h>\n#ifndef AL_SEC_OFFSET_LATENCY_SOFT\n#define AL_SEC_OFFSET_LATENCY_SOFT 0x1201\ntypedef void (AL_APIENTRY *LPALGETSOURCEDVSOFT)(ALuint, ALenum, ALdouble *);\n#endif!' \
-  "$source_root/mpv/audio/out/ao_openal.c"
-# Apple's deprecated system OpenAL reports both source-latency and source-offset
-# values that are incompatible with mpv's playback clock. They can make playback
-# run many times faster than wall time. Account for whole queued buffers instead;
-# a smaller buffer keeps that conservative clock granular to about 21 ms.
-perl -0pi -e 's!    double source_offset = 0;\n    if \(alIsExtensionPresent\("AL_SOFT_source_latency"\)\).*?    }\n\n    int queued_samples!    double source_offset = 0;\n\n    int queued_samples!s; s!\.num_samples = 8192,!\.num_samples = 1024,!' \
-  "$source_root/mpv/audio/out/ao_openal.c"
-
 meson setup --wipe "$build_root/mpv" "$source_root/mpv" \
   --prefix "$prefix" --buildtype release --default-library shared \
   -Dc_args="$common_cflags" \
@@ -207,8 +255,8 @@ meson setup --wipe "$build_root/mpv" "$source_root/mpv" \
   -Djpeg=disabled -Dlcms2=disabled -Dlibarchive=disabled -Dlibavdevice=disabled \
   -Dlibbluray=disabled -Dlua=disabled -Drubberband=disabled \
   -Duchardet=disabled -Dvapoursynth=disabled -Dzimg=disabled -Dzlib=disabled \
-  -Diconv=enabled -Dcoreaudio=disabled -Daudiounit=disabled \
-  -Davfoundation=disabled -Dopenal=enabled -Dcocoa=disabled -Dgl=enabled \
+  -Diconv=enabled -Dcoreaudio=enabled -Daudiounit=disabled \
+  -Davfoundation=disabled -Dopenal=disabled -Dcocoa=disabled -Dgl=enabled \
   -Dplain-gl=enabled -Dgl-cocoa=disabled -Dvulkan=disabled \
   -Dvideotoolbox-gl=disabled -Dvideotoolbox-pl=disabled \
   -Dswift-build=disabled -Dmacos-cocoa-cb=disabled \
@@ -251,6 +299,21 @@ cp "$source_root/harfbuzz/COPYING" "$bundle/LICENSES/HarfBuzz-COPYING.txt"
 cp "$source_root/libass/COPYING" "$bundle/LICENSES/libass-ISC.txt"
 cp "$source_root/libplacebo/LICENSE" "$bundle/LICENSES/libplacebo-LGPL-2.1.txt"
 
+cat > "$bundle/BUILD-INFO.txt" <<EOF
+Vesperwind bundled macOS libmpv build
+Xcode: $xcode_version
+macOS SDK: $sdk_version
+Deployment target: $deployment_target
+FFmpeg configuration: --disable-gpl --disable-nonfree --disable-version3 --enable-videotoolbox
+FFmpeg config: CONFIG_VIDEOTOOLBOX=1
+FFmpeg config: CONFIG_H264_VIDEOTOOLBOX_HWACCEL=1
+FFmpeg config: CONFIG_HEVC_VIDEOTOOLBOX_HWACCEL=1
+$(cat "$build_root/videotoolbox-probe.txt")
+mpv hwdec policy: auto-copy-safe (software fallback retained)
+mpv video output: vo=libmpv (OpenGL Render API)
+mpv audio output: CoreAudio
+EOF
+
 cat > "$bundle/SOURCE-OFFER.txt" <<EOF
 Vesperwind libmpv runtime source and relinking information
 
@@ -272,7 +335,7 @@ EOF
 
 (
   cd "$bundle"
-  shasum -a 256 *.dylib LICENSES/* > SHA256SUMS
+  shasum -a 256 *.dylib BUILD-INFO.txt LICENSES/* > SHA256SUMS
 )
 
 node "$project_root/scripts/verify-libmpv-bundle.js" macos

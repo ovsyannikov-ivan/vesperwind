@@ -5,12 +5,14 @@ import {
   NativeMpvPlayerBackend,
   PlayerStatus,
 } from '../player/mediaPlayerBackend.js'
+import { buildMediaInfoSections, formatMediaDuration } from '../utils/mediaInfo.js'
 
 const context = reactive({
   title: '',
   position: 0,
   total: 0,
   fullscreen: false,
+  borderRadius: 0,
 })
 const state = reactive({
   status: PlayerStatus.IDLE,
@@ -26,39 +28,38 @@ const state = reactive({
 const activeMenu = ref('')
 const controlsVisible = ref(true)
 const isPlaying = computed(() => state.status === PlayerStatus.PLAYING)
+const isCursorHidden = computed(() => (
+  isPlaying.value
+  && !controlsVisible.value
+  && !activeMenu.value
+  && !state.error
+))
 const audioTracks = computed(() => state.tracks.filter((track) => track.kind === 'audio'))
 const subtitleTracks = computed(() => state.tracks.filter((track) => track.kind === 'subtitle'))
 const diagnostics = computed(() => state.diagnostics)
+const infoSections = computed(() => buildMediaInfoSections(diagnostics.value, state.duration))
 let player = null
 let unsubscribeState = null
 let unsubscribeContext = null
 let controlsTimer = 0
 
 const applyState = (snapshot) => Object.assign(state, snapshot || {})
-const applyContext = (value) => Object.assign(context, value || {})
-const formatTime = (seconds) => {
-  const value = Math.max(0, Number(seconds) || 0)
-  const hours = Math.floor(value / 3600)
-  const minutes = Math.floor((value % 3600) / 60)
-  const remainder = Math.floor(value % 60)
-  return hours
-    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`
-    : `${minutes}:${String(remainder).padStart(2, '0')}`
+const attachToSession = async (sessionId) => {
+  if (!sessionId || player?.sessionId === sessionId) return
+  unsubscribeState?.()
+  player?.dispose()
+  player = new NativeMpvPlayerBackend({ sessionId })
+  unsubscribeState = player.subscribe(applyState)
+  console.info(`[player=${sessionId}] overlay mounted`)
+  console.info(`[player=${sessionId}] overlay attached to session`)
+  const snapshot = await player.refresh().catch(() => null)
+  if (snapshot?.state) applyState(snapshot.state)
 }
-const formatBytes = (bytes) => {
-  const value = Number(bytes) || 0
-  if (!value) return 'unknown'
-  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']
-  const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1)
-  return `${(value / (1024 ** index)).toFixed(index > 2 ? 2 : 1)} ${units[index]}`
+const applyContext = (value) => {
+  Object.assign(context, value || {})
+  if (value?.sessionId) void attachToSession(value.sessionId)
 }
-const formatBitrate = (bitsPerSecond) => {
-  const value = Number(bitsPerSecond) || 0
-  if (!value) return 'unknown'
-  return value >= 1_000_000
-    ? `${(value / 1_000_000).toFixed(2)} Mbps`
-    : `${Math.round(value / 1000)} kbps`
-}
+const formatTime = formatMediaDuration
 const clearControlsTimer = () => {
   window.clearTimeout(controlsTimer)
   controlsTimer = 0
@@ -68,6 +69,10 @@ const scheduleControlsHide = () => {
   if (!isPlaying.value || activeMenu.value) return
   controlsTimer = window.setTimeout(() => { controlsVisible.value = false }, 2750)
 }
+const restoreControls = () => {
+  clearControlsTimer()
+  controlsVisible.value = true
+}
 const showControls = () => {
   controlsVisible.value = true
   scheduleControlsHide()
@@ -76,6 +81,7 @@ const toggleMenu = (menu) => {
   activeMenu.value = activeMenu.value === menu ? '' : menu
 }
 const closeMenu = () => { activeMenu.value = '' }
+const trackChannelLabel = (track) => track.channelLayout || (track.channels ? `${track.channels} channels` : '')
 const togglePlay = () => isPlaying.value ? player?.pause() : player?.play()
 const selectTrack = async (kind, id) => {
   await player?.selectTrack(kind, id).catch(() => {})
@@ -83,8 +89,9 @@ const selectTrack = async (kind, id) => {
 }
 const sendAction = (action) => mediaOverlay.sendAction(action)
 const handlePointerDown = (event) => {
+  showControls()
   if (!activeMenu.value) return
-  if (event.target?.closest?.('.media-overlay-dropdown, .media-overlay-info')) return
+  if (event.target?.closest?.('.media-overlay-dropdown, .media-overlay-info, .media-overlay-info-toggle')) return
   closeMenu()
 }
 const handleKeydown = (event) => {
@@ -106,33 +113,33 @@ const handleKeydown = (event) => {
   }
 }
 
-watch([isPlaying, activeMenu], ([playing, menu]) => {
-  if (!playing || menu) {
-    clearControlsTimer()
-    controlsVisible.value = true
+watch([isPlaying, activeMenu, () => state.error], ([playing, menu, error]) => {
+  if (!playing || menu || error) {
+    restoreControls()
   } else {
     scheduleControlsHide()
   }
 })
 
+watch(() => context.fullscreen, () => showControls())
+
 onMounted(async () => {
-  player = new NativeMpvPlayerBackend()
-  unsubscribeState = player.subscribe(applyState)
   unsubscribeContext = mediaOverlay.onContext(applyContext)
   document.addEventListener('pointerdown', handlePointerDown, true)
   document.addEventListener('keydown', handleKeydown)
-  const [snapshot, overlay] = await Promise.all([
-    player.refresh().catch(() => null),
-    player.overlaySnapshot().catch(() => null),
-  ])
-  if (snapshot?.state) applyState(snapshot.state)
-  if (overlay?.context) applyContext(overlay.context)
+  document.addEventListener('wheel', showControls, { passive: true })
+  document.addEventListener('touchstart', showControls, { passive: true })
+  const overlay = await mediaOverlay.snapshot().catch(() => null)
+  if (overlay?.context?.sessionId) applyContext(overlay.context)
 })
 
 onBeforeUnmount(() => {
   clearControlsTimer()
+  controlsVisible.value = true
   document.removeEventListener('pointerdown', handlePointerDown, true)
   document.removeEventListener('keydown', handleKeydown)
+  document.removeEventListener('wheel', showControls)
+  document.removeEventListener('touchstart', showControls)
   unsubscribeContext?.()
   unsubscribeState?.()
   player?.dispose()
@@ -142,8 +149,10 @@ onBeforeUnmount(() => {
 <template>
   <main
     class="media-overlay"
-    :class="{ 'is-fullscreen': context.fullscreen, 'is-controls-hidden': !controlsVisible }"
+    :class="{ 'is-fullscreen': context.fullscreen, 'is-controls-hidden': !controlsVisible, 'is-cursor-hidden': isCursorHidden }"
+    :style="{ '--overlay-border-radius': `${Math.max(0, Number(context.borderRadius) || 0)}px` }"
     @pointermove="showControls"
+    @pointerleave="restoreControls"
   >
     <header v-if="!context.fullscreen" class="media-overlay-header">
       <h1 class="media-overlay-title">
@@ -198,50 +207,13 @@ onBeforeUnmount(() => {
 
       <div class="media-overlay-controls" :class="{ 'is-hidden': !controlsVisible }" @dblclick.stop>
         <div v-if="activeMenu === 'diagnostics' && diagnostics" class="media-overlay-info">
-          <section>
-            <h2>General</h2>
+          <section v-for="section in infoSections" :key="section.title">
+            <h2>{{ section.title }}</h2>
             <dl>
-              <div><dt>Container</dt><dd>{{ diagnostics.container || 'unknown' }}</dd></div>
-              <div><dt>File size</dt><dd>{{ formatBytes(diagnostics.fileSize) }}</dd></div>
-              <div><dt>Duration</dt><dd>{{ formatTime(diagnostics.duration || state.duration) }}</dd></div>
-              <div><dt>Average bitrate</dt><dd>{{ formatBitrate(diagnostics.overallBitrate) }}</dd></div>
-            </dl>
-          </section>
-          <section>
-            <h2>Video</h2>
-            <dl>
-              <div><dt>Format</dt><dd>{{ diagnostics.video?.friendlyCodec || diagnostics.video?.codec || 'unknown' }}<span v-if="diagnostics.video?.profile"> · {{ diagnostics.video.profile }}</span><span v-if="diagnostics.video?.level">@{{ diagnostics.video.level }}</span></dd></div>
-              <div><dt>Picture</dt><dd>{{ diagnostics.video?.width || '?' }}×{{ diagnostics.video?.height || '?' }}<span v-if="diagnostics.video?.frameRate"> · {{ Number(diagnostics.video.frameRate).toFixed(3) }} fps</span><span v-if="diagnostics.video?.progressive != null"> · {{ diagnostics.video.progressive ? 'Progressive' : 'Interlaced' }}</span></dd></div>
-              <div><dt>Signal</dt><dd><span v-if="diagnostics.bitDepth">{{ diagnostics.bitDepth }}-bit · </span>{{ diagnostics.video?.chroma || diagnostics.pixelFormat || 'unknown' }} · {{ diagnostics.sourceFormat || 'SDR' }}</dd></div>
-              <div><dt>Color</dt><dd>{{ diagnostics.primaries || 'unknown' }} · {{ diagnostics.video?.matrix || 'unknown' }} · {{ diagnostics.transfer || 'unknown' }}</dd></div>
-              <div v-if="diagnostics.video?.bitrate"><dt>Stream bitrate</dt><dd>{{ formatBitrate(diagnostics.video.bitrate) }}</dd></div>
-            </dl>
-          </section>
-          <section>
-            <h2>Current audio</h2>
-            <dl>
-              <div><dt>Format</dt><dd>{{ diagnostics.audio?.friendlyCodec || diagnostics.audio?.codec || 'unknown' }}<span v-if="diagnostics.audio?.channels"> · {{ diagnostics.audio.channels }}</span></dd></div>
-              <div><dt>Audio</dt><dd><span v-if="diagnostics.audio?.bitrate">{{ formatBitrate(diagnostics.audio.bitrate) }} · </span><span v-if="diagnostics.audio?.sampleRate">{{ Math.round(diagnostics.audio.sampleRate / 1000) }} kHz</span></dd></div>
-              <div v-if="diagnostics.audio?.language || diagnostics.audio?.title"><dt>Track</dt><dd>{{ diagnostics.audio.language || 'und' }}<span v-if="diagnostics.audio.title"> · {{ diagnostics.audio.title }}</span></dd></div>
-            </dl>
-          </section>
-          <section v-if="diagnostics.subtitle?.format">
-            <h2>Subtitle</h2>
-            <dl>
-              <div><dt>Format</dt><dd>{{ diagnostics.subtitle.format }}</dd></div>
-              <div><dt>Track</dt><dd>{{ diagnostics.subtitle.language || 'und' }}<span v-if="diagnostics.subtitle.title"> · {{ diagnostics.subtitle.title }}</span><span v-if="diagnostics.subtitle.forced"> · Forced</span><span v-if="diagnostics.subtitle.default"> · Default</span></dd></div>
-            </dl>
-          </section>
-          <section>
-            <h2>Playback</h2>
-            <dl>
-              <div><dt>Backend / demuxer</dt><dd>libmpv · FFmpeg / {{ diagnostics.container || 'unknown' }}</dd></div>
-              <div><dt>Decoder</dt><dd>{{ diagnostics.hardwareDecoder || diagnostics.decoder || 'FFmpeg software' }} · Hardware decode {{ diagnostics.hardwareDecoder ? 'active' : 'off' }}</dd></div>
-              <div><dt>Render surface</dt><dd>{{ diagnostics.renderer }}</dd></div>
-              <div><dt>Output</dt><dd>{{ diagnostics.outputMode }} · {{ diagnostics.outputColorSpace }}</dd></div>
-              <div><dt>Tone mapping</dt><dd>{{ diagnostics.toneMapping }}</dd></div>
-              <div><dt>Display</dt><dd>{{ Number(diagnostics.display?.currentHeadroom || 1).toFixed(2) }}× current / {{ Number(diagnostics.display?.potentialHeadroom || 1).toFixed(2) }}× potential · {{ diagnostics.display?.surfaceFormat }}</dd></div>
-              <div v-if="diagnostics.fallbackReason"><dt>Fallback reason</dt><dd>{{ diagnostics.fallbackReason }}</dd></div>
+              <div v-for="item in section.rows" :key="item.label">
+                <dt>{{ item.label }}</dt>
+                <dd :title="item.title || undefined">{{ item.value }}</dd>
+              </div>
             </dl>
           </section>
         </div>
@@ -262,7 +234,7 @@ onBeforeUnmount(() => {
             <ul v-if="activeMenu === 'audio'" class="dropdown-menu dropdown-menu-dark show">
               <li v-for="track in audioTracks" :key="track.id">
                 <button class="dropdown-item" :class="{ active: track.selected }" type="button" @click="selectTrack('audio', track.id)">
-                  {{ track.title || track.language || `Track ${track.id}` }}<span v-if="track.codec"> · {{ track.codec }}</span><span v-if="track.channels"> · {{ track.channels }}</span>
+                  {{ track.title || track.friendlyLanguage || track.language || `Track ${track.id}` }}<span v-if="track.friendlyCodec || track.codec"> · {{ track.friendlyCodec || track.codec }}</span><span v-if="trackChannelLabel(track)"> · {{ trackChannelLabel(track) }}</span>
                 </button>
               </li>
             </ul>
@@ -274,7 +246,7 @@ onBeforeUnmount(() => {
               <li><button class="dropdown-item" :class="{ active: !subtitleTracks.some((track) => track.selected) }" type="button" @click="selectTrack('subtitle', null)">Off</button></li>
               <li v-for="track in subtitleTracks" :key="track.id">
                 <button class="dropdown-item" :class="{ active: track.selected }" type="button" @click="selectTrack('subtitle', track.id)">
-                  {{ track.title || track.language || `Track ${track.id}` }}<span v-if="track.codec"> · {{ track.codec }}</span>
+                  {{ track.title || track.friendlyLanguage || track.language || `Track ${track.id}` }}<span v-if="track.friendlyCodec || track.codec"> · {{ track.friendlyCodec || track.codec }}</span>
                 </button>
               </li>
               <li><hr class="dropdown-divider"></li>
@@ -287,7 +259,7 @@ onBeforeUnmount(() => {
             </ul>
           </div>
 
-          <button v-if="diagnostics" class="btn btn-sm btn-dark" type="button" :aria-expanded="activeMenu === 'diagnostics'" @click="toggleMenu('diagnostics')">Info</button>
+          <button v-if="diagnostics" class="btn btn-sm btn-dark media-overlay-info-toggle" type="button" :aria-expanded="activeMenu === 'diagnostics'" @click="toggleMenu('diagnostics')">Info</button>
           <button class="media-overlay-control-button" type="button" :title="context.fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'" :aria-label="context.fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'" @click="sendAction('fullscreen')">
             <i class="mdi" :class="context.fullscreen ? 'mdi-fullscreen-exit' : 'mdi-fullscreen'" aria-hidden="true" />
           </button>

@@ -55,6 +55,23 @@ let unsubscribeState = null
 let resizeObserver = null
 let geometryFrame = 0
 let generation = 0
+let nativeReady = false
+
+const modalBorderRadius = () => {
+  if (props.fullscreen) return 0
+  const modalContent = nativeSurface.value?.closest('.modal-content')
+  const value = modalContent
+    ? Number.parseFloat(window.getComputedStyle(modalContent).borderTopLeftRadius)
+    : 0
+  return Number.isFinite(value) ? Math.max(0, value) : 0
+}
+
+const subtitlePosition = (height) => {
+  if (props.fullscreen) return 100
+  const safeHeight = Math.max(1, Number(height) || 1)
+  const controlsClearance = 76
+  return Math.max(60, Math.min(100, ((safeHeight - controlsClearance) / safeHeight) * 100))
+}
 
 const geometry = () => {
   const rect = nativeSurface.value?.getBoundingClientRect()
@@ -65,7 +82,9 @@ const geometry = () => {
     height: rect.height,
     scaleFactor: window.devicePixelRatio || 1,
     viewportHeight: window.innerHeight,
-  } : { x: 0, y: 0, width: 1, height: 1, scaleFactor: window.devicePixelRatio || 1, viewportHeight: window.innerHeight }
+    borderRadius: modalBorderRadius(),
+    subtitlePosition: subtitlePosition(rect.height),
+  } : { x: 0, y: 0, width: 1, height: 1, scaleFactor: window.devicePixelRatio || 1, viewportHeight: window.innerHeight, borderRadius: 0, subtitlePosition: 100 }
 }
 
 const overlayGeometry = () => {
@@ -82,14 +101,16 @@ const overlayGeometry = () => {
 }
 
 const overlayContext = () => ({
+  sessionId: player?.sessionId || null,
   title: props.title,
   position: props.position,
   total: props.total,
   fullscreen: props.fullscreen,
+  borderRadius: modalBorderRadius(),
 })
 
 const syncGeometry = () => {
-  if (!isNative.value || !player || !nativeSurface.value) return
+  if (!isNative.value || !player || !nativeSurface.value || !nativeReady) return
   cancelAnimationFrame(geometryFrame)
   geometryFrame = requestAnimationFrame(() => {
     void Promise.all([
@@ -100,7 +121,7 @@ const syncGeometry = () => {
 }
 
 const syncOverlayContext = () => {
-  if (!isNative.value || !player) return
+  if (!isNative.value || !player || !nativeReady) return
   void player.setOverlay(true, overlayGeometry(), overlayContext()).catch(() => {})
 }
 
@@ -132,9 +153,12 @@ const createPlayer = async () => {
   await nextTick()
   if (mode === 'mpv') {
     player = new NativeMpvPlayerBackend({ autoplay: props.autoplay })
+    console.info(`[player=${player.sessionId}] viewer mounted`)
+    console.info(`[player=${player.sessionId}] backend selected: ${mode}`)
     unsubscribeState = player.subscribe(applyState)
-    attachNativeGeometry()
     await player.setSource(sourceLocation(), geometry())
+    nativeReady = true
+    attachNativeGeometry()
     await player.setOverlay(true, overlayGeometry(), overlayContext())
   } else {
     player = new WebMediaPlayerBackend(mediaElement.value, { autoplay: props.autoplay })
@@ -154,8 +178,12 @@ watch(
   () => [props.src, props.providerId, props.path],
   () => {
     if (!player) return
+    nativeReady = false
     const request = isNative.value
-      ? player.setSource(sourceLocation(), geometry())
+      ? player.setSource(sourceLocation(), geometry()).then(async () => {
+          nativeReady = true
+          await player.setOverlay(true, overlayGeometry(), overlayContext())
+        })
       : player.setSource(props.src)
     void request.catch((error) => emit('error', error))
   },
@@ -184,6 +212,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('transitionend', handleLayoutSettled)
   unsubscribeState?.()
   player?.close()
+  nativeReady = false
   player = null
 })
 
@@ -193,7 +222,7 @@ defineExpose({ mediaElement, pause, play, seek, stop })
 <template>
   <div v-if="isNative" class="custom-media-player native-mpv-player is-video">
     <div ref="nativeSurface" class="native-mpv-surface" aria-label="Native video surface">
-      <span v-if="state.status === PlayerStatus.LOADING" class="spinner-border text-light" aria-label="Loading video" />
+      <span v-if="[PlayerStatus.OPENING, PlayerStatus.LOADING].includes(state.status)" class="spinner-border text-light" aria-label="Loading video" />
     </div>
   </div>
 

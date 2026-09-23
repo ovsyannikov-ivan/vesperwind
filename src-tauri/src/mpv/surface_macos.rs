@@ -9,6 +9,7 @@ use objc2_app_kit::{
     NSOpenGLProfileVersion4_1Core, NSOpenGLView, NSView, NSWindowOrderingMode,
 };
 use objc2_foundation::{NSPoint, NSRect, NSSize};
+use objc2_quartz_core::CACornerMask;
 use std::{
     ffi::{c_char, c_void},
     ptr::NonNull,
@@ -18,7 +19,7 @@ use std::{
     },
     time::Duration,
 };
-use tauri::WebviewWindow;
+use tauri::Window;
 
 unsafe extern "C" {
     fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
@@ -27,8 +28,9 @@ unsafe extern "C" {
 const RTLD_DEFAULT: *mut c_void = (-2_isize) as *mut c_void;
 
 struct SurfaceInner {
-    window: WebviewWindow,
+    window: Window,
     root: usize,
+    container: usize,
     view: usize,
     context: usize,
     pixel_width: AtomicI32,
@@ -48,16 +50,35 @@ unsafe impl Sync for SurfaceInner {}
 pub struct NativeSurface(Arc<SurfaceInner>);
 
 impl NativeSurface {
-    pub fn create(window: &WebviewWindow) -> Result<Self, String> {
+    pub fn create(window: &Window) -> Result<Self, String> {
         let root = window.ns_view().map_err(|error| error.to_string())? as usize;
         let (tx, rx) = mpsc::sync_channel(1);
         window
             .run_on_main_thread(move || {
-                let result: Result<(usize, usize, bool, f64, f64), String> = (|| {
+                let result = (|| -> Result<(usize, usize, usize, bool, f64, f64), String> {
                     let mtm = MainThreadMarker::new().ok_or_else(|| {
                         "Native surface creation was not run on the AppKit main thread".to_string()
                     })?;
                     let root_view = unsafe { &*(root as *const NSView) };
+                    // WKWebView is layer-backed. Keep the native video surface in the
+                    // same Core Animation hierarchy so the transparent media overlay
+                    // can composite above it instead of being flattened to an opaque
+                    // black sibling by AppKit.
+                    root_view.setWantsLayer(true);
+                    let container = NSView::initWithFrame(
+                        NSView::alloc(mtm),
+                        NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1.0, 1.0)),
+                    );
+                    container.setWantsLayer(true);
+                    let container_layer = container.layer().ok_or_else(|| {
+                        "Unable to create the native video clipping layer".to_string()
+                    })?;
+                    container_layer.setMaskedCorners(
+                        CACornerMask::LayerMinXMinYCorner | CACornerMask::LayerMaxXMinYCorner,
+                    );
+                    container_layer.setCornerRadius(0.0);
+                    container_layer.setMasksToBounds(false);
+                    container.setHidden(true);
                     let mut attributes: [NSOpenGLPixelFormatAttribute; 13] = [
                         NSOpenGLPFAOpenGLProfile,
                         NSOpenGLProfileVersion4_1Core,
@@ -88,13 +109,19 @@ impl NativeSurface {
                         Some(&format),
                     )
                     .ok_or_else(|| "Unable to create NSOpenGLView".to_string())?;
+                    view.setWantsLayer(true);
                     #[allow(deprecated)]
                     view.setWantsBestResolutionOpenGLSurface(true);
                     #[allow(deprecated)]
                     view.setWantsExtendedDynamicRangeOpenGLSurface(floating_surface);
-                    view.setHidden(true);
-                    root_view.addSubview_positioned_relativeTo(
+                    view.setHidden(false);
+                    container.addSubview_positioned_relativeTo(
                         &view,
+                        NSWindowOrderingMode::Above,
+                        None,
+                    );
+                    root_view.addSubview_positioned_relativeTo(
+                        &container,
                         NSWindowOrderingMode::Above,
                         None,
                     );
@@ -103,6 +130,7 @@ impl NativeSurface {
                         .ok_or_else(|| "Unable to create NSOpenGLContext".to_string())?;
                     let (current_headroom, potential_headroom) = display_headroom(&view);
                     Ok((
+                        Retained::into_raw(container) as usize,
                         Retained::into_raw(view) as usize,
                         Retained::into_raw(context) as usize,
                         floating_surface,
@@ -113,13 +141,14 @@ impl NativeSurface {
                 let _ = tx.send(result);
             })
             .map_err(|error| error.to_string())?;
-        let (view, context, floating_surface, current_headroom, potential_headroom) = rx
+        let (container, view, context, floating_surface, current_headroom, potential_headroom) = rx
             .recv_timeout(Duration::from_secs(5))
             .map_err(|error| error.to_string())??;
 
         Ok(Self(Arc::new(SurfaceInner {
             window: window.clone(),
             root,
+            container,
             view,
             context,
             pixel_width: AtomicI32::new(1),
@@ -137,6 +166,7 @@ impl NativeSurface {
         let width = (geometry.width.max(0.0) * geometry.scale_factor.max(1.0)).round() as i32;
         let height = (geometry.height.max(0.0) * geometry.scale_factor.max(1.0)).round() as i32;
         let root = self.0.root;
+        let container = self.0.container;
         let view = self.0.view;
         let context = self.0.context;
         let inner = Arc::clone(&self.0);
@@ -151,6 +181,7 @@ impl NativeSurface {
                     return;
                 };
                 let root_view = unsafe { &*(root as *const NSView) };
+                let container_view = unsafe { &*(container as *const NSView) };
                 let video_view = unsafe { &*(view as *const NSOpenGLView) };
                 let gl_context = unsafe { &*(context as *const NSOpenGLContext) };
                 let root_height = root_view.bounds().size.height;
@@ -165,7 +196,15 @@ impl NativeSurface {
                     ),
                     NSSize::new(geometry.width.max(0.0), geometry.height.max(0.0)),
                 );
-                video_view.setFrame(frame);
+                container_view.setFrame(frame);
+                video_view.setFrame(NSRect::new(
+                    NSPoint::new(0.0, 0.0),
+                    NSSize::new(geometry.width.max(0.0), geometry.height.max(0.0)),
+                ));
+                if let Some(layer) = container_view.layer() {
+                    layer.setCornerRadius(geometry.border_radius.max(0.0));
+                    layer.setMasksToBounds(geometry.border_radius > 0.0);
+                }
                 video_view.update();
                 gl_context.update(mtm);
                 inner.pixel_width.store(width, Ordering::Release);
@@ -180,7 +219,7 @@ impl NativeSurface {
     pub fn set_visible(&self, visible: bool) -> Result<(), String> {
         self.0.visible.store(visible, Ordering::Release);
         self.0.geometry_changed.store(true, Ordering::Release);
-        let view = self.0.view;
+        let container = self.0.container;
         let inner = Arc::clone(&self.0);
         self.0
             .window
@@ -189,8 +228,8 @@ impl NativeSurface {
                     .gl_lock
                     .lock()
                     .unwrap_or_else(|error| error.into_inner());
-                let video_view = unsafe { &*(view as *const NSOpenGLView) };
-                video_view.setHidden(!visible);
+                let container_view = unsafe { &*(container as *const NSView) };
+                container_view.setHidden(!visible);
             })
             .map_err(|error| error.to_string())
     }
@@ -298,12 +337,16 @@ fn display_headroom(view: &NSOpenGLView) -> (f64, f64) {
 impl Drop for SurfaceInner {
     fn drop(&mut self) {
         let view = self.view;
+        let container = self.container;
         let context = self.context;
         let _ = self.window.run_on_main_thread(move || unsafe {
             let video_view = &*(view as *const NSOpenGLView);
+            let container_view = &*(container as *const NSView);
+            container_view.removeFromSuperview();
             video_view.removeFromSuperview();
             video_view.clearGLContext();
             drop(Retained::from_raw(view as *mut NSOpenGLView));
+            drop(Retained::from_raw(container as *mut NSView));
             drop(Retained::from_raw(context as *mut NSOpenGLContext));
         });
     }

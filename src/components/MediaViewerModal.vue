@@ -258,7 +258,7 @@ onBeforeUnmount(() => {
             </template>
 
             <div
-              v-if="playbackError && !isNativeVideo"
+              v-if="playbackError"
               class="alert alert-danger media-viewer-error"
               role="alert"
             >

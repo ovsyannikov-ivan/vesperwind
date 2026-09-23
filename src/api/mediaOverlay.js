@@ -1,5 +1,5 @@
 import { emitTo, listen } from '@tauri-apps/api/event'
-import { isTauriRuntime } from './backend.js'
+import { backend, isTauriRuntime } from './backend.js'
 
 const subscribe = (eventName, callback) => {
   if (!isTauriRuntime()) return () => {}
@@ -23,6 +23,7 @@ const subscribe = (eventName, callback) => {
 export const mediaOverlay = Object.freeze({
   onAction: (callback) => subscribe('media-overlay:action', callback),
   onContext: (callback) => subscribe('media-overlay:context', callback),
+  snapshot: () => backend.request('player:overlay-snapshot'),
   sendAction: (action) => {
     if (!isTauriRuntime()) return Promise.resolve()
     return emitTo('main', 'media-overlay:action', { action })

@@ -11,11 +11,11 @@ mod platform {
         ffi::{c_char, c_void},
         sync::{Arc, Mutex, MutexGuard},
     };
-    use tauri::WebviewWindow;
+    use tauri::Window;
     #[derive(Clone)]
     pub struct NativeSurface(Arc<Mutex<()>>);
     impl NativeSurface {
-        pub fn create(_: &WebviewWindow) -> Result<Self, String> {
+        pub fn create(_: &Window) -> Result<Self, String> {
             Err("Native video surfaces are unsupported on this platform".into())
         }
         pub fn set_geometry(&self, _: PlayerGeometry) -> Result<(), String> {

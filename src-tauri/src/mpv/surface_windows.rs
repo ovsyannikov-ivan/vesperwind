@@ -9,7 +9,7 @@ use std::{
     },
     time::Duration,
 };
-use tauri::WebviewWindow;
+use tauri::Window;
 use windows::{
     core::Interface,
     Win32::{
@@ -81,7 +81,7 @@ const WGL_CONTEXT_CORE_PROFILE_BIT_ARB: i32 = 0x00000001;
 type WglCreateContextAttribs = unsafe extern "system" fn(HDC, HGLRC, *const i32) -> HGLRC;
 
 struct SurfaceInner {
-    window: WebviewWindow,
+    window: Window,
     hwnd: HWND,
     dc: HDC,
     context: HGLRC,
@@ -108,7 +108,7 @@ unsafe extern "system" fn surface_window_proc(
 }
 
 impl NativeSurface {
-    pub fn create(window: &WebviewWindow) -> Result<Self, String> {
+    pub fn create(window: &Window) -> Result<Self, String> {
         let parent = window.hwnd().map_err(|error| error.to_string())? as usize;
         let (sender, receiver) = mpsc::sync_channel(1);
         window

@@ -4,12 +4,19 @@ use std::{
     ffi::{c_char, c_int, c_void, CString},
     ptr,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc, Arc,
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
+
+const MPV_RENDER_UPDATE_FRAME: u64 = 1;
+
+struct RenderWakeup {
+    dirty: AtomicBool,
+    callbacks: AtomicU64,
+}
 
 const MPV_RENDER_PARAM_INVALID: c_int = 0;
 const MPV_RENDER_PARAM_API_TYPE: c_int = 1;
@@ -49,10 +56,12 @@ impl Renderer {
         api: Arc<MpvApi>,
         handle: *mut MpvHandle,
         surface: NativeSurface,
+        session_id: &str,
     ) -> Result<Self, String> {
         let stop = Arc::new(AtomicBool::new(false));
         let thread_stop = Arc::clone(&stop);
         let handle_address = handle as usize;
+        let render_session_id = session_id.to_string();
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
         let thread = thread::Builder::new()
             .name("vesperwind-mpv-render".to_string())
@@ -63,6 +72,7 @@ impl Renderer {
                     &surface,
                     &thread_stop,
                     &ready_tx,
+                    &render_session_id,
                 );
                 if let Err(error) = &result {
                     eprintln!("libmpv renderer stopped: {error}");
@@ -112,7 +122,9 @@ unsafe extern "C" fn get_proc_address(context: *mut c_void, name: *const c_char)
 
 unsafe extern "C" fn request_render(context: *mut c_void) {
     if !context.is_null() {
-        unsafe { &*(context as *const AtomicBool) }.store(true, Ordering::Release);
+        let wakeup = unsafe { &*(context as *const RenderWakeup) };
+        wakeup.callbacks.fetch_add(1, Ordering::Relaxed);
+        wakeup.dirty.store(true, Ordering::Release);
     }
 }
 
@@ -122,6 +134,7 @@ fn run_renderer(
     surface: &NativeSurface,
     stop: &AtomicBool,
     ready: &mpsc::SyncSender<Result<(), String>>,
+    session_id: &str,
 ) -> Result<(), String> {
     surface.make_current()?;
     let api_type = CString::new("opengl").unwrap();
@@ -151,20 +164,35 @@ fn run_renderer(
         return Err(format!("mpv_render_context_create failed with {status}"));
     }
 
-    let redraw = AtomicBool::new(true);
+    let wakeup = RenderWakeup {
+        dirty: AtomicBool::new(true),
+        callbacks: AtomicU64::new(0),
+    };
+    let diagnostics_enabled = std::env::var_os("VESPERWIND_MPV_RENDER_DIAGNOSTICS").is_some();
+    let solid_color = std::env::var_os("VESPERWIND_MPV_DEBUG_SOLID_COLOR").is_some();
+    #[cfg(target_os = "macos")]
+    let gl_diagnostics = diagnostics_enabled
+        .then(|| GlDiagnostics::load(surface))
+        .transpose()?;
+    let mut render_calls = 0_u64;
+    let mut frame_updates = 0_u64;
+    let mut logged_non_black = false;
     let mut last_render = Instant::now() - Duration::from_millis(17);
     unsafe {
         (api.render_context_set_update_callback)(
             context,
             Some(request_render),
-            (&redraw as *const AtomicBool).cast_mut().cast(),
+            (&wakeup as *const RenderWakeup).cast_mut().cast(),
         );
+    }
+    if solid_color {
+        eprintln!("[player={session_id}] render developer solid-color mode enabled");
     }
     let _ = ready.send(Ok(()));
 
     while !stop.load(Ordering::Acquire) {
         if surface.is_visible()
-            && (redraw.swap(false, Ordering::AcqRel)
+            && (wakeup.dirty.swap(false, Ordering::AcqRel)
                 || surface.take_geometry_changed()
                 || last_render.elapsed() >= Duration::from_millis(16))
         {
@@ -172,6 +200,24 @@ fn run_renderer(
             let (width, height) = surface.pixel_size();
             if width > 0 && height > 0 {
                 surface.make_current()?;
+                #[cfg(target_os = "macos")]
+                if solid_color {
+                    let diagnostics = gl_diagnostics
+                        .as_ref()
+                        .ok_or_else(|| "OpenGL diagnostics are unavailable".to_string())?;
+                    diagnostics.clear_magenta();
+                    surface.swap_buffers();
+                    if render_calls == 0 {
+                        let samples = diagnostics.sample_front(width, height);
+                        eprintln!(
+                            "[player={session_id}] render native solid-color presented size={width}x{height} samples={samples:?}"
+                        );
+                    }
+                    render_calls += 1;
+                    last_render = Instant::now();
+                    thread::sleep(Duration::from_millis(4));
+                    continue;
+                }
                 let mut fbo = MpvOpenGlFbo {
                     fbo: 0,
                     width,
@@ -199,13 +245,36 @@ fn run_renderer(
                     },
                 ];
                 unsafe {
-                    (api.render_context_update)(context);
+                    let update_flags = (api.render_context_update)(context);
+                    if update_flags & MPV_RENDER_UPDATE_FRAME != 0 {
+                        frame_updates += 1;
+                    }
                     let render_status =
                         (api.render_context_render)(context, render_params.as_mut_ptr());
                     if render_status < 0 {
                         return Err(format!(
                             "mpv_render_context_render failed with {render_status}"
                         ));
+                    }
+                    render_calls += 1;
+                    #[cfg(target_os = "macos")]
+                    if diagnostics_enabled
+                        && (render_calls == 1
+                            || render_calls == 30
+                            || (!logged_non_black && render_calls % 60 == 0))
+                    {
+                        let samples = gl_diagnostics
+                            .as_ref()
+                            .expect("diagnostics loaded")
+                            .sample_back(width, height);
+                        let non_black = samples
+                            .iter()
+                            .any(|pixel| pixel[0] > 2 || pixel[1] > 2 || pixel[2] > 2);
+                        logged_non_black |= non_black;
+                        eprintln!(
+                            "[player={session_id}] render callbacks={} calls={render_calls} frame_updates={frame_updates} size={width}x{height} back_buffer={samples:?}",
+                            wakeup.callbacks.load(Ordering::Relaxed),
+                        );
                     }
                 }
                 surface.swap_buffers();
@@ -222,4 +291,78 @@ fn run_renderer(
     }
     surface.clear_current();
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+struct GlDiagnostics {
+    clear_color: unsafe extern "C" fn(f32, f32, f32, f32),
+    clear: unsafe extern "C" fn(u32),
+    read_buffer: unsafe extern "C" fn(u32),
+    read_pixels: unsafe extern "C" fn(i32, i32, i32, i32, u32, u32, *mut c_void),
+    finish: unsafe extern "C" fn(),
+}
+
+#[cfg(target_os = "macos")]
+impl GlDiagnostics {
+    fn load(surface: &NativeSurface) -> Result<Self, String> {
+        unsafe fn symbol(surface: &NativeSurface, name: &str) -> Result<*mut c_void, String> {
+            let name = CString::new(name).map_err(|error| error.to_string())?;
+            let pointer = unsafe { surface.get_proc_address(name.as_ptr()) };
+            (!pointer.is_null())
+                .then_some(pointer)
+                .ok_or_else(|| format!("OpenGL symbol {name:?} is unavailable"))
+        }
+        unsafe {
+            Ok(Self {
+                clear_color: std::mem::transmute(symbol(surface, "glClearColor")?),
+                clear: std::mem::transmute(symbol(surface, "glClear")?),
+                read_buffer: std::mem::transmute(symbol(surface, "glReadBuffer")?),
+                read_pixels: std::mem::transmute(symbol(surface, "glReadPixels")?),
+                finish: std::mem::transmute(symbol(surface, "glFinish")?),
+            })
+        }
+    }
+
+    fn clear_magenta(&self) {
+        unsafe {
+            (self.clear_color)(1.0, 0.0, 1.0, 1.0);
+            (self.clear)(0x0000_4000);
+            (self.finish)();
+        }
+    }
+
+    fn sample_back(&self, width: i32, height: i32) -> [[u8; 4]; 5] {
+        self.sample(0x0405, width, height)
+    }
+
+    fn sample_front(&self, width: i32, height: i32) -> [[u8; 4]; 5] {
+        self.sample(0x0404, width, height)
+    }
+
+    fn sample(&self, buffer: u32, width: i32, height: i32) -> [[u8; 4]; 5] {
+        let points = [
+            (width / 4, height / 4),
+            (width / 2, height / 4),
+            (width / 2, height / 2),
+            (width / 4, height * 3 / 4),
+            (width * 3 / 4, height * 3 / 4),
+        ];
+        let mut samples = [[0_u8; 4]; 5];
+        unsafe {
+            (self.read_buffer)(buffer);
+            for (sample, (x, y)) in samples.iter_mut().zip(points) {
+                (self.read_pixels)(
+                    x.max(0),
+                    y.max(0),
+                    1,
+                    1,
+                    0x1908,
+                    0x1401,
+                    sample.as_mut_ptr().cast(),
+                );
+            }
+            (self.finish)();
+        }
+        samples
+    }
 }
