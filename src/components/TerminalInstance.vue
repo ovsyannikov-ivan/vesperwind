@@ -6,13 +6,13 @@ const props = defineProps({ visible: Boolean, type: { type: String, default: 'lo
 const emit = defineEmits(['status', 'title'])
 const container = ref(null)
 const visible = computed(() => props.visible)
-const { status, errorMessage, dropActive, restart } = useTerminal(container, visible, {
+const { status, errorMessage, dropActive, restart, activate } = useTerminal(container, visible, {
   type: props.type,
   connectionId: props.connectionId,
   onTitle: (title) => emit('title', title),
 })
 watch([status, errorMessage], () => emit('status', { status: status.value, error: errorMessage.value }), { immediate: true })
-defineExpose({ restart })
+defineExpose({ restart, activate })
 </script>
 
 <template>

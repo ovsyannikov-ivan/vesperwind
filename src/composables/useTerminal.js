@@ -74,6 +74,8 @@ export const useTerminal = (containerRef, visibleRef, sessionOptions = {}) => {
   let unsubscribeExit = null
   let unsubscribeConnection = null
   let creatingSession = false
+  let disposed = false
+  let createGeneration = 0
   let normalizeTerminalOutput = createTerminalAnsiNormalizer()
 
   const fit = () => {
@@ -97,6 +99,7 @@ export const useTerminal = (containerRef, visibleRef, sessionOptions = {}) => {
       return
     }
 
+    const generation = ++createGeneration
     creatingSession = true
     status.value = 'connecting'
     errorMessage.value = ''
@@ -107,6 +110,13 @@ export const useTerminal = (containerRef, visibleRef, sessionOptions = {}) => {
       type: sessionOptions.type || 'local',
       connectionId: sessionOptions.connectionId || null,
     })
+    if (disposed || generation !== createGeneration) {
+      if (response?.ok && response.sessionId) {
+        terminalApi.closeSession(response.sessionId)
+      }
+      return
+    }
+
     creatingSession = false
 
     if (!response?.ok) {
@@ -149,6 +159,7 @@ export const useTerminal = (containerRef, visibleRef, sessionOptions = {}) => {
   }
 
   const handleDisconnect = () => {
+    createGeneration += 1
     sessionId.value = null
     creatingSession = false
     normalizeTerminalOutput = createTerminalAnsiNormalizer()
@@ -169,6 +180,12 @@ export const useTerminal = (containerRef, visibleRef, sessionOptions = {}) => {
 
     terminal?.clear()
     createSession()
+  }
+
+  const activate = async () => {
+    await nextTick()
+    fit()
+    terminal?.focus()
   }
 
   const carriesTerminalPath = (event) =>
@@ -260,13 +277,13 @@ export const useTerminal = (containerRef, visibleRef, sessionOptions = {}) => {
         return
       }
 
-      await nextTick()
-      fit()
-      terminal?.focus()
+      await activate()
     },
   )
 
   onBeforeUnmount(() => {
+    disposed = true
+    createGeneration += 1
     if (sessionId.value) {
       terminalApi.closeSession(sessionId.value)
     }
@@ -288,6 +305,7 @@ export const useTerminal = (containerRef, visibleRef, sessionOptions = {}) => {
     errorMessage,
     dropActive,
     fit,
+    activate,
     restart,
     sessionId,
   }

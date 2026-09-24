@@ -371,7 +371,7 @@ onBeforeUnmount(() => {
             <span v-if="tab.saving" class="spinner-border spinner-border-sm editor-tab-spinner" aria-hidden="true" />
             <span
               v-else
-              class="editor-tab-close"
+              class="tab-close"
               role="button"
               tabindex="0"
               :aria-label="`Close ${tab.fileName}`"

@@ -8,6 +8,7 @@ import FileTree from './FileTree.vue'
 import { entryChange, relocatePath } from '../composables/useEntryChanges.js'
 import { LOCAL_FILESYSTEM_PROVIDER } from '../api/filesystemLocation.js'
 import { FILE_ENTRY_MIME, parseFileDragPayload } from '../utils/fileDrag.js'
+import { isPanelSwapHandle } from '../utils/panelSwap.js'
 
 const props = defineProps({
   side: {
@@ -31,6 +32,14 @@ const props = defineProps({
     type: Number,
     default: 0,
   },
+  swapSource: {
+    type: Boolean,
+    default: false,
+  },
+  swapTarget: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 const emit = defineEmits([
@@ -39,6 +48,7 @@ const emit = defineEmits([
   'drop-request',
   'open-file',
   'context-menu',
+  'panel-drag-candidate',
   'state-change',
 ])
 const { getRoot, listDirectory } = useFilesystem(props.providerId)
@@ -234,6 +244,19 @@ const navigateToBreadcrumb = (crumb) => {
   })
 }
 
+const handleHeaderPointerDown = (event) => {
+  if (event.button !== 0 || !isPanelSwapHandle(event.target)) {
+    return
+  }
+
+  emit('panel-drag-candidate', {
+    side: props.side,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+  })
+}
+
 watch(
   () => root.value?.path,
   async () => {
@@ -290,14 +313,23 @@ watch(entryChange, (change) => {
 <template>
   <section
     class="file-panel"
-    :class="{ 'is-active': active, 'is-root-drop-target': rootDropTarget }"
+    :class="{
+      'is-active': active,
+      'is-root-drop-target': rootDropTarget,
+      'is-panel-swap-source': swapSource,
+      'is-panel-swap-target': swapTarget,
+    }"
     :aria-label="`${side} file panel`"
     @pointerdown="$emit('activate')"
     @dragover.capture="handlePanelDragOver"
     @dragleave="handlePanelDragLeave"
     @drop="handlePanelDrop"
   >
-    <header class="panel-header">
+    <header
+      class="panel-header"
+      :data-panel-swap-target="side"
+      @pointerdown="handleHeaderPointerDown"
+    >
       <div class="panel-title">
         <i class="mdi mdi-folder-multiple-outline" aria-hidden="true" />
         <strong>{{ side === 'left' ? 'Left' : 'Right' }}</strong>

@@ -617,6 +617,15 @@ button:focus-visible,
     inset 0 0 16px rgba(var(--bs-primary-rgb), 0.22);
 }
 
+.file-panel.is-panel-swap-target .panel-header {
+  box-shadow: inset 0 0 0 2px var(--bs-primary);
+  background: rgba(var(--bs-primary-rgb), 0.18);
+}
+
+.file-panel.is-panel-swap-source .panel-header {
+  opacity: 0.78;
+}
+
 .panel-header,
 .terminal-header {
   display: flex;
@@ -632,6 +641,16 @@ button:focus-visible,
 
 .file-panel.is-active .panel-header {
   background: var(--active-header-bg);
+}
+
+.file-panel .panel-header {
+  cursor: grab;
+}
+
+body.is-swapping-panels,
+body.is-swapping-panels * {
+  cursor: grabbing !important;
+  user-select: none !important;
 }
 
 .panel-title,
@@ -1136,14 +1155,33 @@ body.is-resizing-horizontal {
 .terminal-tab { max-width: 220px; }
 .terminal-tab.is-active { color: var(--text); background: var(--terminal-bg); }
 .terminal-add-button { height: 100%; font-size: 17px; }
-.terminal-tab-close { padding: 0 2px; border-radius: 3px; font-size: 16px; line-height: 1; }
-.terminal-tab-close:hover { color: #fff; background: var(--danger); }
 .terminal-tab-status { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--text-muted); }
 .terminal-tab-status.status-ready { background: var(--status-ready); }
 .terminal-tab-status.status-error,
 .terminal-tab-status.status-disconnected { background: var(--danger); }
 .terminal-workspace { position: relative; min-height: 0; flex: 1 1 auto; }
 .terminal-workspace > .terminal-container { position: absolute; inset: 0; }
+
+.terminal-new-menu {
+  position: fixed;
+  z-index: 1110;
+  max-height: min(320px, calc(100vh - 16px));
+  overflow-y: auto;
+  padding: 0.35rem;
+}
+
+.terminal-new-menu .dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  border-radius: var(--bs-border-radius-sm);
+}
+
+.terminal-new-menu .dropdown-item .mdi {
+  width: 1.1rem;
+  flex: 0 0 1.1rem;
+  text-align: center;
+}
 
 .terminal-actions {
   display: flex;
@@ -1404,7 +1442,7 @@ body.is-resizing-horizontal {
   font-size: 0.65rem;
 }
 
-.editor-tab-close {
+.tab-close {
   display: inline-grid;
   width: 20px;
   height: 20px;
@@ -1413,8 +1451,8 @@ body.is-resizing-horizontal {
   border-radius: var(--bs-border-radius-sm);
 }
 
-.editor-tab-close:hover,
-.editor-tab-close:focus-visible {
+.tab-close:hover,
+.tab-close:focus-visible {
   color: var(--text);
   background: var(--hover);
 }

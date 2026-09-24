@@ -12,6 +12,11 @@ import {
   isMediaOpenType,
   isWorkspaceDocumentType,
 } from '../utils/fileTypes.js'
+import {
+  crossedPanelSwapThreshold,
+  oppositePanelSide,
+  swapPanelPair,
+} from '../utils/panelSwap.js'
 import AudioPlayerBar from './AudioPlayerBar.vue'
 import CreateEntryModal from './CreateEntryModal.vue'
 import FilePanel from './FilePanel.vue'
@@ -61,9 +66,9 @@ const activePanel = ref('left')
 const connected = ref(connection.isConnected())
 const settingsOpen = ref(false)
 const remoteConnectionsOpen = ref(false)
-const panelProviders = reactive({
-  left: { providerId: 'local', label: 'Local' },
-  right: { providerId: 'local', label: 'Local' },
+const panelSlots = reactive({
+  left: { id: 'panel-a', providerId: 'local', label: 'Local' },
+  right: { id: 'panel-b', providerId: 'local', label: 'Local' },
 })
 const createRequest = ref(null)
 const createBusy = ref(false)
@@ -87,7 +92,11 @@ const submitCreate = async (name) => {
   } finally { createBusy.value = false }
 }
 const handleRemoteConnected = ({ providerId, profile, targetPanel }) => {
-  panelProviders[targetPanel] = { providerId, label: profile.name }
+  panelSlots[targetPanel] = {
+    ...panelSlots[targetPanel],
+    providerId,
+    label: profile.name,
+  }
   activePanel.value = targetPanel
   filesystemRevision.value += 1
 }
@@ -100,6 +109,8 @@ const confirmationRequest = ref(null)
 const confirmationBusy = ref(false)
 const confirmationError = ref('')
 const entryContextRequest = ref(null)
+const panelDrag = ref(null)
+const panelSwapTarget = ref(null)
 const panelStates = reactive({
   left: {
     currentDirectory: null,
@@ -177,6 +188,74 @@ const entryContextOpenAction = computed(() =>
 
 const activate = (side) => {
   activePanel.value = side
+}
+
+const swapPanels = () => {
+  const nextSlots = swapPanelPair(panelSlots)
+  const nextStates = swapPanelPair(panelStates)
+  panelSlots.left = nextSlots.left
+  panelSlots.right = nextSlots.right
+  panelStates.left = nextStates.left
+  panelStates.right = nextStates.right
+  activePanel.value = oppositePanelSide(activePanel.value)
+}
+
+const clearPanelDrag = () => {
+  panelDrag.value = null
+  panelSwapTarget.value = null
+  document.body.classList.remove('is-swapping-panels')
+  window.removeEventListener('pointermove', handlePanelDragMove)
+  window.removeEventListener('pointerup', handlePanelDragEnd)
+  window.removeEventListener('pointercancel', clearPanelDrag)
+  window.removeEventListener('keydown', handlePanelDragKeydown)
+}
+
+const targetPanelSideAt = (clientX, clientY) =>
+  document
+    .elementFromPoint(clientX, clientY)
+    ?.closest?.('[data-panel-swap-target]')
+    ?.dataset?.panelSwapTarget || null
+
+const handlePanelDragMove = (event) => {
+  const drag = panelDrag.value
+  if (!drag || event.pointerId !== drag.pointerId) return
+
+  if (!drag.started) {
+    if (!crossedPanelSwapThreshold(drag.startX, drag.startY, event.clientX, event.clientY)) {
+      return
+    }
+    drag.started = true
+    document.body.classList.add('is-swapping-panels')
+  }
+
+  event.preventDefault()
+  const targetSide = targetPanelSideAt(event.clientX, event.clientY)
+  panelSwapTarget.value = targetSide === oppositePanelSide(drag.side) ? targetSide : null
+}
+
+const handlePanelDragEnd = (event) => {
+  const drag = panelDrag.value
+  if (!drag || event.pointerId !== drag.pointerId) return
+  const targetSide = drag.started
+    ? targetPanelSideAt(event.clientX, event.clientY)
+    : null
+  const shouldSwap = targetSide === oppositePanelSide(drag.side)
+  clearPanelDrag()
+  if (shouldSwap) swapPanels()
+}
+
+const handlePanelDragKeydown = (event) => {
+  if (event.key === 'Escape') clearPanelDrag()
+}
+
+const beginPanelDrag = (candidate) => {
+  if (!bothPanelsVisible.value || workspaceMode.value !== 'files') return
+  clearPanelDrag()
+  panelDrag.value = { ...candidate, started: false }
+  window.addEventListener('pointermove', handlePanelDragMove, { passive: false })
+  window.addEventListener('pointerup', handlePanelDragEnd)
+  window.addEventListener('pointercancel', clearPanelDrag)
+  window.addEventListener('keydown', handlePanelDragKeydown)
 }
 
 const hideLeft = () => {
@@ -500,6 +579,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  clearPanelDrag()
   unsubscribeConnection?.()
   window.removeEventListener('resize', clampTerminalToViewport)
   window.removeEventListener('keydown', handleCommanderKeydown)
@@ -538,13 +618,15 @@ onBeforeUnmount(() => {
     <div ref="workspace" class="workspace">
       <div v-show="workspaceMode === 'files'" ref="filesContainer" class="files-container">
         <FilePanel
-          :key="`left:${panelProviders.left.providerId}`"
+          :key="`${panelSlots.left.id}:${panelSlots.left.providerId}`"
           ref="leftPanel"
           v-if="layout.leftVisible"
           side="left"
-          :provider-id="panelProviders.left.providerId"
-          :provider-label="panelProviders.left.label"
+          :provider-id="panelSlots.left.providerId"
+          :provider-label="panelSlots.left.label"
           :active="activePanel === 'left'"
+          :swap-source="panelDrag?.started && panelDrag.side === 'left'"
+          :swap-target="panelSwapTarget === 'left'"
           :filesystem-revision="filesystemRevision"
           :style="leftPanelStyle"
           @activate="activate('left')"
@@ -552,6 +634,7 @@ onBeforeUnmount(() => {
           @drop-request="openFileOperationMenu"
           @context-menu="openEntryContextMenu"
           @open-file="openFile"
+          @panel-drag-candidate="beginPanelDrag"
           @state-change="updatePanelState"
         />
 
@@ -562,13 +645,15 @@ onBeforeUnmount(() => {
         />
 
         <FilePanel
-          :key="`right:${panelProviders.right.providerId}`"
+          :key="`${panelSlots.right.id}:${panelSlots.right.providerId}`"
           ref="rightPanel"
           v-if="layout.rightVisible"
           side="right"
-          :provider-id="panelProviders.right.providerId"
-          :provider-label="panelProviders.right.label"
+          :provider-id="panelSlots.right.providerId"
+          :provider-label="panelSlots.right.label"
           :active="activePanel === 'right'"
+          :swap-source="panelDrag?.started && panelDrag.side === 'right'"
+          :swap-target="panelSwapTarget === 'right'"
           :filesystem-revision="filesystemRevision"
           :style="rightPanelStyle"
           @activate="activate('right')"
@@ -576,6 +661,7 @@ onBeforeUnmount(() => {
           @drop-request="openFileOperationMenu"
           @context-menu="openEntryContextMenu"
           @open-file="openFile"
+          @panel-drag-candidate="beginPanelDrag"
           @state-change="updatePanelState"
         />
 
@@ -607,6 +693,7 @@ onBeforeUnmount(() => {
         :visible="layout.terminalVisible"
         :style="terminalStyle"
         @toggle="toggleTerminal"
+        @manage-connections="remoteConnectionsOpen = true"
       />
     </div>
 
