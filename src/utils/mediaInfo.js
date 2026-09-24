@@ -44,6 +44,8 @@ const formatProfile = (profile, level) => {
 const channelLayout = (layout, count) => {
   if (layout) {
     const normalized = String(layout).toLowerCase()
+    if (normalized === 'stereo') return 'Stereo'
+    if (normalized === 'mono') return 'Mono'
     if (normalized === '5.1(side)' || normalized === '5.1(back)') return '5.1'
     if (normalized === '7.1(wide-side)' || normalized === '7.1(wide)') return '7.1'
     return layout
@@ -121,11 +123,9 @@ export const buildMediaInfoSections = (diagnostics = {}, fallbackDuration = 0) =
         row('Format', join([
           audio.friendlyCodec || audio.codec || 'Unknown',
           channelLayout(audio.channelLayout, audio.channelCount),
-        ]), rawAudio),
-        row('Audio', join([
           formatMediaBitrate(audio.bitrate),
           audio.sampleRate ? `${Number(audio.sampleRate / 1000).toFixed(audio.sampleRate % 1000 ? 1 : 0)} kHz` : '',
-        ])),
+        ]), rawAudio),
         row('Track', join([
           audio.friendlyLanguage || audio.language,
           audio.title,

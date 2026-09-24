@@ -17,6 +17,7 @@ import {
   oppositePanelSide,
   swapPanelPair,
 } from '../utils/panelSwap.js'
+import { transferSources } from '../utils/fileSelection.js'
 import AudioPlayerBar from './AudioPlayerBar.vue'
 import CreateEntryModal from './CreateEntryModal.vue'
 import FilePanel from './FilePanel.vue'
@@ -68,8 +69,8 @@ const connected = ref(connection.isConnected())
 const settingsOpen = ref(false)
 const remoteConnectionsOpen = ref(false)
 const panelSlots = reactive({
-  left: { id: 'panel-a', providerId: 'local', label: 'Local' },
-  right: { id: 'panel-b', providerId: 'local', label: 'Local' },
+  left: { id: 'panel-a', providerId: 'local', label: 'Local', viewState: null },
+  right: { id: 'panel-b', providerId: 'local', label: 'Local', viewState: null },
 })
 const createRequest = ref(null)
 const createBusy = ref(false)
@@ -118,11 +119,13 @@ const panelStates = reactive({
   left: {
     currentDirectory: null,
     selected: null,
+    selectedEntries: [],
     canOperateSelected: false,
   },
   right: {
     currentDirectory: null,
     selected: null,
+    selectedEntries: [],
     canOperateSelected: false,
   },
 })
@@ -166,7 +169,7 @@ const commandAvailability = computed(() => {
       workspaceMode.value !== 'files',
   )
   const canUseSource = Boolean(
-    activePanelVisible && source?.selected && source.canOperateSelected,
+    activePanelVisible && source?.selectedEntries?.length && source.canOperateSelected,
   )
   const canTransfer = Boolean(
     canUseSource &&
@@ -326,15 +329,18 @@ const handleDisconnect = () => {
 }
 
 const updatePanelState = (state) => {
-  if (!state || !panelStates[state.side]) {
+  if (!state || !panelStates[state.side] || !state.currentDirectory ||
+    panelSlots[state.side].id !== state.panelId) {
     return
   }
 
   panelStates[state.side] = {
     currentDirectory: state.currentDirectory,
     selected: state.selected,
+    selectedEntries: state.selectedEntries,
     canOperateSelected: state.canOperateSelected,
   }
+  panelSlots[state.side].viewState = state.viewState
 }
 
 const openFile = (context) => {
@@ -389,10 +395,43 @@ const runFileOperation = (action, source, targetDirectory) => {
   })
 }
 
+const runFileOperations = async (action, sources, targetDirectory, requestDetails) => {
+  const effectiveSources = transferSources(sources)
+  const processedSources = []
+  for (const source of effectiveSources) {
+    let response
+    try {
+      response = await runFileOperation(action, source, targetDirectory)
+    } catch (error) {
+      response = { ok: false, error: { message: error?.message || 'The file operation failed' } }
+    }
+    if (!response?.ok) {
+      return {
+        ok: false,
+        processedSources,
+        error: { message: `${source.name}: ${response?.error?.message || 'The file operation failed'} (${processedSources.length} completed)` },
+      }
+    }
+    syncAfterFileOperation({ ...requestDetails, action, source }, response)
+    processedSources.push(source)
+  }
+  return { ok: true, processedSources }
+}
+
+const finishTransferredSelection = (action, sourcePanel, sources) => {
+  if (!['move', 'delete'].includes(action)) return
+  const panel = sourcePanel === 'left' ? leftPanel.value : rightPanel.value
+  panel?.removeSelectedPaths(sources)
+}
+
 const openFileOperationMenu = (requestDetails) => {
   entryContextRequest.value = null
   activePanel.value = requestDetails.targetPanel
-  dropRequest.value = requestDetails
+  dropRequest.value = {
+    ...requestDetails,
+    sources: requestDetails.source.sources || [requestDetails.source],
+    sourcePanel: requestDetails.source.panelSide,
+  }
   operationBusy.value = false
   activeOperation.value = ''
   operationError.value = ''
@@ -498,20 +537,33 @@ const executeFileOperation = async (action) => {
   operationBusy.value = true
   activeOperation.value = action
   operationError.value = ''
-  const response = await runFileOperation(
+  const response = await runFileOperations(
     action,
-    dropRequest.value.source,
+    dropRequest.value.sources,
     dropRequest.value.target,
+    requestDetails,
   )
   operationBusy.value = false
 
   if (!response?.ok) {
     activeOperation.value = ''
     operationError.value = response?.error?.message || 'The file operation failed'
+    if (response.processedSources?.length) {
+      finishTransferredSelection(action, requestDetails.sourcePanel, response.processedSources)
+      filesystemRevision.value += 1
+      const remaining = transferSources(dropRequest.value.sources).filter((source) =>
+        !response.processedSources.some((done) =>
+          done.providerId === source.providerId && done.path === source.path))
+      dropRequest.value = {
+        ...dropRequest.value,
+        source: { ...remaining[0], panelSide: requestDetails.sourcePanel },
+        sources: remaining,
+      }
+    }
     return
   }
 
-  syncAfterFileOperation(requestDetails, response)
+  finishTransferredSelection(action, requestDetails.sourcePanel, response.processedSources)
   dropRequest.value = null
   activeOperation.value = ''
   filesystemRevision.value += 1
@@ -530,6 +582,7 @@ const openCommanderConfirmation = (action) => {
   confirmationRequest.value = {
     action,
     source: sourcePanel.selected,
+    sources: sourcePanel.selectedEntries,
     sourcePanel: activePanel.value,
     targetDirectory:
       action === 'delete' ? null : panelStates[targetSide].currentDirectory,
@@ -554,20 +607,33 @@ const executeCommanderOperation = async () => {
   const requestDetails = confirmationRequest.value
   confirmationBusy.value = true
   confirmationError.value = ''
-  const response = await runFileOperation(
+  const response = await runFileOperations(
     requestDetails.action,
-    requestDetails.source,
+    requestDetails.sources,
     requestDetails.targetDirectory,
+    requestDetails,
   )
   confirmationBusy.value = false
 
   if (!response?.ok) {
     confirmationError.value =
       response?.error?.message || 'The file operation failed'
+    if (response.processedSources?.length) {
+      finishTransferredSelection(requestDetails.action, requestDetails.sourcePanel, response.processedSources)
+      filesystemRevision.value += 1
+      const remaining = transferSources(requestDetails.sources).filter((source) =>
+        !response.processedSources.some((done) =>
+          done.providerId === source.providerId && done.path === source.path))
+      confirmationRequest.value = {
+        ...requestDetails,
+        source: remaining[0],
+        sources: remaining,
+      }
+    }
     return
   }
 
-  syncAfterFileOperation(requestDetails, response)
+  finishTransferredSelection(requestDetails.action, requestDetails.sourcePanel, response.processedSources)
   confirmationRequest.value = null
   filesystemRevision.value += 1
 }
@@ -650,6 +716,8 @@ onBeforeUnmount(() => {
           ref="leftPanel"
           v-if="layout.leftVisible"
           side="left"
+          :panel-id="panelSlots.left.id"
+          :initial-view-state="panelSlots.left.viewState"
           :provider-id="panelSlots.left.providerId"
           :provider-label="panelSlots.left.label"
           :active="activePanel === 'left'"
@@ -677,6 +745,8 @@ onBeforeUnmount(() => {
           ref="rightPanel"
           v-if="layout.rightVisible"
           side="right"
+          :panel-id="panelSlots.right.id"
+          :initial-view-state="panelSlots.right.viewState"
           :provider-id="panelSlots.right.providerId"
           :provider-label="panelSlots.right.label"
           :active="activePanel === 'right'"

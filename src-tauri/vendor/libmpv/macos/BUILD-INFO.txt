@@ -10,4 +10,5 @@ Available hwaccel: videotoolbox
 libavcodec VideoToolbox decoders: h264=yes hevc=yes
 mpv hwdec policy: auto-copy-safe (software fallback retained)
 mpv video output: vo=libmpv (OpenGL Render API)
-mpv audio output: CoreAudio
+mpv audio output: CoreAudio, AVFoundation fallback
+mpv macOS 27 CoreAudio patch: scripts/patches/mpv-macos27-coreaudio.patch

@@ -66,10 +66,10 @@ onBeforeUnmount(() => {
       :style="menuStyle"
       role="menu"
       tabindex="-1"
-      :aria-label="`Choose an action for ${request.source.name}`"
+      :aria-label="`Choose an action for ${request.sources?.length > 1 ? `${request.sources.length} items` : request.source.name}`"
     >
       <h6 class="dropdown-header">
-        Drop into “{{ request.target.name }}”
+        Drop {{ request.sources?.length > 1 ? `${request.sources.length} items` : `“${request.source.name}”` }} into “{{ request.target.name }}”
       </h6>
       <button
         class="dropdown-item"

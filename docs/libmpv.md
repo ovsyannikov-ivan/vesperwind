@@ -141,6 +141,12 @@ HDR output remains independent from decoder selection.
 
 Xcode 27 no longer ships macOS OpenAL headers, so this bundle uses mpv's native
 CoreAudio output instead of the previous deprecated OpenAL compatibility patch.
+The pinned mpv CoreAudio channel-map call fails with `paramErr` on macOS 27,
+which can disable the selected AAC track. `scripts/patches/mpv-macos27-coreaudio.patch`
+reverts that call until upstream provides a compatible fix. The runtime also
+includes AVFoundation and requests `ao=coreaudio,avfoundation`, so it can play
+audio when CoreAudio initialization fails on another system. CoreAudio remains
+preferred because AVFoundation has an upstream end-of-playback truncation report.
 The build script includes mpv's existing CoreFoundation string helper in the
 headless CoreAudio source set; upstream normally adds that implementation only
 with its Cocoa UI feature. No OpenAL shim, latency patch, header copy, or OpenAL

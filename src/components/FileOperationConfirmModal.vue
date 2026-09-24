@@ -140,9 +140,13 @@ onBeforeUnmount(() => {
 
           <div v-if="displayedRequest" class="modal-body">
             <p id="file-operation-confirm-description" class="mb-3">
-              <template
-                v-if="displayedRequest.action === 'delete' && displayedRequest.source.isDirectory"
-              >
+              <template v-if="displayedRequest.sources?.length > 1">
+                {{ actionDetails.button }} {{ displayedRequest.sources.length }} selected items
+                <template v-if="displayedRequest.action !== 'delete'">
+                  to the folder <strong>“{{ displayedRequest.targetDirectory.name }}”</strong>
+                </template>?
+              </template>
+              <template v-else-if="displayedRequest.action === 'delete' && displayedRequest.source.isDirectory">
                 Are you sure you want to delete the folder
                 <strong>“{{ displayedRequest.source.name }}”</strong> and everything inside it?
               </template>

@@ -8,7 +8,7 @@
     "architecture": "arm64",
     "minimumVersion": "12.0",
     "buildToolchain": "Xcode 27.0 (27A266a), macOS SDK 27.0",
-    "audioOutput": "system CoreAudio",
+    "audioOutput": "CoreAudio with AVFoundation fallback",
     "hardwareDecode": true,
     "hardwareDecodePolicy": "auto-copy-safe; VideoToolbox copy-back with software fallback",
     "buildEvidence": "macos/BUILD-INFO.txt",

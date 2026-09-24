@@ -4,13 +4,17 @@ import { useFilesystem } from '../composables/useFilesystem.js'
 import { useSettings } from '../composables/useSettings.js'
 import { buildPathBreadcrumbs } from '../utils/pathBreadcrumbs.js'
 import { getFilesystemPathName } from '../utils/filesystemPath.js'
+import { isSameOrDescendantPath } from '../utils/filesystemPath.js'
+import { selectFileEntries } from '../utils/fileSelection.js'
 import FileTree from './FileTree.vue'
 import { entryChange, relocatePath } from '../composables/useEntryChanges.js'
 import { LOCAL_FILESYSTEM_PROVIDER } from '../api/filesystemLocation.js'
 import { FILE_ENTRY_MIME, parseFileDragPayload } from '../utils/fileDrag.js'
-import { isPanelSwapHandle } from '../utils/panelSwap.js'
+import { isPanelSwapHandle, restorePanelViewState } from '../utils/panelSwap.js'
 
 const props = defineProps({
+  panelId: { type: String, required: true },
+  initialViewState: { type: Object, default: null },
   side: {
     type: String,
     required: true,
@@ -58,6 +62,12 @@ const homePath = ref('')
 const root = ref(null)
 const selectedNode = ref(null)
 const selectedPath = ref('')
+const selectedEntries = ref([])
+const selectionAnchorPath = ref('')
+const expandedPaths = ref([])
+const scrollTop = ref(0)
+const panelContentRef = ref(null)
+let restoringScroll = false
 const renameRequest = ref(null)
 let renameRequestSequence = 0
 const loading = ref(true)
@@ -67,20 +77,45 @@ const rootDropTarget = ref(false)
 const breadcrumbs = computed(() =>
   buildPathBreadcrumbs(filesystemRoot.value, root.value?.path),
 )
+const selectedPaths = computed(() => selectedEntries.value.map((entry) => entry.path))
 const panelState = computed(() => ({
   side: props.side,
+  panelId: props.panelId,
   currentDirectory: root.value
     ? { ...root.value, providerId: props.providerId }
     : null,
   selected: selectedNode.value
     ? { ...selectedNode.value, providerId: props.providerId }
     : null,
+  selectedEntries: selectedEntries.value.map((entry) => ({ ...entry, providerId: props.providerId })),
   canOperateSelected: Boolean(
-    selectedNode.value &&
-      filesystemRoot.value &&
-      selectedNode.value.path !== filesystemRoot.value.path,
+    selectedEntries.value.length > 0,
   ),
+  viewState: {
+    providerId: props.providerId,
+    root: root.value,
+    selectedNode: selectedNode.value,
+    selectedEntries: selectedEntries.value,
+    anchorPath: selectionAnchorPath.value,
+    expandedPaths: expandedPaths.value,
+    scrollTop: scrollTop.value,
+  },
 }))
+
+const restoreScroll = async () => {
+  if (!restoringScroll) return
+  await nextTick()
+  if (panelContentRef.value) panelContentRef.value.scrollTop = scrollTop.value
+}
+
+const handlePanelScroll = (event) => {
+  if (!restoringScroll) scrollTop.value = event.target.scrollTop
+}
+
+const stopScrollRestore = () => {
+  restoringScroll = false
+  if (panelContentRef.value) scrollTop.value = panelContentRef.value.scrollTop
+}
 
 const loadRoot = async () => {
   loading.value = true
@@ -96,14 +131,67 @@ const loadRoot = async () => {
   filesystemRoot.value = response.root
   homePath.value = response.homePath || ''
   const initial = response.initial || response.root
-  root.value = initial
-  selectedNode.value = initial
-  selectedPath.value = initial.path
+  const view = restorePanelViewState(props.initialViewState, props.providerId, response.root, initial)
+  root.value = view.root
+  selectedNode.value = view.selectedNode
+  selectedPath.value = selectedNode.value.path
+  selectedEntries.value = view.selectedEntries
+  selectionAnchorPath.value = view.anchorPath
+  expandedPaths.value = view.expandedPaths
+  scrollTop.value = view.scrollTop
+  restoringScroll = view.restored
+  await restoreScroll()
 }
 
-const selectNode = (node) => {
-  selectedNode.value = node
-  selectedPath.value = node.path
+const visibleEntries = () => Array.from(
+  panelContentRef.value?.querySelectorAll('.tree-row[data-file-path]') || [],
+).filter((row) => row.getClientRects().length > 0).map((row) => ({
+  providerId: props.providerId,
+  path: row.dataset.filePath,
+  name: row.dataset.fileName,
+  isDirectory: row.dataset.fileDirectory === 'true',
+}))
+
+const selectNode = (payload) => {
+  const node = payload?.node || payload
+  if (!node) return
+  if (node.path === filesystemRoot.value?.path) {
+    selectedEntries.value = []
+    selectionAnchorPath.value = ''
+    selectedNode.value = node
+    selectedPath.value = node.path
+    return
+  }
+  const clicked = { ...node, providerId: props.providerId }
+  const next = selectFileEntries({
+    entries: selectedEntries.value,
+    anchorPath: selectionAnchorPath.value,
+    clicked,
+    visibleEntries: visibleEntries(),
+    shiftKey: Boolean(payload?.shiftKey),
+    additiveKey: Boolean(payload?.metaKey || payload?.ctrlKey),
+  })
+  selectedEntries.value = next.entries
+  selectionAnchorPath.value = next.anchorPath
+  selectedNode.value = next.active || root.value
+  selectedPath.value = selectedNode.value?.path || ''
+}
+
+const updateExpanded = ({ path, expanded }) => {
+  expandedPaths.value = expanded
+    ? [...new Set([...expandedPaths.value, path])]
+    : expandedPaths.value.filter((value) => value !== path)
+}
+
+const removeSelectedPaths = (sources) => {
+  const removed = sources.filter((source) => source.providerId === props.providerId)
+  selectedEntries.value = selectedEntries.value.filter((entry) =>
+    !removed.some((source) => isSameOrDescendantPath(source.path, entry.path)))
+  selectedNode.value = selectedEntries.value.at(-1) || root.value
+  selectedPath.value = selectedNode.value?.path || ''
+  if (!selectedEntries.value.some((entry) => entry.path === selectionAnchorPath.value)) {
+    selectionAnchorPath.value = selectedEntries.value[0]?.path || ''
+  }
 }
 
 const requestRename = (node) => {
@@ -126,6 +214,8 @@ const openDirectory = (node) => {
   root.value = node
   selectedNode.value = node
   selectedPath.value = node.path
+  selectedEntries.value = []
+  selectionAnchorPath.value = ''
 }
 
 const openNode = (payload) => {
@@ -159,7 +249,9 @@ const entryContext = (payload) => ({
 })
 
 const openEntryContextMenu = (payload) => {
-  selectNode(payload.node)
+  if (!selectedEntries.value.some((entry) => entry.path === payload.node.path)) {
+    selectNode(payload.node)
+  }
   emit('context-menu', {
     ...entryContext(payload),
     x: payload.x,
@@ -271,17 +363,7 @@ watch(
 watch(
   panelState,
   (state) => emit('state-change', state),
-  { immediate: true },
-)
-
-watch(
-  () => props.filesystemRevision,
-  () => {
-    if (root.value) {
-      selectedNode.value = root.value
-      selectedPath.value = root.value.path
-    }
-  },
+  { immediate: true, flush: 'sync' },
 )
 
 onMounted(() => {
@@ -295,7 +377,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('drop', clearRootDropTarget)
 })
 
-defineExpose({ openNode, requestRename })
+defineExpose({ openNode, requestRename, removeSelectedPaths })
 
 watch(entryChange, (change) => {
   if (change?.action !== 'rename' || change.providerId !== props.providerId) return
@@ -307,6 +389,9 @@ watch(entryChange, (change) => {
   root.value = relocateNode(root.value)
   selectedNode.value = relocateNode(selectedNode.value)
   selectedPath.value = relocatePath(selectedPath.value, change)
+  selectedEntries.value = selectedEntries.value.map(relocateNode)
+  selectionAnchorPath.value = relocatePath(selectionAnchorPath.value, change)
+  expandedPaths.value = expandedPaths.value.map((path) => relocatePath(path, change))
 })
 </script>
 
@@ -375,7 +460,7 @@ watch(entryChange, (change) => {
       </button>
     </header>
 
-    <div class="panel-content">
+    <div ref="panelContentRef" class="panel-content" @scroll="handlePanelScroll" @wheel.capture="stopScrollRestore" @touchstart.capture="stopScrollRestore">
       <div v-if="loading" class="panel-message">
         <i class="mdi mdi-loading mdi-spin" aria-hidden="true" />
         Reading root folder…
@@ -400,12 +485,17 @@ watch(entryChange, (change) => {
           :provider-id="providerId"
           :panel-side="side"
           :selected-path="selectedPath"
+          :selected-paths="selectedPaths"
+          :selected-entries="selectedEntries"
+          :expanded-paths="expandedPaths"
           :rename-request="renameRequest"
           :list-directory="listDirectory"
           @select="selectNode"
           @open="openNode"
           @drop-request="$emit('drop-request', $event)"
           @context-menu="openEntryContextMenu"
+          @expanded-change="updateExpanded"
+          @children-loaded="restoreScroll"
         />
       </div>
     </div>

@@ -8,9 +8,13 @@ import {
   dark2026Theme,
   VESPERWIND_DARK_2026_THEME_ID,
 } from '../editor/themes/dark2026.js'
+import { htmlTokenRules } from '../editor/themes/htmlTokens.js'
 
 registerEditorLanguages(monaco)
-monaco.editor.defineTheme(VESPERWIND_DARK_2026_THEME_ID, dark2026Theme)
+monaco.editor.defineTheme(VESPERWIND_DARK_2026_THEME_ID, {
+  ...dark2026Theme,
+  rules: [...dark2026Theme.rules, ...htmlTokenRules],
+})
 
 const props = defineProps({
   activeTab: {

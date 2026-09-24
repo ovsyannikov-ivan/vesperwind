@@ -27,6 +27,19 @@ test('preserves a remote provider in drag and drop payloads', () => {
   assert.equal(parseFileDragPayload(value).path, '/home/demo/file.txt')
 })
 
+test('carries selected files and folders in a single drag payload', () => {
+  const entries = [
+    { path: '/tmp/one.txt', name: 'one.txt', isDirectory: false },
+    { path: '/tmp/папка с пробелом', name: 'папка с пробелом', isDirectory: true },
+  ]
+  const payload = parseFileDragPayload(createFileDragPayload(entries[0], 'left', 'local', entries))
+  assert.deepEqual(payload.sources, [
+    { ...entries[0], providerId: 'local' },
+    { ...entries[1], providerId: 'local' },
+  ])
+  assert.equal(payload.panelSide, 'left')
+})
+
 test('rejects malformed and incomplete drag payloads', () => {
   assert.equal(parseFileDragPayload('not-json'), null)
   assert.equal(parseFileDragPayload(JSON.stringify({ path: '/tmp/file' })), null)

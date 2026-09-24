@@ -5,6 +5,7 @@ import {
   crossedPanelSwapThreshold,
   isPanelSwapHandle,
   oppositePanelSide,
+  restorePanelViewState,
   swapPanelPair,
 } from '../src/utils/panelSwap.js'
 
@@ -39,6 +40,33 @@ test('swaps Local/Local, Local/SFTP, and SFTP/SFTP logical panels intact', () =>
 test('keeps the active logical panel active after moving to the opposite side', () => {
   assert.equal(oppositePanelSide('left'), 'right')
   assert.equal(oppositePanelSide('right'), 'left')
+})
+
+test('restores breadcrumbs, selection, expanded folders and scroll for the swapped provider', () => {
+  const filesystemRoot = { path: '/var' }
+  const current = { path: '/var/www/site', isDirectory: true }
+  const selected = { providerId: 'sftp:server-01', path: '/var/www/site/index.html' }
+  const saved = {
+    providerId: 'sftp:server-01',
+    root: current,
+    selectedNode: selected,
+    selectedEntries: [selected],
+    anchorPath: selected.path,
+    expandedPaths: ['/var/www/site/assets'],
+    scrollTop: 124,
+  }
+  const restored = restorePanelViewState(saved, saved.providerId, filesystemRoot, filesystemRoot)
+  assert.equal(restored.root.path, current.path)
+  assert.deepEqual(restored.selectedEntries, [selected])
+  assert.equal(restored.anchorPath, selected.path)
+  assert.deepEqual(restored.expandedPaths, ['/var/www/site/assets'])
+  assert.equal(restored.scrollTop, 124)
+  assert.equal(restored.restored, true)
+
+  const differentProvider = restorePanelViewState(saved, 'local', filesystemRoot, filesystemRoot)
+  assert.equal(differentProvider.restored, false)
+  const restrictedRoot = restorePanelViewState(saved, saved.providerId, { path: '/var/private' }, filesystemRoot)
+  assert.equal(restrictedRoot.restored, false)
 })
 
 test('keeps file operation source and target attached to their logical panels', () => {

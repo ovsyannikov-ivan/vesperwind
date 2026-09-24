@@ -81,8 +81,7 @@ test('builds compact human-friendly media summaries while retaining raw details'
 test('summarizes selected audio, subtitles, and runtime playback separately', () => {
   const sections = buildMediaInfoSections(diagnostics)
 
-  assert.equal(section(sections, 'Current audio').Format.value, 'Dolby Digital Plus · 5.1')
-  assert.equal(section(sections, 'Current audio').Audio.value, '1.02 Mbps · 48 kHz')
+  assert.equal(section(sections, 'Current audio').Format.value, 'Dolby Digital Plus · 5.1 · 1.02 Mbps · 48 kHz')
   assert.equal(section(sections, 'Current audio').Track.value, 'Russian · Дубляж (MovieDalen)')
   assert.equal(section(sections, 'Subtitle').Format.value, 'SubRip / SRT')
   assert.equal(section(sections, 'Subtitle').Track.value, 'Russian · Форсированные (iTunes) · Default')
@@ -97,6 +96,18 @@ test('does not invent a surround layout from channel count alone', () => {
 
   assert.equal(
     section(buildMediaInfoSections(value), 'Current audio').Format.value,
-    'Dolby Digital Plus · 6 channels',
+    'Dolby Digital Plus · 6 channels · 1.02 Mbps · 48 kHz',
+  )
+})
+
+test('shows AAC stereo bitrate and sample rate on one current-audio line', () => {
+  const value = structuredClone(diagnostics)
+  value.audio = {
+    codec: 'aac', friendlyCodec: 'AAC', channelLayout: 'stereo',
+    channelCount: 2, bitrate: 209_000, sampleRate: 48_000,
+  }
+  assert.equal(
+    section(buildMediaInfoSections(value), 'Current audio').Format.value,
+    'AAC · Stereo · 209 kbps · 48 kHz',
   )
 })

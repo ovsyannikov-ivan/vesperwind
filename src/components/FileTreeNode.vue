@@ -34,6 +34,18 @@ const props = defineProps({
     type: String,
     default: '',
   },
+  selectedPaths: {
+    type: Array,
+    default: () => [],
+  },
+  selectedEntries: {
+    type: Array,
+    default: () => [],
+  },
+  expandedPaths: {
+    type: Array,
+    default: () => [],
+  },
   renameRequest: {
     type: Object,
     default: null,
@@ -69,7 +81,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['select', 'open', 'drop-request', 'context-menu'])
+const emit = defineEmits(['select', 'open', 'drop-request', 'context-menu', 'expanded-change', 'children-loaded'])
 const { settings } = useSettings()
 const expanded = ref(false)
 const loaded = ref(false)
@@ -106,6 +118,10 @@ const beginRename = async () => {
   renameInput.value?.setSelectionRange(0, dot > 0 ? dot : props.node.name.length)
 }
 const handleNameClick = (event) => {
+  if (event.shiftKey || event.metaKey || event.ctrlKey || props.selectedEntries.length > 1) {
+    cancelRenameTimer()
+    return
+  }
   const now = Date.now()
   const elapsed = now - lastNameClick
   cancelRenameTimer()
@@ -129,7 +145,9 @@ const submitRename = async () => {
   } finally { renameBusy.value = false }
 }
 
-const selected = computed(() => props.selectedPath === props.node.path)
+const selected = computed(() => props.selectedPaths.includes(props.node.path) ||
+  (props.depth === 0 && props.selectedPath === props.node.path))
+const activeSelection = computed(() => props.selectedPath === props.node.path)
 const iconDetails = computed(() => getFileIcon(props.node, expanded.value))
 const rowPadding = computed(() => ({ paddingLeft: `${props.depth * 16 + 6}px` }))
 const formattedSize = computed(() =>
@@ -149,7 +167,7 @@ const terminalPath = computed(() =>
 )
 
 const scrollToSelected = async () => {
-  if (!props.scrollSelectedIntoView || !selected.value) {
+  if (!props.scrollSelectedIntoView || !activeSelection.value) {
     return
   }
 
@@ -184,6 +202,7 @@ const loadChildren = async () => {
   }
 
   children.value = response.entries
+  emit('children-loaded')
 }
 
 const toggle = async () => {
@@ -192,19 +211,25 @@ const toggle = async () => {
   }
 
   expanded.value = !expanded.value
+  emit('expanded-change', { path: props.node.path, expanded: expanded.value })
 
   if (expanded.value) {
     await loadChildren()
   }
 }
 
-const selectNode = () => {
-  emit('select', props.node)
+const selectNode = (event) => {
+  emit('select', {
+    node: props.node,
+    shiftKey: Boolean(event?.shiftKey),
+    metaKey: Boolean(event?.metaKey),
+    ctrlKey: Boolean(event?.ctrlKey),
+  })
 }
 
 const handleDoubleClick = () => {
   cancelRenameTimer()
-  selectNode()
+  if (!selected.value) selectNode()
   emit('open', props.node)
 }
 
@@ -217,7 +242,7 @@ const handleContextMenu = (event) => {
     return
   }
 
-  selectNode()
+  if (!selected.value) selectNode()
   emit('context-menu', {
     node: props.node,
     x: event.clientX,
@@ -273,14 +298,19 @@ const handleDragStart = (event) => {
     return
   }
 
-  selectNode()
+  if (!selected.value) selectNode()
   dragging.value = true
   event.dataTransfer.effectAllowed = 'all'
 
   if (props.depth > 0) {
     event.dataTransfer.setData(
       FILE_ENTRY_MIME,
-      createFileDragPayload(props.node, props.panelSide, props.providerId),
+      createFileDragPayload(
+        props.node,
+        props.panelSide,
+        props.providerId,
+        selected.value ? props.selectedEntries : [props.node],
+      ),
     )
   }
 
@@ -357,7 +387,7 @@ onMounted(() => {
   scrollToSelected()
 })
 
-watch(selected, (isSelected) => {
+watch(activeSelection, (isSelected) => {
   if (isSelected) {
     scrollToSelected()
   }
@@ -402,6 +432,9 @@ onBeforeUnmount(cancelRenameTimer)
         'is-drop-target': dropTarget,
       }"
       :title="node.path"
+      :data-file-path="depth > 0 ? node.path : undefined"
+      :data-file-name="depth > 0 ? node.name : undefined"
+      :data-file-directory="depth > 0 ? String(node.isDirectory) : undefined"
       :data-directory-drop-target="node.isDirectory ? '' : undefined"
       :draggable="!renaming && Boolean(terminalPath)"
       tabindex="0"
@@ -499,6 +532,10 @@ onBeforeUnmount(cancelRenameTimer)
           :provider-id="providerId"
           :depth="depth + 1"
           :selected-path="selectedPath"
+          :selected-paths="selectedPaths"
+          :selected-entries="selectedEntries"
+          :expanded-paths="expandedPaths"
+          :default-expanded="expandedPaths.includes(child.path)"
           :rename-request="renameRequest"
           :list-directory="listDirectory"
           :compact="compact"
@@ -507,6 +544,8 @@ onBeforeUnmount(cancelRenameTimer)
           @open="forwardOpen"
           @drop-request="$emit('drop-request', $event)"
           @context-menu="forwardContextMenu"
+          @expanded-change="$emit('expanded-change', $event)"
+          @children-loaded="$emit('children-loaded')"
         />
       </ul>
     </template>

@@ -11,6 +11,18 @@ defineProps({
     type: String,
     default: '',
   },
+  selectedPaths: {
+    type: Array,
+    default: () => [],
+  },
+  selectedEntries: {
+    type: Array,
+    default: () => [],
+  },
+  expandedPaths: {
+    type: Array,
+    default: () => [],
+  },
   renameRequest: {
     type: Object,
     default: null,
@@ -42,7 +54,7 @@ defineProps({
   },
 })
 
-defineEmits(['select', 'open', 'drop-request', 'context-menu'])
+defineEmits(['select', 'open', 'drop-request', 'context-menu', 'expanded-change', 'children-loaded'])
 </script>
 
 <template>
@@ -53,6 +65,9 @@ defineEmits(['select', 'open', 'drop-request', 'context-menu'])
       :panel-side="panelSide"
       :provider-id="providerId"
       :selected-path="selectedPath"
+      :selected-paths="selectedPaths"
+      :selected-entries="selectedEntries"
+      :expanded-paths="expandedPaths"
       :rename-request="renameRequest"
       :list-directory="listDirectory"
       :compact="compact"
@@ -62,6 +77,8 @@ defineEmits(['select', 'open', 'drop-request', 'context-menu'])
       @open="$emit('open', $event)"
       @drop-request="$emit('drop-request', $event)"
       @context-menu="$emit('context-menu', $event)"
+      @expanded-change="$emit('expanded-change', $event)"
+      @children-loaded="$emit('children-loaded')"
     />
   </ul>
 </template>

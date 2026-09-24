@@ -109,6 +109,12 @@ extract libass.tar.gz "$source_root/libass"
 perl -0pi -e "s!'audio/out/ao_coreaudio_properties.c'\)!'audio/out/ao_coreaudio_properties.c',\n                     'osdep/utils-mac.c')!" \
   "$source_root/mpv/meson.build"
 
+# mpv 0.41's CoreAudio channel-map call returns paramErr on macOS 27 and
+# disables audio even though AAC is decoded. Revert that upstream call until
+# mpv ships a compatible fix (mpv-player/mpv#18384).
+patch --directory="$source_root/mpv" -p1 \
+  < "$project_root/scripts/patches/mpv-macos27-coreaudio.patch"
+
 rm -rf "$source_root/libplacebo"
 git clone --quiet --filter=blob:none --recurse-submodules \
   --branch v7.351.0 --single-branch \
@@ -250,13 +256,15 @@ meson setup --wipe "$build_root/mpv" "$source_root/mpv" \
   --prefix "$prefix" --buildtype release --default-library shared \
   -Dc_args="$common_cflags" \
   -Dc_link_args="$common_link_args" \
+  -Dobjc_args="$common_cflags" \
+  -Dobjc_link_args="$common_link_args" \
   -Dgpl=false -Dcplayer=false -Dlibmpv=true -Dbuild-date=false -Dtests=false \
   -Dcplugins=disabled -Dcdda=disabled -Ddvdnav=disabled -Djavascript=disabled \
   -Djpeg=disabled -Dlcms2=disabled -Dlibarchive=disabled -Dlibavdevice=disabled \
   -Dlibbluray=disabled -Dlua=disabled -Drubberband=disabled \
   -Duchardet=disabled -Dvapoursynth=disabled -Dzimg=disabled -Dzlib=disabled \
   -Diconv=enabled -Dcoreaudio=enabled -Daudiounit=disabled \
-  -Davfoundation=disabled -Dopenal=disabled -Dcocoa=disabled -Dgl=enabled \
+  -Davfoundation=enabled -Dopenal=disabled -Dcocoa=disabled -Dgl=enabled \
   -Dplain-gl=enabled -Dgl-cocoa=disabled -Dvulkan=disabled \
   -Dvideotoolbox-gl=disabled -Dvideotoolbox-pl=disabled \
   -Dswift-build=disabled -Dmacos-cocoa-cb=disabled \
@@ -311,7 +319,8 @@ FFmpeg config: CONFIG_HEVC_VIDEOTOOLBOX_HWACCEL=1
 $(cat "$build_root/videotoolbox-probe.txt")
 mpv hwdec policy: auto-copy-safe (software fallback retained)
 mpv video output: vo=libmpv (OpenGL Render API)
-mpv audio output: CoreAudio
+mpv audio output: CoreAudio, AVFoundation fallback
+mpv macOS 27 CoreAudio patch: scripts/patches/mpv-macos27-coreaudio.patch
 EOF
 
 cat > "$bundle/SOURCE-OFFER.txt" <<EOF

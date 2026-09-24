@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { isEditableFile, parseEditableFilesText } from '../src/utils/editableFiles.js'
 import { getEditorLanguage } from '../src/utils/editorLanguages.js'
+import { htmlTokenRules } from '../src/editor/themes/htmlTokens.js'
 import { CUSTOM_EDITOR_LANGUAGE_IDS } from '../src/editor/languages.js'
 
 test('parses editable file entries separated by whitespace, commas, or semicolons', () => {
@@ -28,6 +29,8 @@ test('maps common source file extensions to Monaco languages', () => {
   assert.equal(getEditorLanguage('types.d.ts'), 'typescript')
   assert.equal(getEditorLanguage('main.rs'), 'rust')
   assert.equal(getEditorLanguage('index.php'), 'php')
+  assert.equal(getEditorLanguage('index.html'), 'html')
+  assert.equal(getEditorLanguage('index.htm'), 'html')
   assert.equal(getEditorLanguage('config.yaml'), 'yaml')
   assert.equal(getEditorLanguage('Cargo.toml'), 'toml')
   assert.equal(getEditorLanguage('.env.local'), 'ini')
@@ -35,6 +38,14 @@ test('maps common source file extensions to Monaco languages', () => {
   assert.equal(getEditorLanguage('Makefile'), 'makefile')
   assert.equal(getEditorLanguage('.gitignore'), 'ignore')
   assert.equal(getEditorLanguage('unknown.binary-format'), 'plaintext')
+})
+
+test('dark Monaco theme colors HTML tags, attributes, and values', () => {
+  const rules = new Map(htmlTokenRules.map(({ token, foreground }) => [token, foreground]))
+  assert.ok(rules.get('tag.html'))
+  assert.ok(rules.get('attribute.name.html'))
+  assert.ok(rules.get('string.html'))
+  assert.notEqual(rules.get('tag.html'), rules.get('string.html'))
 })
 
 test('registers custom Monaco grammars outside the editor component', () => {

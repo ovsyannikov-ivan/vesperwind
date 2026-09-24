@@ -215,6 +215,8 @@ impl MpvApi {
             self.set_option(handle, "keep-open", "yes")?;
             self.set_option(handle, "idle", "yes")?;
             self.set_option(handle, "vo", "libmpv")?;
+            #[cfg(target_os = "macos")]
+            self.set_option(handle, "ao", "coreaudio,avfoundation")?;
             // The caller-owned OpenGL Render API cannot safely import every
             // platform-native hardware surface. Prefer VideoToolbox/D3D11VA
             // copy-back decoders, which retain hardware codec decoding while
@@ -528,6 +530,12 @@ mod tests {
             ] {
                 api.set_option(handle, name, value).expect(name);
             }
+            #[cfg(target_os = "macos")]
+            api.set_option(handle, "ao", "coreaudio,avfoundation")
+                .expect("ordered macOS audio outputs");
+            if let Ok(output) = std::env::var("VESPERWIND_MPV_SMOKE_AO") {
+                api.set_option(handle, "ao", &output).expect("ao");
+            }
             if let Some(log_path) = std::env::var_os("VESPERWIND_MPV_SMOKE_LOG") {
                 api.set_option(handle, "log-file", &log_path.to_string_lossy())
                     .expect("log-file");
@@ -630,6 +638,22 @@ mod tests {
                         .as_deref(),
                     Some(expected_codec.as_str()),
                     "audio track switch did not become active"
+                );
+                let audio_channels = api.get_string(handle, "current-tracks/audio/demux-channels");
+                let audio_sample_rate =
+                    api.get_i64(handle, "current-tracks/audio/demux-samplerate");
+                let audio_bitrate = api.get_i64(handle, "current-tracks/audio/demux-bitrate");
+                eprintln!(
+                    "audio metadata: channels={audio_channels:?} sample_rate={audio_sample_rate:?} bitrate={audio_bitrate:?}"
+                );
+                assert!(audio_channels.is_some(), "audio channel layout is missing");
+                assert!(
+                    audio_sample_rate.is_some_and(|rate| rate > 0),
+                    "audio sample rate is missing"
+                );
+                assert!(
+                    audio_bitrate.is_some_and(|rate| rate > 0),
+                    "audio bitrate is missing"
                 );
 
                 let wall_start = Instant::now();
