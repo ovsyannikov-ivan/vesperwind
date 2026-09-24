@@ -1,14 +1,24 @@
 <script setup>
 import Dropdown from 'bootstrap/js/dist/dropdown'
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { runtime } from '../api/runtime.js'
 const createButton = ref(null)
+const createMenu = ref(null)
 let createDropdown
 watch(createButton, (button) => {
   createDropdown?.dispose()
   createDropdown = button ? new Dropdown(button) : null
 }, { flush: 'post' })
-onBeforeUnmount(() => createDropdown?.dispose())
+const closeCreateOnOutsidePointer = (event) => {
+  if (!createButton.value?.contains(event.target) && !createMenu.value?.contains(event.target)) {
+    createDropdown?.hide()
+  }
+}
+onMounted(() => document.addEventListener('pointerdown', closeCreateOnOutsidePointer, true))
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', closeCreateOnOutsidePointer, true)
+  createDropdown?.dispose()
+})
 const visibilityButtonClass = (visible) => ({
   'is-active': visible,
 })
@@ -154,7 +164,7 @@ const selectCreate = (kind) => {
         <button ref="createButton" class="btn toolbar-button toolbar-command dropdown-toggle" data-bs-toggle="dropdown" type="button" :disabled="!commandAvailability.create" aria-expanded="false">
           <i class="mdi mdi-plus" aria-hidden="true" /> Create
         </button>
-        <ul class="dropdown-menu">
+        <ul ref="createMenu" class="dropdown-menu toolbar-create-menu shadow">
           <li><button class="dropdown-item" type="button" @click="selectCreate('file')"><i class="mdi mdi-file-plus-outline" aria-hidden="true" /> File</button></li>
           <li><button class="dropdown-item" type="button" @click="selectCreate('folder')"><i class="mdi mdi-folder-plus-outline" aria-hidden="true" /> Folder</button></li>
         </ul>

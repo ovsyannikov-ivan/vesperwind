@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { navigateDropdown } from '../utils/dropdownNavigation.js'
 
 const props = defineProps({
   request: {
@@ -21,7 +22,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['select', 'cancel'])
-const firstActionRef = ref(null)
+const menuRef = ref(null)
 const menuStyle = computed(() => {
   const width = 288
   const height = props.error ? 286 : 240
@@ -35,6 +36,7 @@ const menuStyle = computed(() => {
 })
 
 const handleKeydown = (event) => {
+  if (navigateDropdown(event, menuRef.value)) return
   if (event.key === 'Escape' && !props.busy) {
     emit('cancel')
   }
@@ -43,7 +45,7 @@ const handleKeydown = (event) => {
 onMounted(async () => {
   window.addEventListener('keydown', handleKeydown)
   await nextTick()
-  firstActionRef.value?.focus()
+  menuRef.value?.focus({ preventScroll: true })
 })
 
 onBeforeUnmount(() => {
@@ -59,16 +61,17 @@ onBeforeUnmount(() => {
       @pointerdown="$emit('cancel')"
     />
     <div
+      ref="menuRef"
       class="dropdown-menu show file-operation-menu shadow"
       :style="menuStyle"
       role="menu"
+      tabindex="-1"
       :aria-label="`Choose an action for ${request.source.name}`"
     >
       <h6 class="dropdown-header">
         Drop into “{{ request.target.name }}”
       </h6>
       <button
-        ref="firstActionRef"
         class="dropdown-item"
         type="button"
         role="menuitem"

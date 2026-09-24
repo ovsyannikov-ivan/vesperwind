@@ -22,6 +22,7 @@ import CreateEntryModal from './CreateEntryModal.vue'
 import FilePanel from './FilePanel.vue'
 import FileOperationConfirmModal from './FileOperationConfirmModal.vue'
 import FileEntryContextMenu from './FileEntryContextMenu.vue'
+import { desktop } from '../api/desktop.js'
 import FileOperationMenu from './FileOperationMenu.vue'
 import MediaViewerModal from './MediaViewerModal.vue'
 import SettingsModal from './SettingsModal.vue'
@@ -109,6 +110,8 @@ const confirmationRequest = ref(null)
 const confirmationBusy = ref(false)
 const confirmationError = ref('')
 const entryContextRequest = ref(null)
+const entryContextBusy = ref(false)
+const entryContextError = ref('')
 const panelDrag = ref(null)
 const panelSwapTarget = ref(null)
 const panelStates = reactive({
@@ -397,11 +400,36 @@ const openFileOperationMenu = (requestDetails) => {
 
 const openEntryContextMenu = (requestDetails) => {
   activePanel.value = requestDetails.sourcePane
+  entryContextBusy.value = false
+  entryContextError.value = ''
   entryContextRequest.value = requestDetails
 }
 
 const closeEntryContextMenu = () => {
+  if (entryContextBusy.value) return
   entryContextRequest.value = null
+}
+
+const executeDesktopAction = async (action) => {
+  const request = entryContextRequest.value
+  if (!request || entryContextBusy.value) return
+  entryContextBusy.value = true
+  entryContextError.value = ''
+  try {
+    const response = await desktop[action]({
+      providerId: request.node.providerId,
+      path: request.node.path,
+    })
+    if (response.ok || response.error?.code === 'ECANCELLED') {
+      entryContextRequest.value = null
+    } else {
+      entryContextError.value = response.error?.message || 'The desktop action failed'
+    }
+  } catch (error) {
+    entryContextError.value = error?.message || 'The desktop action failed'
+  } finally {
+    entryContextBusy.value = false
+  }
 }
 
 const executeEntryContextOpen = () => {
@@ -734,7 +762,15 @@ onBeforeUnmount(() => {
       :key="`${entryContextRequest.node.path}:${entryContextRequest.x}:${entryContextRequest.y}`"
       :request="entryContextRequest"
       :open-action="entryContextOpenAction"
+      :native-actions="desktop.available && entryContextRequest.node.providerId === 'local'"
+      :open-with-available="desktop.canOpenWith"
+      :reveal-label="desktop.revealLabel"
+      :busy="entryContextBusy"
+      :error="entryContextError"
       @open="executeEntryContextOpen"
+      @system-open="executeDesktopAction('open')"
+      @open-with="executeDesktopAction('openWith')"
+      @reveal="executeDesktopAction('reveal')"
       @rename="executeEntryContextRename"
       @delete="executeEntryContextDelete"
       @cancel="closeEntryContextMenu"

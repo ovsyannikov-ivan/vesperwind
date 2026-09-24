@@ -104,6 +104,7 @@ pub fn run() {
             commands::filesystem::filesystem_read_text,
             commands::filesystem::filesystem_write_text,
             commands::filesystem::filesystem_operate,
+            commands::desktop::desktop_operate,
             commands::content::content_prepare,
             commands::content::content_status,
             commands::content::content_cancel,

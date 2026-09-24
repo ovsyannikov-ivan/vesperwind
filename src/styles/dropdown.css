@@ -1,0 +1,65 @@
+/* Shared appearance and interaction states for every Bootstrap dropdown. */
+.dropdown-menu {
+  --bs-dropdown-border-radius: 0.75rem;
+  --bs-dropdown-font-size: 0.875rem;
+  --bs-dropdown-item-padding-y: 0.15rem;
+  --bs-btn-font-size: 0.875rem;
+  --bs-dropdown-link-color: var(--text);
+  --bs-dropdown-link-hover-color: #fff;
+  --bs-dropdown-link-hover-bg: var(--bs-primary);
+  --bs-dropdown-link-active-color: #fff;
+  --bs-dropdown-link-active-bg: var(--bs-primary);
+  --bs-dropdown-link-disabled-color: var(--text-muted);
+  padding: 0.35rem;
+}
+
+.dropdown-menu .dropdown-item {
+  border-radius: var(--bs-border-radius-sm);
+}
+
+.dropdown-menu .dropdown-item:has(> .mdi) {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.dropdown-menu .dropdown-item > .mdi {
+  width: 1.1rem;
+  flex: 0 0 1.1rem;
+  text-align: center;
+  font-size: 1rem;
+}
+
+.dropdown-menu:focus {
+  outline: none;
+}
+
+.dropdown-menu .dropdown-item:focus {
+  color: var(--text);
+  background-color: transparent;
+}
+
+.dropdown-menu .dropdown-item.active,
+.dropdown-menu .dropdown-item:not(:disabled):hover,
+.dropdown-menu .dropdown-item:not(:disabled):active,
+.dropdown-menu .dropdown-item:not(:disabled):focus-visible {
+  color: #fff;
+  background-color: var(--bs-primary);
+}
+
+.dropdown-menu .dropdown-item:focus-visible {
+  outline: 1px solid #fff;
+  outline-offset: -1px;
+}
+
+.dropdown-menu .dropdown-item.text-danger:is(:hover, :active, :focus-visible) {
+  color: #fff !important;
+}
+
+/* Pointer hover takes precedence over keyboard focus left on another item. */
+.dropdown-menu:has(.dropdown-item:hover)
+  .dropdown-item:focus-visible:not(:hover):not(.active) {
+  color: var(--text);
+  background-color: transparent;
+  outline: none;
+}

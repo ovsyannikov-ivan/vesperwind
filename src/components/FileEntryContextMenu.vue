@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { navigateDropdown } from '../utils/dropdownNavigation.js'
 
 const props = defineProps({
   request: {
@@ -11,14 +12,22 @@ const props = defineProps({
     default: null,
     validator: (value) => value === null || ['open', 'edit', 'view'].includes(value),
   },
+  nativeActions: { type: Boolean, default: false },
+  openWithAvailable: { type: Boolean, default: false },
+  revealLabel: { type: String, default: 'Show in File Manager' },
+  busy: { type: Boolean, default: false },
+  error: { type: String, default: '' },
 })
 
-const emit = defineEmits(['open', 'rename', 'delete', 'cancel'])
+const emit = defineEmits(['open', 'system-open', 'open-with', 'reveal', 'rename', 'delete', 'cancel'])
 const menuRef = ref(null)
-const firstActionRef = ref(null)
 const menuStyle = computed(() => {
   const width = 208
-  const height = props.openAction ? 128 : 84
+  const nativeFile = props.nativeActions && !props.request.node.isDirectory
+  const rows = 2 + Number(Boolean(props.openAction)) + 2 * Number(props.nativeActions) +
+    Number(nativeFile && props.openWithAvailable)
+  const height = 16 + rows * 33 + (props.openAction || props.nativeActions ? 9 : 0) +
+    (props.error ? 52 : 0)
   const left = Math.max(8, Math.min(props.request.x, window.innerWidth - width - 8))
   const top = Math.max(8, Math.min(props.request.y, window.innerHeight - height - 8))
 
@@ -34,12 +43,6 @@ const actionLabel = computed(() => ({
   edit: 'Edit',
   view: 'View',
 }[props.openAction]))
-const captureRenameRef = (element) => {
-  if (!props.openAction) {
-    firstActionRef.value = element
-  }
-}
-
 const handlePointerDown = (event) => {
   if (!menuRef.value?.contains(event.target)) {
     emit('cancel')
@@ -47,6 +50,7 @@ const handlePointerDown = (event) => {
 }
 
 const handleKeydown = (event) => {
+  if (navigateDropdown(event, menuRef.value)) return
   if (event.key === 'Escape') {
     emit('cancel')
   }
@@ -56,7 +60,7 @@ onMounted(async () => {
   document.addEventListener('pointerdown', handlePointerDown, true)
   window.addEventListener('keydown', handleKeydown)
   await nextTick()
-  firstActionRef.value?.focus()
+  menuRef.value?.focus({ preventScroll: true })
 })
 
 onBeforeUnmount(() => {
@@ -72,26 +76,61 @@ onBeforeUnmount(() => {
       class="dropdown-menu show file-entry-context-menu shadow"
       :style="menuStyle"
       role="menu"
+      tabindex="-1"
       :aria-label="`Actions for ${request.node.name}`"
       @contextmenu.prevent
     >
       <button
-        v-if="openAction"
-        ref="firstActionRef"
+        v-if="nativeActions"
         class="dropdown-item"
         type="button"
         role="menuitem"
+        :disabled="busy"
+        @click="$emit('system-open')"
+      >
+        <i class="mdi mdi-open-in-new" aria-hidden="true" />
+        Open
+      </button>
+      <button
+        v-if="nativeActions && openWithAvailable && !request.node.isDirectory"
+        class="dropdown-item"
+        type="button"
+        role="menuitem"
+        :disabled="busy"
+        @click="$emit('open-with')"
+      >
+        <i class="mdi mdi-application-outline" aria-hidden="true" />
+        Open With…
+      </button>
+      <button
+        v-if="openAction"
+        class="dropdown-item"
+        type="button"
+        role="menuitem"
+        :disabled="busy"
         @click="$emit('open')"
       >
         <i class="mdi" :class="actionIcon" aria-hidden="true" />
-        {{ actionLabel }}
+        {{ nativeActions && request.node.isDirectory ? 'Open in Panel' : actionLabel }}
       </button>
-      <div v-if="openAction" class="dropdown-divider" />
       <button
-        :ref="captureRenameRef"
+        v-if="nativeActions"
         class="dropdown-item"
         type="button"
         role="menuitem"
+        :disabled="busy"
+        @click="$emit('reveal')"
+      >
+        <i class="mdi mdi-folder-search-outline" aria-hidden="true" />
+        {{ revealLabel }}
+      </button>
+      <div v-if="openAction || nativeActions" class="dropdown-divider" />
+      <div v-if="error" class="px-3 py-2 small text-danger" role="alert">{{ error }}</div>
+      <button
+        class="dropdown-item"
+        type="button"
+        role="menuitem"
+        :disabled="busy"
         @click="$emit('rename')"
       >
         <i class="mdi mdi-rename-outline" aria-hidden="true" />
@@ -101,6 +140,7 @@ onBeforeUnmount(() => {
         class="dropdown-item text-danger"
         type="button"
         role="menuitem"
+        :disabled="busy"
         @click="$emit('delete')"
       >
         <i class="mdi mdi-trash-can-outline" aria-hidden="true" />

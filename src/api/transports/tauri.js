@@ -7,6 +7,7 @@ const requestCommands = Object.freeze({
   'filesystem:read-text': 'filesystem_read_text',
   'filesystem:write-text': 'filesystem_write_text',
   'filesystem:operate': 'filesystem_operate',
+  'desktop:operate': 'desktop_operate',
   'content:prepare': 'content_prepare',
   'content:status': 'content_status',
   'content:cancel': 'content_cancel',

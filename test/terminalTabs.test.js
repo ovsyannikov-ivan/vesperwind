@@ -61,7 +61,7 @@ test('terminal dropdown and instances preserve independent lifecycle wiring', as
 
   assert.match(panel, /<Teleport to="body">/u)
   assert.match(panel, /> Local Terminal<\/button>/u)
-  assert.match(panel, /class="dropdown-header">REMOTE/u)
+  assert.match(panel, /class="dropdown-header">Remote/u)
   assert.match(panel, /No saved connections/u)
   assert.match(panel, /Manage Connections…/u)
   assert.match(panel, /add\('ssh', profile\)/u)

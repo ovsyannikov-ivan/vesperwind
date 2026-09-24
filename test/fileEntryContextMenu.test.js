@@ -14,7 +14,12 @@ test('context-menu Rename starts the selected tree node inline editor', async ()
     readComponent('FileTreeNode.vue'),
   ])
 
-  assert.match(menu, /defineEmits\(\['open', 'rename', 'delete', 'cancel'\]\)/u)
+  assert.match(menu, /defineEmits\(\['open', 'system-open', 'open-with', 'reveal', 'rename', 'delete', 'cancel'\]\)/u)
+  assert.match(menu, /v-if="nativeActions"[\s\S]*?@click="\$emit\('system-open'\)"/u)
+  assert.match(menu, /v-if="nativeActions && openWithAvailable && !request\.node\.isDirectory"/u)
+  assert.match(menu, /nativeActions && request\.node\.isDirectory \? 'Open in Panel' : actionLabel/u)
+  assert.match(menu, /@click="\$emit\('reveal'\)"/u)
+  assert.match(manager, /:native-actions="desktop\.available && entryContextRequest\.node\.providerId === 'local'"/u)
   assert.match(menu, /@click="\$emit\('rename'\)"[\s\S]*?Rename/u)
   assert.match(
     manager,

@@ -6,6 +6,7 @@ import {
   createTerminalTab,
 } from '../utils/terminalTabs.js'
 import TerminalInstance from './TerminalInstance.vue'
+import { navigateDropdown } from '../utils/dropdownNavigation.js'
 
 defineProps({ visible: { type: Boolean, required: true } })
 const emit = defineEmits(['toggle', 'manage-connections'])
@@ -14,7 +15,6 @@ const tabs = ref([])
 const activeId = ref(null)
 const addButton = ref(null)
 const menuRef = ref(null)
-const firstActionRef = ref(null)
 const menuOpen = ref(false)
 const menuStyle = ref({})
 const instances = ref({})
@@ -36,7 +36,7 @@ const toggleMenu = async () => {
   if (!menuOpen.value) return
   positionMenu()
   await nextTick()
-  firstActionRef.value?.focus()
+  menuRef.value?.focus({ preventScroll: true })
 }
 const activate = async (id) => {
   activeId.value = id
@@ -79,6 +79,7 @@ const handlePointerDown = (event) => {
   }
 }
 const handleKeydown = (event) => {
+  if (menuOpen.value && navigateDropdown(event, menuRef.value)) return
   if (event.key === 'Escape') closeMenu()
 }
 onMounted(() => {
@@ -125,10 +126,10 @@ onBeforeUnmount(() => {
       <TerminalInstance v-for="tab in tabs" :key="tab.id" :ref="(value) => setInstance(tab.id, value)" :visible="activeId === tab.id" :type="tab.type" :connection-id="tab.connectionId" @status="updateStatus(tab, $event)" />
     </div>
     <Teleport to="body">
-      <ul v-if="menuOpen" ref="menuRef" class="dropdown-menu show terminal-new-menu shadow" :style="menuStyle" role="menu" aria-label="Create terminal">
-        <li><button ref="firstActionRef" class="dropdown-item" type="button" role="menuitem" @click="add('local')"><i class="mdi mdi-console" aria-hidden="true" /> Local Terminal</button></li>
+      <ul v-if="menuOpen" ref="menuRef" class="dropdown-menu show terminal-new-menu shadow" :style="menuStyle" role="menu" tabindex="-1" aria-label="Create terminal">
+        <li><button class="dropdown-item" type="button" role="menuitem" @click="add('local')"><i class="mdi mdi-console" aria-hidden="true" /> Local Terminal</button></li>
         <li><hr class="dropdown-divider"></li>
-        <li><h2 class="dropdown-header">REMOTE</h2></li>
+        <li><h2 class="dropdown-header">Remote</h2></li>
         <li v-for="profile in profiles" :key="profile.id"><button class="dropdown-item" type="button" role="menuitem" @click="add('ssh', profile)"><i class="mdi mdi-server-network" aria-hidden="true" /> {{ profile.name }}</button></li>
         <li v-if="!profiles.length"><span class="dropdown-item-text text-body-secondary">No saved connections</span></li>
         <li><hr class="dropdown-divider"></li>

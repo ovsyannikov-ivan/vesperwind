@@ -21,3 +21,13 @@ and `src/components/SettingsModal.vue`; do not introduce a separate visual style
   but their header typography and icon alignment follow the same convention.
 - Verify affected dialogs visually and run `npm test` before handing off changes.
   The modal-style regression test should cover any new modal component.
+
+## Consistent dropdown styling
+
+Use the shared `src/styles/dropdown.css` and Bootstrap `dropdown-menu` / `dropdown-item`
+classes for new dropdowns. Compare their appearance with the file context menu.
+Keep padding, rounded items, icon alignment, and hover, active, and keyboard focus
+states consistent. Use `var(--bs-primary)` with white text for highlighted items.
+Opening a menu must not highlight its first item until the pointer hovers over it
+or keyboard navigation selects it. Use normal title or sentence case for menu
+labels and headings; avoid all caps except established acronyms.

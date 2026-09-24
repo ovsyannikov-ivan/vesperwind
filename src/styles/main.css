@@ -1167,20 +1167,6 @@ body.is-resizing-horizontal {
   z-index: 1110;
   max-height: min(320px, calc(100vh - 16px));
   overflow-y: auto;
-  padding: 0.35rem;
-}
-
-.terminal-new-menu .dropdown-item {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  border-radius: var(--bs-border-radius-sm);
-}
-
-.terminal-new-menu .dropdown-item .mdi {
-  width: 1.1rem;
-  flex: 0 0 1.1rem;
-  text-align: center;
 }
 
 .terminal-actions {
@@ -1880,13 +1866,6 @@ body.is-resizing-horizontal {
   height: 100%;
 }
 
-.dropdown-menu {
-  --bs-dropdown-border-radius: 0.75rem;
-  --bs-dropdown-font-size: 0.875rem;
-  --bs-dropdown-item-padding-y: 0.15rem;
-  --bs-btn-font-size: 0.875rem;
-}
-
 .file-operation-menu-backdrop {
   position: fixed;
   inset: 0;
@@ -1896,38 +1875,17 @@ body.is-resizing-horizontal {
 .file-operation-menu {
   position: fixed;
   width: 18rem;
-  padding: 0.35rem;
-  border-radius: var(--bs-dropdown-border-radius);
   z-index: 1090;
 }
 
 .file-entry-context-menu {
   position: fixed;
   width: 13rem;
-  padding: 0.35rem;
-  border-radius: var(--bs-dropdown-border-radius);
   z-index: 1090;
 }
 
-.file-entry-context-menu .dropdown-item {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  border-radius: var(--bs-border-radius-sm);
-}
-
-.file-entry-context-menu .dropdown-item .mdi {
-  width: 1.1rem;
-  flex: 0 0 1.1rem;
-  text-align: center;
-  font-size: 1rem;
-}
-
-.file-entry-context-menu .dropdown-item:hover,
-.file-entry-context-menu .dropdown-item:focus,
-.file-entry-context-menu .dropdown-item:active {
-  color: #ffffff !important;
-  background-color: var(--bs-primary);
+.toolbar-create-menu {
+  width: 13rem;
 }
 
 .file-operation-menu .dropdown-header {
@@ -1935,27 +1893,6 @@ body.is-resizing-horizontal {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.file-operation-menu .dropdown-item {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  border-radius: var(--bs-border-radius-sm);
-}
-
-.file-operation-menu .dropdown-item .mdi {
-  width: 1.1rem;
-  flex: 0 0 1.1rem;
-  text-align: center;
-  font-size: 1rem;
-}
-
-.file-operation-menu .dropdown-item:not(:disabled):hover,
-.file-operation-menu .dropdown-item:not(:disabled):focus,
-.file-operation-menu .dropdown-item:not(:disabled):active {
-  color: #ffffff;
-  background-color: var(--bs-primary);
 }
 
 .file-operation-error {
