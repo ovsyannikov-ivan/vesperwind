@@ -7,7 +7,7 @@ use crate::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{fs, sync::Arc};
-use tauri::State;
+use tauri::{AppHandle, State};
 
 const MAX_TEXT_FILE_BYTES: u64 = 10 * 1024 * 1024;
 
@@ -22,6 +22,36 @@ pub struct FilesystemRootPayload {
 pub struct FilesystemPathPayload {
     filesystem_id: Option<String>,
     path: Option<String>,
+}
+
+#[tauri::command]
+pub fn filesystem_watch(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    payload: FilesystemPathPayload,
+) -> Value {
+    let result = (|| {
+        filesystem::Filesystem::require_local(payload.filesystem_id.as_deref())?;
+        state.directory_watches.watch(
+            &state.filesystem,
+            app,
+            payload.path.as_deref().unwrap_or_default(),
+        )?;
+        Ok::<_, NativeError>(json!({"ok": true}))
+    })();
+    result.unwrap_or_else(failure)
+}
+
+#[tauri::command]
+pub fn filesystem_unwatch(state: State<'_, AppState>, payload: FilesystemPathPayload) -> Value {
+    if let Err(error) = filesystem::Filesystem::require_local(payload.filesystem_id.as_deref()) {
+        return failure(error);
+    }
+    state.directory_watches.unwatch(
+        &state.filesystem,
+        payload.path.as_deref().unwrap_or_default(),
+    );
+    json!({"ok": true})
 }
 
 #[derive(Debug, Deserialize)]

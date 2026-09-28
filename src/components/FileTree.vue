@@ -52,6 +52,8 @@ defineProps({
     type: Boolean,
     default: false,
   },
+  watchActive: { type: Boolean, default: true },
+  refreshRevision: { type: Number, default: 0 },
 })
 
 defineEmits(['select', 'open', 'drop-request', 'context-menu', 'expanded-change', 'children-loaded'])
@@ -60,6 +62,7 @@ defineEmits(['select', 'open', 'drop-request', 'context-menu', 'expanded-change'
 <template>
   <ul class="file-tree" role="tree" aria-label="Filesystem tree">
     <FileTreeNode
+      :key="`${providerId}:${root.path}`"
       :node="root"
       :home-path="homePath"
       :panel-side="panelSide"
@@ -72,13 +75,15 @@ defineEmits(['select', 'open', 'drop-request', 'context-menu', 'expanded-change'
       :list-directory="listDirectory"
       :compact="compact"
       :scroll-selected-into-view="scrollSelectedIntoView"
+      :watch-active="watchActive"
+      :refresh-revision="refreshRevision"
       default-expanded
       @select="$emit('select', $event)"
       @open="$emit('open', $event)"
       @drop-request="$emit('drop-request', $event)"
       @context-menu="$emit('context-menu', $event)"
       @expanded-change="$emit('expanded-change', $event)"
-      @children-loaded="$emit('children-loaded')"
+      @children-loaded="$emit('children-loaded', $event)"
     />
   </ul>
 </template>

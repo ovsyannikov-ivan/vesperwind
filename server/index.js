@@ -36,6 +36,7 @@ const startServer = async () => {
     { registerTextFileHandlers },
     { registerRuntimeHandlers },
     { registerSshHandlers },
+    { createLocalWatchRegistry, registerDirectoryWatchHandlers },
   ] = await Promise.all([
     import('./filesystem.js'),
     import('./fileOperations.js'),
@@ -46,9 +47,11 @@ const startServer = async () => {
     import('./textFiles.js'),
     import('./runtime.js'),
     import('./ssh.js'),
+    import('./directoryWatch.js'),
   ])
 
   const sshConnections = new Map()
+  const directoryWatches = createLocalWatchRegistry()
 
   const handleRequest = async (request, response) => {
     if (request.url === '/health') {
@@ -89,6 +92,7 @@ const startServer = async () => {
   io.on('connection', (socket) => {
     const ssh = registerSshHandlers(socket, { connections: sshConnections })
     registerFilesystemHandlers(socket, { ssh })
+    registerDirectoryWatchHandlers(socket, directoryWatches)
     registerFileOperationHandlers(socket, { ssh })
     registerSettingsHandlers(socket)
     registerTextFileHandlers(socket, { ssh })

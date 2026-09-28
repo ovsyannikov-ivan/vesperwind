@@ -25,6 +25,7 @@ pub struct AppState {
     terminal: Arc<TerminalManager>,
     ssh: Arc<SshManager>,
     player: Arc<mpv::MpvPlayerManager>,
+    directory_watches: filesystem::watch::DirectoryWatches,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -67,6 +68,7 @@ pub fn run() {
             terminal,
             ssh: Arc::clone(&ssh),
             player,
+            directory_watches: filesystem::watch::DirectoryWatches::default(),
         })
         .setup(|app| {
             let window = app
@@ -101,6 +103,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::filesystem::filesystem_root,
             commands::filesystem::filesystem_list,
+            commands::filesystem::filesystem_watch,
+            commands::filesystem::filesystem_unwatch,
             commands::filesystem::filesystem_read_text,
             commands::filesystem::filesystem_write_text,
             commands::filesystem::filesystem_operate,

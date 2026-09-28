@@ -2,6 +2,7 @@ pub mod alias;
 pub mod availability;
 pub mod operations;
 pub mod paths;
+pub mod watch;
 
 use crate::error::NativeError;
 use chrono::{DateTime, SecondsFormat, Utc};

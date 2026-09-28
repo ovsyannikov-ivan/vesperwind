@@ -5,6 +5,7 @@ import { useSettings } from '../composables/useSettings.js'
 import { buildPathBreadcrumbs } from '../utils/pathBreadcrumbs.js'
 import { getFilesystemPathName } from '../utils/filesystemPath.js'
 import { isSameOrDescendantPath } from '../utils/filesystemPath.js'
+import { reconcileDirectorySelection } from '../utils/reconcileDirectorySelection.js'
 import { selectFileEntries } from '../utils/fileSelection.js'
 import FileTree from './FileTree.vue'
 import { entryChange, relocatePath } from '../composables/useEntryChanges.js'
@@ -44,6 +45,7 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  watchActive: { type: Boolean, default: true },
 })
 
 const emit = defineEmits([
@@ -181,6 +183,24 @@ const updateExpanded = ({ path, expanded }) => {
   expandedPaths.value = expanded
     ? [...new Set([...expandedPaths.value, path])]
     : expandedPaths.value.filter((value) => value !== path)
+}
+
+const reconcileSelection = ({ path, entries }) => {
+  const next = reconcileDirectorySelection({
+    selectedEntries: selectedEntries.value,
+    anchorPath: selectionAnchorPath.value,
+    selectedNode: selectedNode.value,
+    rootPath: root.value?.path,
+    root: root.value,
+  }, path, entries, props.providerId)
+  selectedEntries.value = next.selectedEntries
+  selectionAnchorPath.value = next.anchorPath
+  selectedNode.value = next.selectedNode
+  selectedPath.value = next.selectedPath
+}
+const handleChildrenLoaded = (payload) => {
+  reconcileSelection(payload)
+  void restoreScroll()
 }
 
 const removeSelectedPaths = (sources) => {
@@ -479,7 +499,7 @@ watch(entryChange, (change) => {
           <span class="tree-column-date">Date</span>
         </div>
         <FileTree
-          :key="`${root.path}:${settingsRevision}:${filesystemRevision}`"
+          :key="`${root.path}:${settingsRevision}`"
           :root="root"
           :home-path="homePath"
           :provider-id="providerId"
@@ -490,12 +510,14 @@ watch(entryChange, (change) => {
           :expanded-paths="expandedPaths"
           :rename-request="renameRequest"
           :list-directory="listDirectory"
+          :watch-active="watchActive"
+          :refresh-revision="filesystemRevision"
           @select="selectNode"
           @open="openNode"
           @drop-request="$emit('drop-request', $event)"
           @context-menu="openEntryContextMenu"
           @expanded-change="updateExpanded"
-          @children-loaded="restoreScroll"
+          @children-loaded="handleChildrenLoaded"
         />
       </div>
     </div>

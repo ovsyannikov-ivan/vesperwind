@@ -14,6 +14,7 @@ const props = defineProps({
     type: String,
     default: '',
   },
+  watchActive: { type: Boolean, default: true },
 })
 
 const emit = defineEmits(['open-file'])
@@ -21,6 +22,12 @@ const { listDirectory } = useFilesystem(props.context.filesystemId)
 const selectedPath = ref(
   props.activeFilePath || props.context.sourceRootPath,
 )
+const expandedPaths = ref([])
+const updateExpanded = ({ path, expanded }) => {
+  expandedPaths.value = expanded
+    ? [...new Set([...expandedPaths.value, path])]
+    : expandedPaths.value.filter((value) => value !== path)
+}
 watch(entryChange, (change) => {
   if (change?.providerId === props.context.filesystemId) {
     selectedPath.value = relocatePath(selectedPath.value, change)
@@ -107,11 +114,14 @@ watch(
         :provider-id="context.filesystemId"
         :panel-side="context.sourcePane"
         :selected-path="selectedPath"
+        :expanded-paths="expandedPaths"
         :list-directory="listDirectory"
+        :watch-active="watchActive"
         scroll-selected-into-view
         compact
         @select="selectedPath = $event.path"
         @open="openNode"
+        @expanded-change="updateExpanded"
       />
     </div>
   </section>

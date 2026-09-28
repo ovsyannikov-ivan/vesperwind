@@ -20,6 +20,7 @@ import {
   TERMINAL_PATH_MIME,
 } from '../utils/terminalPath.js'
 import { LOCAL_FILESYSTEM_PROVIDER } from '../api/filesystemLocation.js'
+import { directoryWatch } from '../api/directoryWatch.js'
 
 const props = defineProps({
   node: {
@@ -79,6 +80,8 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  watchActive: { type: Boolean, default: true },
+  refreshRevision: { type: Number, default: 0 },
 })
 
 const emit = defineEmits(['select', 'open', 'drop-request', 'context-menu', 'expanded-change', 'children-loaded'])
@@ -100,6 +103,21 @@ const renameInput = ref(null)
 let renameTimer = null
 let lastNameClick = 0
 let refreshPending = false
+let stopDirectoryWatch = null
+const refreshChildren = async () => {
+  if (!expanded.value) return
+  if (loading.value) { refreshPending = true; return }
+  loaded.value = false
+  await loadChildren()
+}
+const startDirectoryWatch = () => {
+  if (stopDirectoryWatch || !expanded.value || !props.watchActive) return
+  stopDirectoryWatch = directoryWatch.subscribe(props.providerId, props.node.path, refreshChildren)
+}
+const releaseDirectoryWatch = () => {
+  stopDirectoryWatch?.()
+  stopDirectoryWatch = null
+}
 const cancelRenameTimer = () => { clearTimeout(renameTimer); renameTimer = null }
 const cancelRename = () => {
   if (renameBusy.value) return
@@ -201,8 +219,9 @@ const loadChildren = async () => {
     return
   }
 
+  const previous = children.value
   children.value = response.entries
-  emit('children-loaded')
+  emit('children-loaded', { path: props.node.path, entries: response.entries, previous })
 }
 
 const toggle = async () => {
@@ -214,7 +233,10 @@ const toggle = async () => {
   emit('expanded-change', { path: props.node.path, expanded: expanded.value })
 
   if (expanded.value) {
+    startDirectoryWatch()
     await loadChildren()
+  } else {
+    releaseDirectoryWatch()
   }
 }
 
@@ -381,6 +403,7 @@ const handleDrop = (event) => {
 onMounted(() => {
   if (props.defaultExpanded) {
     expanded.value = true
+    startDirectoryWatch()
     loadChildren()
   }
 
@@ -409,15 +432,14 @@ watch(
 
 watch(entryChange, async (change) => {
   if (change?.targetDirectory !== props.node.path || !props.node.isDirectory) return
-  // A pending initial read may contain an old snapshot. Refresh after it settles.
-  if (loading.value) {
-    refreshPending = true
-    return
-  }
-  loaded.value = false
-  if (expanded.value) await loadChildren()
+  await refreshChildren()
 })
-onBeforeUnmount(cancelRenameTimer)
+watch(() => props.watchActive, (active) => {
+  if (!active) releaseDirectoryWatch()
+  else if (expanded.value) { startDirectoryWatch(); void refreshChildren() }
+})
+watch(() => props.refreshRevision, () => { void refreshChildren() })
+onBeforeUnmount(() => { cancelRenameTimer(); releaseDirectoryWatch() })
 </script>
 
 <template>
@@ -518,8 +540,7 @@ onBeforeUnmount(cancelRenameTimer)
         Empty folder
       </div>
       <ul
-        v-else-if="children.length"
-        v-show="expanded"
+        v-else-if="expanded && children.length"
         class="tree-children"
         role="group"
       >
@@ -540,12 +561,14 @@ onBeforeUnmount(cancelRenameTimer)
           :list-directory="listDirectory"
           :compact="compact"
           :scroll-selected-into-view="scrollSelectedIntoView"
+          :watch-active="watchActive"
+          :refresh-revision="refreshRevision"
           @select="$emit('select', $event)"
           @open="forwardOpen"
           @drop-request="$emit('drop-request', $event)"
           @context-menu="forwardContextMenu"
           @expanded-change="$emit('expanded-change', $event)"
-          @children-loaded="$emit('children-loaded')"
+          @children-loaded="$emit('children-loaded', $event)"
         />
       </ul>
     </template>
