@@ -3,6 +3,7 @@ dist/
 staging/
 src-tauri/target/
 .DS_Store
+**/.DS_Store
 *.log
 .env
 .env.*

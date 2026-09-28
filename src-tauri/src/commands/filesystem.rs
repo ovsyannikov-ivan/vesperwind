@@ -4,6 +4,7 @@ use crate::{
     filesystem::{self, availability::require_content_ready, operations::OperationRequest},
     AppState,
 };
+use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{fs, sync::Arc};
@@ -207,6 +208,119 @@ pub async fn filesystem_write_text(
     )
 }
 
+const MAX_BINARY_FILE_BYTES: u64 = 32 * 1024 * 1024;
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteBinaryPayload {
+    filesystem_id: Option<String>,
+    path: Option<String>,
+    base64: Option<String>,
+}
+
+#[tauri::command]
+pub async fn filesystem_read_binary(
+    state: State<'_, AppState>,
+    payload: FilesystemPathPayload,
+) -> Result<Value, String> {
+    let path = payload.path.unwrap_or_default();
+    if let Some(provider) = payload.filesystem_id.as_deref().filter(|id| *id != "local") {
+        return Ok(match state.ssh.read_binary(provider, &path) {
+            Ok((bytes, modified)) => {
+                json!({"ok":true,"base64":STANDARD.encode(bytes),"modifiedAt":modified})
+            }
+            Err(error) => failure(error),
+        });
+    }
+    let real =
+        match require_content_ready(&state.filesystem, payload.filesystem_id.as_deref(), &path) {
+            Ok(real) => real,
+            Err(error) => return Ok(failure(error)),
+        };
+    Ok(
+        match tauri::async_runtime::spawn_blocking(move || {
+            let metadata = fs::metadata(&real)
+                .map_err(|e| NativeError::from_io(&e, "Unable to read this file"))?;
+            validate_binary_metadata(&metadata)?;
+            let bytes = fs::read(&real)
+                .map_err(|e| NativeError::from_io(&e, "Unable to read this file"))?;
+            Ok::<_, NativeError>(json!({"ok":true,"base64":STANDARD.encode(bytes),
+            "modifiedAt":metadata.modified().ok().map(filesystem::format_time)}))
+        })
+        .await
+        {
+            Ok(Ok(value)) => value,
+            Ok(Err(error)) => failure(error),
+            Err(error) => failure(NativeError::new("EFILE_IO", error.to_string())),
+        },
+    )
+}
+
+#[tauri::command]
+pub async fn filesystem_write_binary(
+    state: State<'_, AppState>,
+    payload: WriteBinaryPayload,
+) -> Result<Value, String> {
+    let path = payload.path.unwrap_or_default();
+    let encoded = match payload.base64 {
+        Some(value) => value,
+        None => {
+            return Ok(failure(NativeError::new(
+                "EINVAL",
+                "Invalid binary contents",
+            )))
+        }
+    };
+    if encoded.len() as u64 > ((MAX_BINARY_FILE_BYTES + 2) / 3) * 4 {
+        return Ok(failure(NativeError::new(
+            "EFILE_TOO_LARGE",
+            "Files larger than 32 MB cannot be saved",
+        )));
+    }
+    let bytes = match STANDARD.decode(encoded.as_bytes()) {
+        Ok(bytes) if bytes.len() as u64 <= MAX_BINARY_FILE_BYTES => bytes,
+        _ => {
+            return Ok(failure(NativeError::new(
+                "EINVAL",
+                "Invalid binary contents",
+            )))
+        }
+    };
+    if let Some(provider) = payload.filesystem_id.as_deref().filter(|id| *id != "local") {
+        return Ok(match state.ssh.write_binary(provider, &path, &bytes) {
+            Ok(modified) => json!({"ok":true,"modifiedAt":modified}),
+            Err(error) => failure(error),
+        });
+    }
+    let real =
+        match require_content_ready(&state.filesystem, payload.filesystem_id.as_deref(), &path) {
+            Ok(real) => real,
+            Err(error) => return Ok(failure(error)),
+        };
+    Ok(match tauri::async_runtime::spawn_blocking(move || {
+        validate_binary_metadata(&fs::metadata(&real).map_err(|e| NativeError::from_io(&e, "Unable to save this file"))?)?;
+        fs::write(&real, bytes).map_err(|e| NativeError::from_io(&e, "Unable to save this file"))?;
+        let metadata = fs::metadata(&real).map_err(|e| NativeError::from_io(&e, "Unable to save this file"))?;
+        Ok::<_, NativeError>(json!({"ok":true,"modifiedAt":metadata.modified().ok().map(filesystem::format_time)}))
+    }).await {
+        Ok(Ok(value)) => value, Ok(Err(error)) => failure(error),
+        Err(error) => failure(NativeError::new("EFILE_IO", error.to_string())),
+    })
+}
+
+fn validate_binary_metadata(metadata: &fs::Metadata) -> Result<(), NativeError> {
+    if !metadata.is_file() {
+        return Err(NativeError::new("EISDIR", "This item is not a file"));
+    }
+    if metadata.len() > MAX_BINARY_FILE_BYTES {
+        return Err(NativeError::new(
+            "EFILE_TOO_LARGE",
+            "Files larger than 32 MB cannot be opened",
+        ));
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn filesystem_operate(
     state: State<'_, AppState>,
@@ -271,4 +385,32 @@ fn text_error(error: &std::io::Error, path: &str) -> NativeError {
     }
     .to_string();
     result
+}
+
+#[cfg(test)]
+mod binary_tests {
+    use super::*;
+    #[test]
+    fn binary_file_validation_rejects_directories_and_oversized_files() {
+        let root = std::env::temp_dir().join(format!("vesperwind-binary-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        let file = root.join("Отчёт workbook.xlsx");
+        fs::write(&file, [0, 255, 0, 42]).unwrap();
+        assert!(validate_binary_metadata(&fs::metadata(&file).unwrap()).is_ok());
+        assert_eq!(
+            validate_binary_metadata(&fs::metadata(&root).unwrap())
+                .unwrap_err()
+                .code,
+            "EISDIR"
+        );
+        let handle = fs::OpenOptions::new().write(true).open(&file).unwrap();
+        handle.set_len(MAX_BINARY_FILE_BYTES + 1).unwrap();
+        assert_eq!(
+            validate_binary_metadata(&fs::metadata(&file).unwrap())
+                .unwrap_err()
+                .code,
+            "EFILE_TOO_LARGE"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
 }

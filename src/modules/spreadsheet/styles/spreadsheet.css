@@ -1,0 +1,3 @@
+.spreadsheet-editor { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; width: 100%; overflow: hidden; }
+.spreadsheet-editor-host { flex: 1 1 auto; min-height: 0; width: 100%; }
+.spreadsheet-warning { flex: 0 0 auto; padding: 0.25rem 0.75rem; font-size: 0.78rem; background: var(--bs-warning-bg-subtle); color: var(--bs-warning-text-emphasis); border-bottom: 1px solid var(--bs-border-color); }

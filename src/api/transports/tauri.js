@@ -8,6 +8,8 @@ const requestCommands = Object.freeze({
   'filesystem:unwatch': 'filesystem_unwatch',
   'filesystem:read-text': 'filesystem_read_text',
   'filesystem:write-text': 'filesystem_write_text',
+  'filesystem:read-binary': 'filesystem_read_binary',
+  'filesystem:write-binary': 'filesystem_write_binary',
   'filesystem:operate': 'filesystem_operate',
   'desktop:operate': 'desktop_operate',
   'content:prepare': 'content_prepare',

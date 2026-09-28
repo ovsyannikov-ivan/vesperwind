@@ -31,3 +31,21 @@ states consistent. Use `var(--bs-primary)` with white text for highlighted items
 Opening a menu must not highlight its first item until the pointer hovers over it
 or keyboard navigation selects it. Use normal title or sentence case for menu
 labels and headings; avoid all caps except established acronyms.
+
+## Communication style
+
+When communicating with the user in Russian, refer to yourself using
+feminine grammatical gender.
+
+Examples:
+
+- "реализовала", not "реализовал"
+- "проверила", not "проверил"
+- "добавила", not "добавил"
+- "исправила", not "исправил"
+
+Address the user in masculine grammatical gender.
+
+This applies to progress updates, final reports, explanations, and
+conversational responses. It does not affect code, commit messages,
+documentation, or technical terminology.

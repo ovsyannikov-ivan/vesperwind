@@ -322,6 +322,24 @@ impl SshManager {
         self.get(provider_id)?.write_text(requested, content)
     }
 
+    pub fn read_binary(
+        self: &Arc<Self>,
+        provider_id: &str,
+        requested: &str,
+    ) -> Result<(Vec<u8>, Option<String>), NativeError> {
+        let connection = self.ensure(provider_id)?;
+        connection.read_binary(requested)
+    }
+
+    pub fn write_binary(
+        &self,
+        provider_id: &str,
+        requested: &str,
+        bytes: &[u8],
+    ) -> Result<Option<String>, NativeError> {
+        self.get(provider_id)?.write_binary(requested, bytes)
+    }
+
     pub fn content_metadata(
         self: &Arc<Self>,
         provider_id: &str,
@@ -714,6 +732,53 @@ impl RemoteConnection {
                 .to_rfc3339()
         }))
     }
+    fn read_binary(&self, requested: &str) -> Result<(Vec<u8>, Option<String>), NativeError> {
+        let path = self.resolve(requested)?;
+        let stat = self.sftp.stat(Path::new(&path)).map_err(sftp_error)?;
+        if stat.size.unwrap_or(0) > 32 * 1024 * 1024 {
+            return Err(NativeError::new(
+                "EFILE_TOO_LARGE",
+                "Files larger than 32 MB cannot be opened",
+            ));
+        }
+        let file = self.sftp.open(Path::new(&path)).map_err(sftp_error)?;
+        let mut bytes = Vec::new();
+        file.take(32 * 1024 * 1024 + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|e| NativeError::from_io(&e, "Unable to read remote file"))?;
+        if bytes.len() > 32 * 1024 * 1024 {
+            return Err(NativeError::new(
+                "EFILE_TOO_LARGE",
+                "Files larger than 32 MB cannot be opened",
+            ));
+        }
+        Ok((
+            bytes,
+            stat.mtime
+                .and_then(|v| chrono::DateTime::from_timestamp(v as i64, 0))
+                .map(|v| v.to_rfc3339()),
+        ))
+    }
+
+    fn write_binary(&self, requested: &str, bytes: &[u8]) -> Result<Option<String>, NativeError> {
+        let path = self.resolve(requested)?;
+        let stat = self.sftp.stat(Path::new(&path)).map_err(sftp_error)?;
+        if stat.size.unwrap_or(0) > 32 * 1024 * 1024 || bytes.len() > 32 * 1024 * 1024 {
+            return Err(NativeError::new(
+                "EFILE_TOO_LARGE",
+                "Files larger than 32 MB cannot be saved",
+            ));
+        }
+        let mut file = self.sftp.create(Path::new(&path)).map_err(sftp_error)?;
+        file.write_all(bytes)
+            .map_err(|e| NativeError::from_io(&e, "Unable to save remote file"))?;
+        let stat = self.sftp.stat(Path::new(&path)).map_err(sftp_error)?;
+        Ok(stat
+            .mtime
+            .and_then(|v| chrono::DateTime::from_timestamp(v as i64, 0))
+            .map(|v| v.to_rfc3339()))
+    }
+
     fn remove(&self, requested: &str) -> Result<(), NativeError> {
         let path = self.resolve(requested)?;
         let stat = self.sftp.lstat(Path::new(&path)).map_err(sftp_error)?;

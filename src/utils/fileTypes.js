@@ -1,3 +1,4 @@
+import { getDocumentHandler, getDocumentHandlerForExtension } from '../editor/documentHandlers.js'
 import {
   canPreviewMedia,
   getFileExtension,
@@ -5,13 +6,11 @@ import {
 } from '../../shared/mediaTypes.js'
 import { isEditableFile } from './editableFiles.js'
 
-const workspaceDocumentTypes = new Set(['text', 'pdf'])
 const mediaTypes = new Set(['image', 'video', 'audio'])
 
 export const getFileOpenType = (fileName, editableFiles = []) => {
-  if (getFileExtension(fileName) === 'pdf') {
-    return 'pdf'
-  }
+  const documentHandler = getDocumentHandlerForExtension(getFileExtension(fileName))
+  if (documentHandler) return documentHandler.id
 
   const mediaType = getMediaKind(fileName)
 
@@ -27,7 +26,7 @@ export const getFileOpenType = (fileName, editableFiles = []) => {
 }
 
 export const isWorkspaceDocumentType = (type) =>
-  workspaceDocumentTypes.has(type)
+  Boolean(getDocumentHandler(type))
 
 export const isMediaOpenType = (type) => mediaTypes.has(type)
 

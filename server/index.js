@@ -34,6 +34,7 @@ const startServer = async () => {
     { registerSettingsHandlers },
     { serveStaticAsset },
     { registerTextFileHandlers },
+    { registerBinaryFileHandlers },
     { registerRuntimeHandlers },
     { registerSshHandlers },
     { createLocalWatchRegistry, registerDirectoryWatchHandlers },
@@ -45,6 +46,7 @@ const startServer = async () => {
     import('./settings.js'),
     import('./staticAssets.js'),
     import('./textFiles.js'),
+    import('./binaryFiles.js'),
     import('./runtime.js'),
     import('./ssh.js'),
     import('./directoryWatch.js'),
@@ -86,7 +88,7 @@ const startServer = async () => {
 
   const httpServer = http.createServer(requestHandler)
   const io = new Server(httpServer, {
-    maxHttpBufferSize: 12 * 1024 * 1024,
+    maxHttpBufferSize: 48 * 1024 * 1024,
   })
 
   io.on('connection', (socket) => {
@@ -96,6 +98,7 @@ const startServer = async () => {
     registerFileOperationHandlers(socket, { ssh })
     registerSettingsHandlers(socket)
     registerTextFileHandlers(socket, { ssh })
+    registerBinaryFileHandlers(socket, { ssh })
     registerTerminalHandlers(socket, { cwd: fileManagerRoot, ssh })
     registerRuntimeHandlers(socket)
   })

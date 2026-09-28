@@ -61,6 +61,42 @@ const writeText = async (location, value, options) => {
   )
 }
 
+// Binary payloads cross the shared socket/Tauri boundary as base64. The public
+// API deals only in bytes and file references, independent of the provider.
+const decodeBytes = (base64) => Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+const encodeBytes = (bytes) => {
+  const value = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
+  let binary = ''
+  for (let index = 0; index < value.length; index += 0x8000) {
+    binary += String.fromCharCode(...value.subarray(index, index + 0x8000))
+  }
+  return btoa(binary)
+}
+
+const readBinary = async (location, options) => {
+  const preparation = await content.prepare(location, options)
+  if (!preparation.ok) return preparation
+  const response = normalizeApiResponse(
+    await backend.request('filesystem:read-binary', {
+      filesystemId: providerIdOf(location), path: location?.path,
+    }, { timeout: 60_000 }),
+    'EBINARY_READ', 'Unable to open this file',
+  )
+  return response.ok ? { ...response, bytes: decodeBytes(response.base64) } : response
+}
+
+const writeBinary = async (location, bytes, options) => {
+  const preparation = await content.prepare(location, options)
+  if (!preparation.ok) return preparation
+  return normalizeApiResponse(
+    await backend.request('filesystem:write-binary', {
+      filesystemId: providerIdOf(location), path: location?.path,
+      base64: encodeBytes(bytes),
+    }, { timeout: 60_000 }),
+    'EBINARY_WRITE', 'Unable to save this file',
+  )
+}
+
 const OPERATION_TIMEOUT = 10 * 60 * 1000
 
 const operate = async ({ action, source, target = null, name }) => {
@@ -92,6 +128,8 @@ export const filesystem = Object.freeze({
   readDir,
   readText,
   writeText,
+  readBinary,
+  writeBinary,
   copy: (source, target) => operate({ action: 'copy', source, target }),
   move: (source, target) => operate({ action: 'move', source, target }),
   link: (source, target) => operate({ action: 'link', source, target }),

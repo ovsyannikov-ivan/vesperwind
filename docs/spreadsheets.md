@@ -1,0 +1,36 @@
+# Offline spreadsheet editor
+
+`src/editor/documentHandlers.js` registers the spreadsheet handler from
+`src/modules/spreadsheet/index.js`. The public entry point contains no Univer or
+SheetJS import. Opening an `.xlsx` or `.xls` tab loads the file through
+`filesystem.readBinary({ providerId, path })`, parses it with SheetJS CE, and
+stores a small workbook model. The Vue component creates one Univer instance
+per open workbook tab, converts the model to a Univer snapshot, and disposes
+that instance and its command listener when the tab closes. Files larger than
+1 MiB are parsed in a Web Worker.
+
+Saving captures the live Univer workbook, converts it to the module's model,
+serializes with SheetJS CE, and writes bytes through `filesystem.writeBinary`.
+The same API routes to LocalProvider or SftpProvider in both Node/SEA and Tauri.
+Binary messages are base64 across the socket/Tauri boundary, with a 32 MiB file
+limit. Local read/write retain the existing root and resolved-path checks. A
+successful write clears dirty only when no newer mutation occurred during Save.
+
+Supported first-level round trips include sheet names and order, common cell
+values, formulas with cached values, number formats, merges, row heights,
+column widths, and Unicode. Legacy XLS remains BIFF8 on Save and is blocked
+when its row or column limits would be exceeded. VBA workbooks are blocked
+from saving because macros cannot be preserved.
+
+SheetJS CE does not promise lossless round trips for cell styling, conditional
+formatting, charts, images, pivot tables, macros, external links, or advanced
+Excel metadata. Univer may display or edit some of these, but the adapter
+currently saves only the common subset above. The editor shows a warning before
+saving. There is no Save As command in the current workspace, so files are
+never silently converted to another extension. External directory watch events
+do not reload an open workbook or overwrite its buffer.
+
+Dependencies are pinned to Univer 1.0.2 and the official SheetJS CE 0.20.3
+tarball in `vendor/`. All runtime assets are bundled locally. See
+[Univer Vue integration](https://docs.univer.ai/guides/sheets/getting-started/integrations/vue)
+and [SheetJS installation](https://docs.sheetjs.com/docs/getting-started/installation/nodejs/).

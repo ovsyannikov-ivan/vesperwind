@@ -107,6 +107,8 @@ pub fn run() {
             commands::filesystem::filesystem_unwatch,
             commands::filesystem::filesystem_read_text,
             commands::filesystem::filesystem_write_text,
+            commands::filesystem::filesystem_read_binary,
+            commands::filesystem::filesystem_write_binary,
             commands::filesystem::filesystem_operate,
             commands::desktop::desktop_operate,
             commands::content::content_prepare,

@@ -32,3 +32,12 @@ Vesperwind's MIT license does not relicense these libraries. The build excludes
 mpv's GPL source set and FFmpeg GPL/non-free/version-3-only components. Final
 public binary distribution remains subject to signing/notarization and legal
 review of the assembled dependency bundle.
+
+## Spreadsheet editor
+
+The offline spreadsheet editor bundles Univer 1.0.2 (`@univerjs/presets` and
+`@univerjs/preset-sheets-core`) and SheetJS Community Edition 0.20.3. Both are
+licensed under Apache-2.0. SheetJS CE is installed from the official tarball
+vendored at `vendor/xlsx-0.20.3.tgz`; no spreadsheet runtime asset is fetched
+from a CDN. Sources and license texts are available at
+<https://github.com/dream-num/univer> and <https://git.sheetjs.com/sheetjs/sheetjs>.

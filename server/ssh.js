@@ -172,6 +172,27 @@ class RemoteConnection {
     return { content: String(content), modifiedAt: stats.mtime ? new Date(stats.mtime * 1000).toISOString() : null }
   }
 
+  async readBinary(requested) {
+    const remotePath = this.resolve(requested)
+    const stats = await call(this.sftp, 'stat', remotePath)
+    if (!stats.isFile()) throw remoteError('EISDIR', 'The requested path is not a file')
+    if (stats.size > 32 * 1024 * 1024) throw remoteError('EFILE_TOO_LARGE', 'Files larger than 32 MB cannot be opened')
+    const bytes = await call(this.sftp, 'readFile', remotePath)
+    return { base64: Buffer.from(bytes).toString('base64'), modifiedAt: stats.mtime ? new Date(stats.mtime * 1000).toISOString() : null }
+  }
+
+  async writeBinary(requested, base64) {
+    if (typeof base64 !== 'string' || base64.length % 4 !== 0 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(base64)) throw remoteError('EINVAL', 'Invalid binary contents')
+    if (base64.length > Math.ceil(32 * 1024 * 1024 / 3) * 4) throw remoteError('EFILE_TOO_LARGE', 'Files larger than 32 MB cannot be saved')
+    const bytes = Buffer.from(base64, 'base64')
+    const remotePath = this.resolve(requested)
+    const stats = await call(this.sftp, 'stat', remotePath)
+    if (!stats.isFile()) throw remoteError('EISDIR', 'The requested path is not a file')
+    await call(this.sftp, 'writeFile', remotePath, bytes)
+    const updated = await call(this.sftp, 'stat', remotePath)
+    return { modifiedAt: updated.mtime ? new Date(updated.mtime * 1000).toISOString() : null }
+  }
+
   async contentSource(requested) {
     const remotePath = this.resolve(requested)
     const stats = await call(this.sftp, 'stat', remotePath)

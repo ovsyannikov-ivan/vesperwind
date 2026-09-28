@@ -3,6 +3,7 @@ import { entryChange, relocatePath } from './useEntryChanges.js'
 import { getEditorLanguage } from '../utils/editorLanguages.js'
 import { useTextFiles } from './useTextFiles.js'
 import { media } from '../api/media.js'
+import { getDocumentHandler } from '../editor/documentHandlers.js'
 
 const tabs = ref([])
 const activeTabId = ref(null)
@@ -36,35 +37,6 @@ const createCommonTab = (id, filesystemId, context) => ({
   filesystemRoot: context.filesystemRoot,
   homePath: context.homePath || '',
 })
-
-const createPdfTab = (common) =>
-  reactive({
-    ...common,
-    sourceUrl: '',
-    loading: true,
-    statusMessage: 'Preparing file…',
-    error: null,
-    currentPage: 1,
-    pageCount: 0,
-    zoomMode: 'fit-width',
-    zoom: 1,
-    scrollTop: 0,
-    scrollLeft: 0,
-    thumbnailsOpen: true,
-  })
-
-const createTextTab = (common) =>
-  reactive({
-    ...common,
-    content: '',
-    savedContent: '',
-    dirty: false,
-    language: getEditorLanguage(common.fileName),
-    loading: true,
-    saving: false,
-    error: null,
-    saveError: null,
-  })
 
 export const useEditorWorkspace = () => {
   const { readTextFile, writeTextFile } = useTextFiles()
@@ -141,53 +113,38 @@ export const useEditorWorkspace = () => {
       return existingTab
     }
 
-    const type = context.type === 'pdf' ? 'pdf' : 'text'
+    const handler = getDocumentHandler(context.type || 'text')
+    if (!handler) return null
+    const type = handler.id
     // A renamed tab keeps its model ID; reopening its old path needs a fresh ID.
-    // A counter also works over remote HTTP, without secure-context Web Crypto.
     const uniqueId = tabs.value.some((tab) => tab.id === id) ? `${id}:${++tabSequence}` : id
     const common = createCommonTab(uniqueId, filesystemId, { ...context, type })
-    const tab = type === 'pdf' ? createPdfTab(common) : createTextTab(common)
+    common.language = getEditorLanguage(common.fileName)
+    const tab = reactive(handler.createTab(common))
     tabs.value.push(tab)
     activeTabId.value = uniqueId
 
-    if (tab.type === 'pdf') {
-      tab.loading = false
-      void preparePdfTab(tab)
-      return tab
-    }
-
     const controller = new AbortController()
-    preparationControllers.set(tab.id, controller)
+    if (type !== 'pdf') preparationControllers.set(tab.id, controller)
     try {
-      const response = await readTextFile(tab.filePath, tab.filesystemId, {
-        signal: controller.signal,
+      const response = await handler.load(tab, {
+        readTextFile, preparePdfTab, signal: controller.signal,
         onStatus: (status) => {
           tab.statusMessage = status?.userMessage || 'Preparing file…'
           tab.preparationProgress = status?.progress ?? null
         },
       })
-
-      if (controller.signal.aborted) {
-        return tab
-      } else if (!response?.ok) {
+      if (!controller.signal.aborted && !response?.ok) {
         tab.error = response?.error || { message: 'Unable to open this file' }
-      } else {
-        tab.content = response.content
-        tab.savedContent = response.content
-        tab.modifiedAt = response.modifiedAt
       }
     } catch (error) {
-      tab.error = {
-        code: error?.code || 'EOPEN_FAILED',
-        message: error?.message || 'Unable to open this file',
+      if (!controller.signal.aborted) tab.error = {
+        code: error?.code || 'EOPEN_FAILED', message: error?.message || 'Unable to open this file',
       }
     } finally {
-      if (preparationControllers.get(tab.id) === controller) {
-        preparationControllers.delete(tab.id)
-      }
+      if (preparationControllers.get(tab.id) === controller) preparationControllers.delete(tab.id)
       if (!controller.signal.aborted) tab.loading = false
     }
-
     return tab
   }
 
@@ -206,7 +163,8 @@ export const useEditorWorkspace = () => {
   const saveTab = async (tabId = activeTabId.value) => {
     const tab = tabs.value.find((candidate) => candidate.id === tabId)
 
-    if (!tab || tab.type !== 'text' || tab.loading || tab.saving || tab.error) {
+    const handler = tab && getDocumentHandler(tab.type)
+    if (!handler?.save || tab.loading || tab.saving || tab.error) {
       return { ok: false, error: tab?.error || { message: 'No file to save' } }
     }
 
@@ -216,11 +174,7 @@ export const useEditorWorkspace = () => {
     let response
 
     try {
-      response = await writeTextFile(
-        tab.filePath,
-        contentBeingSaved,
-        tab.filesystemId,
-      )
+      response = await handler.save(tab, { writeTextFile })
     } catch (error) {
       response = {
         ok: false,
@@ -239,8 +193,7 @@ export const useEditorWorkspace = () => {
     }
 
     tab.saveError = null
-    tab.savedContent = contentBeingSaved
-    tab.dirty = tab.content !== contentBeingSaved
+    handler.saved?.(tab, contentBeingSaved)
     tab.modifiedAt = response.modifiedAt
     return response
   }
