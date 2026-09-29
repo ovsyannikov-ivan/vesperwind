@@ -39,6 +39,7 @@ const startServer = async () => {
     { registerRuntimeHandlers },
     { registerSshHandlers },
     { createLocalWatchRegistry, registerDirectoryWatchHandlers },
+    { registerSearchHandlers },
   ] = await Promise.all([
     import('./filesystem.js'),
     import('./fileOperations.js'),
@@ -52,6 +53,7 @@ const startServer = async () => {
     import('./runtime.js'),
     import('./ssh.js'),
     import('./directoryWatch.js'),
+    import('./search.js'),
   ])
 
   const sshConnections = new Map()
@@ -96,6 +98,7 @@ const startServer = async () => {
   io.on('connection', (socket) => {
     const ssh = registerSshHandlers(socket, { connections: sshConnections })
     registerFilesystemHandlers(socket, { ssh })
+    registerSearchHandlers(socket, { ssh })
     registerDirectoryWatchHandlers(socket, directoryWatches)
     registerFileOperationHandlers(socket, { ssh })
     registerSettingsHandlers(socket)

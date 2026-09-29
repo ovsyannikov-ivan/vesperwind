@@ -2,6 +2,7 @@ pub mod alias;
 pub mod availability;
 pub mod operations;
 pub mod paths;
+pub mod search;
 pub mod watch;
 
 use crate::error::NativeError;

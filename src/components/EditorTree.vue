@@ -3,6 +3,9 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { useFilesystem } from '../composables/useFilesystem.js'
 import { buildPathBreadcrumbs } from '../utils/pathBreadcrumbs.js'
 import FileTree from './FileTree.vue'
+import SearchResults from './SearchResults.vue'
+import { useRecursiveSearch } from '../composables/useRecursiveSearch.js'
+import { buildFilesystemPathLevels } from '../utils/filesystemPath.js'
 import { entryChange, relocatePath } from '../composables/useEntryChanges.js'
 
 const props = defineProps({
@@ -23,6 +26,15 @@ const selectedPath = ref(
   props.activeFilePath || props.context.sourceRootPath,
 )
 const expandedPaths = ref([])
+const { search, results: searchResults, start: startSearch, cancel: cancelSearch, clear: clearSearch } = useRecursiveSearch()
+const runSearch = () => startSearch({ providerId: props.context.filesystemId, basePath: props.context.sourceRootPath })
+const revealResult = (node) => {
+  const levels = buildFilesystemPathLevels(props.context.sourceRootPath, node.path)
+  expandedPaths.value = [...new Set([...expandedPaths.value, ...levels.slice(0, -1), ...(node.isDirectory ? [node.path] : [])])]
+  selectedPath.value = node.path
+  clearSearch()
+}
+const openResult = (node) => { if (node.isDirectory) revealResult(node); else { openNode(node); clearSearch() } }
 const updateExpanded = ({ path, expanded }) => {
   expandedPaths.value = expanded
     ? [...new Set([...expandedPaths.value, path])]
@@ -69,6 +81,7 @@ const openNode = (payload) => {
   })
 }
 
+watch(() => props.context.filesystemId, cancelSearch)
 watch(
   () => props.context.sourceRootPath,
   async (path) => {
@@ -106,9 +119,19 @@ watch(
           <span class="editor-path-segment" :title="crumb.path">{{ crumb.name }}</span>
         </template>
       </nav>
+      <button class="editor-tree-toggle compact-icon-button" type="button" title="Search workspace" aria-label="Search workspace" @click="search.open ? clearSearch() : (search.open = true)"><i class="mdi mdi-magnify" aria-hidden="true" /></button>
     </header>
+    <form v-if="search.open" class="search-controls" role="search" @submit.prevent="runSearch" @keydown.esc.prevent="clearSearch">
+      <input v-model="search.query" class="form-control form-control-sm" aria-label="Search workspace files" placeholder="Search files" @input="cancelSearch">
+      <select v-model="search.type" class="form-select form-select-sm" aria-label="Search type" @change="cancelSearch"><option value="all">All</option><option value="files">Files</option><option value="folders">Folders</option></select>
+      <button class="btn btn-sm btn-primary" type="submit" title="Start search"><i class="mdi mdi-magnify" aria-hidden="true" /></button>
+    </form>
     <div class="editor-tree-content">
-      <FileTree
+      <div v-if="search.open" class="editor-search-results">
+        <div class="search-status" role="status">{{ search.status === 'searching' ? `Searching… ${searchResults.length} found` : search.error || (search.limited ? '10,000+ results — refine your search' : `${searchResults.length} results`) }}</div>
+        <SearchResults :results="searchResults" compact @open="openResult" @reveal="revealResult" />
+      </div>
+      <FileTree v-show="!search.open"
         :root="root"
         :home-path="context.homePath"
         :provider-id="context.filesystemId"

@@ -107,3 +107,12 @@ export const buildFilesystemPathLevels = (rootPath, targetPath) => {
 
   return levels
 }
+
+export const getFilesystemParentPath = (value) => {
+  const flavor = pathFlavor(value || '')
+  const normalized = normalizeFilesystemPath(value, flavor)
+  const separator = separatorFor(flavor)
+  const index = normalized.lastIndexOf(separator)
+  const minimum = rootLength(normalized, flavor)
+  return index < minimum ? normalized.slice(0, minimum) || normalized : normalized.slice(0, index)
+}

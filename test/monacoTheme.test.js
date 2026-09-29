@@ -5,6 +5,7 @@ import {
   dark2026Theme,
   VESPERWIND_DARK_2026_THEME_ID,
 } from '../src/editor/themes/dark2026.js'
+import { monarchTokenRules } from '../src/editor/themes/monarchTokens.js'
 
 const rulesFor = (token) =>
   dark2026Theme.rules.filter((rule) => rule.token === token)
@@ -44,4 +45,16 @@ test('keeps representative syntax rules used by supported editor languages', () 
   ]) {
     assert.ok(rulesFor(token).length > 0, `missing Dark 2026 rule for ${token}`)
   }
+})
+
+
+test('Monarch bridge gives embedded Vue and common code tokens the Dark 2026 colors', () => {
+  const colors = new Map(monarchTokenRules.map(({ token, foreground }) => [token, foreground]))
+  assert.equal(colors.get('keyword'), 'C586C0')
+  assert.equal(colors.get('keyword.declaration.js'), 'FF7B72')
+  assert.equal(colors.get('keyword.import.python'), 'C586C0')
+  assert.equal(colors.get('tag.vue'), '6ECF80')
+  assert.equal(colors.get('attribute.name.vue'), '9CDCFE')
+  assert.equal(colors.get('attribute.name'), '9CDCFE')
+  assert.equal(colors.get('number'), 'B5CEA8')
 })

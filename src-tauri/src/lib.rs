@@ -13,8 +13,12 @@ use content::ContentManager;
 use filesystem::Filesystem;
 use settings::SettingsStore;
 use ssh::SshManager;
-use std::sync::Arc;
-use tauri::Manager;
+use std::collections::HashMap;
+use std::sync::{atomic::AtomicBool, Arc, Mutex};
+use tauri::menu::Menu;
+#[cfg(target_os = "macos")]
+use tauri::menu::{MenuItem, MenuItemKind, PredefinedMenuItem};
+use tauri::{Emitter, Manager};
 use terminal::TerminalManager;
 
 pub struct AppState {
@@ -26,6 +30,7 @@ pub struct AppState {
     ssh: Arc<SshManager>,
     player: Arc<mpv::MpvPlayerManager>,
     directory_watches: filesystem::watch::DirectoryWatches,
+    search_jobs: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -60,6 +65,27 @@ pub fn run() {
     let media_ssh = Arc::clone(&ssh);
 
     let app = tauri::Builder::default()
+        .menu(|app| {
+            let menu = Menu::default(app)?;
+            #[cfg(target_os = "macos")]
+            if let Some(MenuItemKind::Submenu(app_menu)) = menu.items()?.into_iter().next() {
+                let settings = MenuItem::with_id(
+                    app,
+                    "open-settings",
+                    "Settings…",
+                    true,
+                    Some("CmdOrCtrl+,"),
+                )?;
+                app_menu.insert(&settings, 2)?;
+                app_menu.insert(&PredefinedMenuItem::separator(app)?, 3)?;
+            }
+            Ok(menu)
+        })
+        .on_menu_event(|app, event| {
+            if event.id() == "open-settings" {
+                let _ = app.emit("vesperwind:open-settings", ());
+            }
+        })
         .manage(AppState {
             filesystem,
             content,
@@ -69,6 +95,7 @@ pub fn run() {
             ssh: Arc::clone(&ssh),
             player,
             directory_watches: filesystem::watch::DirectoryWatches::default(),
+            search_jobs: Arc::new(Mutex::new(HashMap::new())),
         })
         .setup(|app| {
             let window = app
@@ -103,6 +130,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::filesystem::filesystem_root,
             commands::filesystem::filesystem_list,
+            commands::filesystem::filesystem_search,
+            commands::filesystem::filesystem_search_cancel,
             commands::filesystem::filesystem_watch,
             commands::filesystem::filesystem_unwatch,
             commands::filesystem::filesystem_read_text,

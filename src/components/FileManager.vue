@@ -24,6 +24,7 @@ import FilePanel from './FilePanel.vue'
 import FileOperationConfirmModal from './FileOperationConfirmModal.vue'
 import FileEntryContextMenu from './FileEntryContextMenu.vue'
 import { desktop } from '../api/desktop.js'
+import { onNativeOpenSettings } from '../api/nativeAppMenu.js'
 import FileOperationMenu from './FileOperationMenu.vue'
 import MediaViewerModal from './MediaViewerModal.vue'
 import SettingsModal from './SettingsModal.vue'
@@ -67,6 +68,8 @@ const workspaceMode = ref('files')
 const activePanel = ref('left')
 const connected = ref(connection.isConnected())
 const settingsOpen = ref(false)
+const openSettings = () => { settingsOpen.value = true }
+let unsubscribeNativeSettings = null
 const remoteConnectionsOpen = ref(false)
 const panelSlots = reactive({
   left: { id: 'panel-a', providerId: 'local', label: 'Local', viewState: null },
@@ -660,6 +663,7 @@ const handleCommanderKeydown = (event) => {
 
 onMounted(() => {
   loadSettings()
+  unsubscribeNativeSettings = onNativeOpenSettings(openSettings)
   unsubscribeConnection = connection.onStatusChange((isConnected) => {
     if (isConnected) {
       handleConnect()
@@ -674,6 +678,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearPanelDrag()
+  unsubscribeNativeSettings?.()
   unsubscribeConnection?.()
   window.removeEventListener('resize', clampTerminalToViewport)
   window.removeEventListener('keydown', handleCommanderKeydown)
@@ -692,7 +697,7 @@ onBeforeUnmount(() => {
       @toggle-left="toggleLeftPanel"
       @toggle-right="toggleRightPanel"
       @toggle-terminal="toggleTerminal"
-      @open-settings="settingsOpen = true"
+      @open-settings="openSettings"
       @copy="openCommanderConfirmation('copy')"
       @move="openCommanderConfirmation('move')"
       @delete="openCommanderConfirmation('delete')"

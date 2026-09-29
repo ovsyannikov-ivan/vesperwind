@@ -4,6 +4,8 @@ import { listen } from '@tauri-apps/api/event'
 const requestCommands = Object.freeze({
   'filesystem:root': 'filesystem_root',
   'filesystem:list': 'filesystem_list',
+  'filesystem:search': 'filesystem_search',
+  'filesystem:search-cancel': 'filesystem_search_cancel',
   'filesystem:watch': 'filesystem_watch',
   'filesystem:unwatch': 'filesystem_unwatch',
   'filesystem:read-text': 'filesystem_read_text',
@@ -47,7 +49,7 @@ const sendCommands = Object.freeze({
   'terminal:close': 'terminal_close',
 })
 
-const pushEvents = new Set(['terminal:output', 'terminal:exit', 'ssh:status', 'player:state', 'filesystem:changed'])
+const pushEvents = new Set(['terminal:output', 'terminal:exit', 'ssh:status', 'player:state', 'filesystem:changed', 'filesystem:search-results'])
 
 const normalizeInvokeError = (error) => ({
   ok: false,
@@ -93,20 +95,20 @@ const subscribe = (eventName, callback) => {
   let disposed = false
   let unlisten = null
 
-  void listen(eventName, (event) => callback(event.payload))
+  const ready = listen(eventName, (event) => callback(event.payload))
     .then((dispose) => {
-      if (disposed) {
-        dispose()
-      } else {
-        unlisten = dispose
-      }
+      if (disposed) dispose()
+      else unlisten = dispose
+      return true
     })
-    .catch(() => {})
+    .catch(() => false)
 
-  return () => {
+  const unsubscribe = () => {
     disposed = true
     unlisten?.()
   }
+  unsubscribe.ready = ready
+  return unsubscribe
 }
 
 const subscribeToConnection = () => () => {}

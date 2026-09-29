@@ -4,16 +4,19 @@ import 'monaco-editor/editor/contrib/find/browser/findController'
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import '../editor/monacoEnvironment.js'
 import { registerEditorLanguages } from '../editor/languages.js'
+import { registerEnrichedLanguages } from '../editor/enrichedLanguages.js'
 import {
   dark2026Theme,
   VESPERWIND_DARK_2026_THEME_ID,
 } from '../editor/themes/dark2026.js'
 import { htmlTokenRules } from '../editor/themes/htmlTokens.js'
+import { monarchTokenRules } from '../editor/themes/monarchTokens.js'
 
 registerEditorLanguages(monaco)
+registerEnrichedLanguages(monaco)
 monaco.editor.defineTheme(VESPERWIND_DARK_2026_THEME_ID, {
   ...dark2026Theme,
-  rules: [...dark2026Theme.rules, ...htmlTokenRules],
+  rules: [...dark2026Theme.rules, ...htmlTokenRules, ...monarchTokenRules],
 })
 
 const props = defineProps({

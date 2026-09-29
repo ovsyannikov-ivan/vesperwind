@@ -35,7 +35,7 @@ const saveAsBusy = ref(false)
 const saveAsError = ref('')
 const saveAsCloseTabId = ref(null)
 const historyState = ref({ tabId: null, canUndo: false, canRedo: false })
-const { editorLayout, setTreeWidth } = useEditorLayout()
+const { editorLayout, setTreeWidth, toggleTree } = useEditorLayout()
 const {
   tabs,
   activeTab,
@@ -377,19 +377,20 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="workspaceElement" class="editor-workspace">
-    <aside class="editor-tree-pane" :style="treeStyle">
+    <aside v-show="editorLayout.treeVisible" class="editor-tree-pane" :style="treeStyle">
       <div class="editor-tree-toolbar">
         <button class="btn btn-sm toolbar-button" type="button" title="Return to file panels" @click="$emit('show-files')">
           <i class="mdi mdi-arrow-left" aria-hidden="true" />
           Files
         </button>
         <span v-if="activeTab" class="editor-source-pane">{{ activeTab.sourcePane }}</span>
+        <button class="editor-tree-toggle compact-icon-button" type="button" title="Hide Files sidebar" aria-label="Hide Files sidebar" @click="toggleTree"><i class="mdi mdi-chevron-left" aria-hidden="true" /></button>
       </div>
 
       <template v-for="context in treeContexts" :key="context.key">
         <EditorTree
           v-show="context.key === activeContextKey"
-          :watch-active="visible && context.key === activeContextKey"
+          :watch-active="visible && editorLayout.treeVisible && context.key === activeContextKey"
           :context="context"
           :active-file-path="context.key === activeContextKey ? activeTab?.filePath : ''"
           @open-file="$emit('open-file', $event)"
@@ -397,10 +398,11 @@ onBeforeUnmount(() => {
       </template>
     </aside>
 
-    <Splitter orientation="vertical" @resize="resizeTree" />
+    <Splitter v-if="editorLayout.treeVisible" orientation="vertical" @resize="resizeTree" />
 
     <section class="editor-main">
       <div class="editor-header">
+        <button v-if="!editorLayout.treeVisible" class="editor-tree-toggle editor-tree-reveal compact-icon-button" type="button" title="Show Files sidebar" aria-label="Show Files sidebar" @click="toggleTree"><i class="mdi mdi-file-tree-outline" aria-hidden="true" /></button>
         <div class="editor-tabs" role="tablist" aria-label="Open files">
           <button
             v-for="tab in tabs"

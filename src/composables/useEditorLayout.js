@@ -15,6 +15,7 @@ const readStoredWidth = () => {
 
 const state = reactive({
   treeWidth: Math.min(MAX_TREE_WIDTH, Math.max(MIN_TREE_WIDTH, readStoredWidth())),
+  treeVisible: true,
 })
 
 watch(
@@ -40,5 +41,6 @@ export const useEditorLayout = () => {
     )
   }
 
-  return { editorLayout: state, setTreeWidth }
+  const toggleTree = () => { state.treeVisible = !state.treeVisible }
+  return { editorLayout: state, setTreeWidth, toggleTree }
 }

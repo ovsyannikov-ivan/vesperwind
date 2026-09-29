@@ -2,9 +2,9 @@
 // theme mainly uses TextMate scopes, which do not color Monarch HTML tokens.
 export const htmlTokenRules = [
   { token: 'delimiter.html', foreground: '808080' },
-  { token: 'tag.html', foreground: '569CD6' },
+  { token: 'tag.html', foreground: '6ECF80' },
   { token: 'attribute.name.html', foreground: '9CDCFE' },
-  { token: 'string.html', foreground: 'CE9178' },
+  { token: 'string.html', foreground: 'A5D6FF' },
   { token: 'metatag.html', foreground: '569CD6' },
   { token: 'metatag.content.html', foreground: '9CDCFE' },
 ]

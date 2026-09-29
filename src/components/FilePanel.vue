@@ -3,15 +3,19 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useFilesystem } from '../composables/useFilesystem.js'
 import { useSettings } from '../composables/useSettings.js'
 import { buildPathBreadcrumbs } from '../utils/pathBreadcrumbs.js'
-import { getFilesystemPathName } from '../utils/filesystemPath.js'
+import { getFilesystemPathName, getFilesystemParentPath } from '../utils/filesystemPath.js'
 import { isSameOrDescendantPath } from '../utils/filesystemPath.js'
 import { reconcileDirectorySelection } from '../utils/reconcileDirectorySelection.js'
 import { selectFileEntries } from '../utils/fileSelection.js'
 import FileTree from './FileTree.vue'
+import SearchResults from './SearchResults.vue'
+import { useRecursiveSearch } from '../composables/useRecursiveSearch.js'
 import { entryChange, relocatePath } from '../composables/useEntryChanges.js'
 import { LOCAL_FILESYSTEM_PROVIDER } from '../api/filesystemLocation.js'
 import { FILE_ENTRY_MIME, parseFileDragPayload } from '../utils/fileDrag.js'
 import { isPanelSwapHandle, restorePanelViewState } from '../utils/panelSwap.js'
+import { availableExtensions, sortAndFilterEntries } from '../utils/fileDirectoryView.js'
+import { reconcileFilteredSelection } from '../utils/reconcileFilteredSelection.js'
 
 const props = defineProps({
   panelId: { type: String, required: true },
@@ -68,6 +72,40 @@ const selectedEntries = ref([])
 const selectionAnchorPath = ref('')
 const expandedPaths = ref([])
 const scrollTop = ref(0)
+const directoryView = ref({ name: '', extensions: [], keepFolders: true, sort: 'name', direction: 'asc' })
+const rootEntries = ref([])
+const { search, results: searchResults, start: startSearch, cancel: cancelSearch, clear: clearSearch } = useRecursiveSearch()
+const runSearch = () => startSearch({ providerId: props.providerId, basePath: search.scope === 'root' ? filesystemRoot.value?.path : root.value?.path })
+const closeSearch = async () => { clearSearch(); await nextTick(); if (panelContentRef.value) panelContentRef.value.scrollTop = scrollTop.value }
+const openSearchResult = (node) => { if (node.isDirectory) { void closeSearch(); openDirectory(node) } else openNode(node) }
+const revealSearchResult = (node) => { const parent = getFilesystemParentPath(node.path); void closeSearch(); openDirectory({ name: getFilesystemPathName(parent), path: parent, type: 'directory', isDirectory: true }) }
+const filterMenuOpen = ref(false)
+const filterButtonRef = ref(null)
+const filterMenuRef = ref(null)
+const filterMenuStyle = ref({})
+const toggleFilterMenu = (event) => {
+  filterMenuOpen.value = !filterMenuOpen.value
+  if (filterMenuOpen.value) {
+    const rect = event.currentTarget.getBoundingClientRect()
+    filterMenuStyle.value = { top: `${rect.bottom + 3}px`, left: `${Math.min(rect.left, window.innerWidth - 245)}px` }
+  }
+}
+const closeFilterOnOutsidePointer = (event) => {
+  if (!filterMenuOpen.value) return
+  if (filterButtonRef.value?.contains(event.target) || filterMenuRef.value?.contains(event.target)) return
+  filterMenuOpen.value = false
+}
+const extensionChoices = computed(() => availableExtensions(rootEntries.value))
+const filterActive = computed(() => Boolean(directoryView.value.name || directoryView.value.extensions.length))
+const transformChildren = (entries, depth) => sortAndFilterEntries(entries, directoryView.value, depth)
+const toggleSort = (sort) => {
+  directoryView.value = { ...directoryView.value, sort, direction: directoryView.value.sort === sort && directoryView.value.direction === 'asc' ? 'desc' : 'asc' }
+}
+const toggleExtension = (extension) => {
+  const chosen = directoryView.value.extensions
+  directoryView.value = { ...directoryView.value, extensions: chosen.includes(extension) ? chosen.filter((value) => value !== extension) : [...chosen, extension] }
+}
+const clearFilters = () => { directoryView.value = { ...directoryView.value, name: '', extensions: [] } }
 const panelContentRef = ref(null)
 let restoringScroll = false
 const renameRequest = ref(null)
@@ -89,10 +127,8 @@ const panelState = computed(() => ({
   selected: selectedNode.value
     ? { ...selectedNode.value, providerId: props.providerId }
     : null,
-  selectedEntries: selectedEntries.value.map((entry) => ({ ...entry, providerId: props.providerId })),
-  canOperateSelected: Boolean(
-    selectedEntries.value.length > 0,
-  ),
+  selectedEntries: search.open ? [] : selectedEntries.value.map((entry) => ({ ...entry, providerId: props.providerId })),
+  canOperateSelected: Boolean(!search.open && selectedEntries.value.length > 0),
   viewState: {
     providerId: props.providerId,
     root: root.value,
@@ -101,6 +137,8 @@ const panelState = computed(() => ({
     anchorPath: selectionAnchorPath.value,
     expandedPaths: expandedPaths.value,
     scrollTop: scrollTop.value,
+    directoryView: directoryView.value,
+    search: { open: search.open, query: search.query, type: search.type, scope: search.scope },
   },
 }))
 
@@ -111,12 +149,12 @@ const restoreScroll = async () => {
 }
 
 const handlePanelScroll = (event) => {
-  if (!restoringScroll) scrollTop.value = event.target.scrollTop
+  if (!search.open && !restoringScroll) scrollTop.value = event.target.scrollTop
 }
 
 const stopScrollRestore = () => {
   restoringScroll = false
-  if (panelContentRef.value) scrollTop.value = panelContentRef.value.scrollTop
+  if (!search.open && panelContentRef.value) scrollTop.value = panelContentRef.value.scrollTop
 }
 
 const loadRoot = async () => {
@@ -141,7 +179,13 @@ const loadRoot = async () => {
   selectionAnchorPath.value = view.anchorPath
   expandedPaths.value = view.expandedPaths
   scrollTop.value = view.scrollTop
+  directoryView.value = props.initialViewState?.providerId === props.providerId && props.initialViewState.directoryView
+    ? { ...directoryView.value, ...props.initialViewState.directoryView } : directoryView.value
   restoringScroll = view.restored
+  if (props.initialViewState?.providerId === props.providerId && props.initialViewState.search) {
+    Object.assign(search, props.initialViewState.search)
+    if (search.open && search.query.trim()) runSearch()
+  }
   await restoreScroll()
 }
 
@@ -198,8 +242,22 @@ const reconcileSelection = ({ path, entries }) => {
   selectedNode.value = next.selectedNode
   selectedPath.value = next.selectedPath
 }
+const pruneHiddenSelection = () => {
+  if (!rootEntries.value.length) return
+  const next = reconcileFilteredSelection({ selectedEntries: selectedEntries.value,
+    anchorPath: selectionAnchorPath.value }, rootEntries.value, directoryView.value)
+  selectedEntries.value = next.selectedEntries
+  selectionAnchorPath.value = next.anchorPath
+  if (!selectedEntries.value.some((entry) => entry.path === selectedNode.value?.path)) {
+    selectedNode.value = selectedEntries.value.at(-1) || root.value
+    selectedPath.value = selectedNode.value?.path || ''
+  }
+}
+watch(directoryView, () => { pruneHiddenSelection() }, { deep: true })
 const handleChildrenLoaded = (payload) => {
+  if (payload.path === root.value?.path) rootEntries.value = payload.entries
   reconcileSelection(payload)
+  pruneHiddenSelection()
   void restoreScroll()
 }
 
@@ -231,7 +289,10 @@ const openDirectory = (node) => {
     return
   }
 
+  clearSearch()
+  filterMenuOpen.value = false
   root.value = node
+  rootEntries.value = []
   selectedNode.value = node
   selectedPath.value = node.path
   selectedEntries.value = []
@@ -269,7 +330,7 @@ const entryContext = (payload) => ({
 })
 
 const openEntryContextMenu = (payload) => {
-  if (!selectedEntries.value.some((entry) => entry.path === payload.node.path)) {
+  if (!search.open && !selectedEntries.value.some((entry) => entry.path === payload.node.path)) {
     selectNode(payload.node)
   }
   emit('context-menu', {
@@ -380,6 +441,7 @@ watch(
   },
 )
 
+watch(() => props.providerId, () => { cancelSearch(); search.open = false })
 watch(
   panelState,
   (state) => emit('state-change', state),
@@ -390,11 +452,13 @@ onMounted(() => {
   loadRoot()
   window.addEventListener('dragend', clearRootDropTarget)
   window.addEventListener('drop', clearRootDropTarget)
+  document.addEventListener('pointerdown', closeFilterOnOutsidePointer, true)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('dragend', clearRootDropTarget)
   window.removeEventListener('drop', clearRootDropTarget)
+  document.removeEventListener('pointerdown', closeFilterOnOutsidePointer, true)
 })
 
 defineExpose({ openNode, requestRename, removeSelectedPaths })
@@ -465,8 +529,9 @@ watch(entryChange, (change) => {
         </nav>
         <span v-else class="panel-path">Loading…</span>
       </div>
+      <button class="panel-action compact-icon-button" type="button" :aria-label="`Search ${side} panel`" title="Search files" @click.stop="search.open ? closeSearch() : (search.open = true)"><i class="mdi mdi-magnify" aria-hidden="true" /></button>
       <button
-        class="panel-action"
+        class="panel-action compact-icon-button"
         type="button"
         :aria-label="`Hide ${side} panel`"
         :title="`Hide ${side} panel`"
@@ -480,6 +545,13 @@ watch(entryChange, (change) => {
       </button>
     </header>
 
+    <form v-if="search.open" class="search-controls" role="search" @submit.prevent="runSearch" @keydown.esc.prevent="closeSearch">
+      <input v-model="search.query" class="form-control form-control-sm" aria-label="Search file or path" placeholder="Search names and paths" @input="cancelSearch">
+      <select v-model="search.type" class="form-select form-select-sm" aria-label="Search type" @change="cancelSearch"><option value="all">All</option><option value="files">Files</option><option value="folders">Folders</option></select>
+      <select v-model="search.scope" class="form-select form-select-sm" aria-label="Search scope" @change="cancelSearch"><option value="current">Current folder</option><option value="root">Provider root</option></select>
+      <button class="btn btn-sm btn-primary" type="submit" title="Start search"><i class="mdi mdi-magnify" aria-hidden="true" /></button>
+      <button class="btn btn-sm btn-secondary" type="button" title="Close search" aria-label="Close search" @click="closeSearch"><i class="mdi mdi-close" aria-hidden="true" /></button>
+    </form>
     <div ref="panelContentRef" class="panel-content" @scroll="handlePanelScroll" @wheel.capture="stopScrollRestore" @touchstart.capture="stopScrollRestore">
       <div v-if="loading" class="panel-message">
         <i class="mdi mdi-loading mdi-spin" aria-hidden="true" />
@@ -492,11 +564,32 @@ watch(entryChange, (change) => {
           Retry
         </button>
       </div>
-      <div v-else-if="root" class="tree-table">
-        <div class="tree-columns-header" aria-hidden="true">
-          <span class="tree-column-name">Name</span>
-          <span class="tree-column-size">Size</span>
-          <span class="tree-column-date">Date</span>
+      <div v-if="search.open" class="panel-search-results">
+        <div class="search-status" role="status">{{ search.status === 'searching' ? `Searching… ${searchResults.length} found` : search.error || (search.limited ? '10,000+ results — refine your search' : `${searchResults.length} results`) }}</div>
+        <SearchResults :results="searchResults" @open="openSearchResult" @reveal="revealSearchResult" @context-menu="openEntryContextMenu({ ...$event, siblings: [$event.node] })" />
+      </div>
+      <div v-if="root" v-show="!search.open" class="tree-table">
+        <div class="tree-columns-header">
+          <div class="tree-column-name tree-column-heading">
+            <button class="tree-column-sort" type="button" :aria-label="`Sort by name ${directoryView.direction === 'asc' ? 'descending' : 'ascending'}`" @click="toggleSort('name')">Name <i v-if="directoryView.sort === 'name'" class="mdi" :class="directoryView.direction === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'" aria-hidden="true" /></button>
+            <button ref="filterButtonRef" class="tree-column-filter" :class="{ 'is-active': filterActive }" type="button" aria-label="Filter files" :aria-expanded="filterMenuOpen" @click="toggleFilterMenu($event)"><i class="mdi mdi-filter-variant" aria-hidden="true" /></button>
+            <Teleport to="body"><div v-if="filterMenuOpen" ref="filterMenuRef" class="dropdown-menu show tree-filter-menu" :style="filterMenuStyle" @keydown.esc.stop="filterMenuOpen = false">
+              <label class="form-label" :for="`name-filter-${panelId}`">Name</label>
+              <input :id="`name-filter-${panelId}`" v-model="directoryView.name" class="form-control form-control-sm" placeholder="Name or *.ext" aria-label="Filter by name">
+              <div class="tree-filter-title">Extensions</div>
+              <div class="tree-filter-extensions">
+                <label v-for="extension in extensionChoices" :key="extension" class="dropdown-item tree-filter-choice">
+                  <input type="checkbox" :checked="directoryView.extensions.includes(extension)" @change="toggleExtension(extension)">
+                  {{ extension || 'Files without extension' }}
+                </label>
+                <span v-if="!extensionChoices.length" class="text-muted">No files in this folder</span>
+              </div>
+              <label class="dropdown-item tree-filter-choice"><input v-model="directoryView.keepFolders" type="checkbox"> Keep folders visible</label>
+              <div class="tree-filter-actions"><button class="btn btn-sm btn-secondary" type="button" @click="directoryView.name = ''">Clear name</button><button class="btn btn-sm btn-secondary" type="button" @click="clearFilters">Clear all filters</button></div>
+            </div></Teleport>
+          </div>
+          <div class="tree-column-size"><button class="tree-column-sort" type="button" @click="toggleSort('size')">Size <i v-if="directoryView.sort === 'size'" class="mdi" :class="directoryView.direction === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'" aria-hidden="true" /></button></div>
+          <div class="tree-column-date"><button class="tree-column-sort" type="button" @click="toggleSort('date')">Date <i v-if="directoryView.sort === 'date'" class="mdi" :class="directoryView.direction === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'" aria-hidden="true" /></button></div>
         </div>
         <FileTree
           :key="`${root.path}:${settingsRevision}`"
@@ -510,6 +603,7 @@ watch(entryChange, (change) => {
           :expanded-paths="expandedPaths"
           :rename-request="renameRequest"
           :list-directory="listDirectory"
+          :transform-children="transformChildren"
           :watch-active="watchActive"
           :refresh-revision="filesystemRevision"
           @select="selectNode"

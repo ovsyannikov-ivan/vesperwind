@@ -1,4 +1,5 @@
 import { backend } from './backend.js'
+import { startFilesystemSearch } from './filesystemSearch.js'
 import { content } from './content.js'
 import { normalizeApiResponse } from './response.js'
 import { LOCAL_FILESYSTEM_PROVIDER } from './filesystemLocation.js'
@@ -126,6 +127,7 @@ const operate = async ({ action, source, target = null, name }) => {
 export const filesystem = Object.freeze({
   getRoot,
   readDir,
+  search: startFilesystemSearch,
   readText,
   writeText,
   readBinary,

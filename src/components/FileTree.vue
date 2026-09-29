@@ -54,6 +54,7 @@ defineProps({
   },
   watchActive: { type: Boolean, default: true },
   refreshRevision: { type: Number, default: 0 },
+  transformChildren: { type: Function, default: null },
 })
 
 defineEmits(['select', 'open', 'drop-request', 'context-menu', 'expanded-change', 'children-loaded'])
@@ -77,6 +78,7 @@ defineEmits(['select', 'open', 'drop-request', 'context-menu', 'expanded-change'
       :scroll-selected-into-view="scrollSelectedIntoView"
       :watch-active="watchActive"
       :refresh-revision="refreshRevision"
+      :transform-children="transformChildren"
       default-expanded
       @select="$emit('select', $event)"
       @open="$emit('open', $event)"

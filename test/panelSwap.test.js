@@ -16,7 +16,7 @@ const verifyProviderSwap = (leftProvider, rightProvider) => {
   const left = {
     id: 'panel-a',
     providerId: leftProvider,
-    state: { path: '/left', selected: '/left/a', expanded: ['/left/folder'], scrollTop: 42 },
+    state: { path: '/left', selected: '/left/a', expanded: ['/left/folder'], scrollTop: 42, directoryView: { name: '*.jpg', sort: 'date' }, search: { query: '*.vue', open: true } },
   }
   const right = {
     id: 'panel-b',
@@ -29,6 +29,8 @@ const verifyProviderSwap = (leftProvider, rightProvider) => {
   assert.equal(swapped.right, left)
   assert.equal(swapped.left.state.scrollTop, 84)
   assert.equal(swapped.right.state.expanded[0], '/left/folder')
+  assert.equal(swapped.right.state.directoryView.name, '*.jpg')
+  assert.equal(swapped.right.state.search.query, '*.vue')
 }
 
 test('swaps Local/Local, Local/SFTP, and SFTP/SFTP logical panels intact', () => {

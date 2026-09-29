@@ -118,8 +118,8 @@ onBeforeUnmount(() => {
         <button ref="addButton" class="terminal-add-button" type="button" :aria-expanded="menuOpen" aria-haspopup="menu" title="New terminal" aria-label="New terminal" @click.stop="toggleMenu" @dblclick.stop><i class="mdi mdi-plus" aria-hidden="true" /></button>
       </div>
       <div class="terminal-actions">
-        <button v-if="['disconnected', 'exited', 'error'].includes(activeTab?.status)" class="panel-action" type="button" :title="activeTab?.status === 'disconnected' ? 'Start a new remote shell' : 'Start a new shell'" :aria-label="activeTab?.status === 'disconnected' ? 'Reconnect terminal' : 'Restart terminal'" @click.stop="restart"><i class="mdi mdi-restart" aria-hidden="true" /></button>
-        <button class="panel-action" type="button" :title="visible ? 'Collapse terminal' : 'Expand terminal'" :aria-label="visible ? 'Collapse terminal' : 'Expand terminal'" @click.stop="$emit('toggle')"><i class="mdi" :class="visible ? 'mdi-chevron-down' : 'mdi-chevron-up'" aria-hidden="true" /></button>
+        <button v-if="['disconnected', 'exited', 'error'].includes(activeTab?.status)" class="panel-action compact-icon-button" type="button" :title="activeTab?.status === 'disconnected' ? 'Start a new remote shell' : 'Start a new shell'" :aria-label="activeTab?.status === 'disconnected' ? 'Reconnect terminal' : 'Restart terminal'" @click.stop="restart"><i class="mdi mdi-restart" aria-hidden="true" /></button>
+        <button class="panel-action compact-icon-button" type="button" :title="visible ? 'Collapse terminal' : 'Expand terminal'" :aria-label="visible ? 'Collapse terminal' : 'Expand terminal'" @click.stop="$emit('toggle')"><i class="mdi" :class="visible ? 'mdi-chevron-down' : 'mdi-chevron-up'" aria-hidden="true" /></button>
       </div>
     </header>
     <div v-show="visible" class="terminal-workspace">

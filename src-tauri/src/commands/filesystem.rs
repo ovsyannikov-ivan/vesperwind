@@ -7,8 +7,14 @@ use crate::{
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::{fs, sync::Arc};
-use tauri::{AppHandle, State};
+use std::{
+    fs,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
+use tauri::{AppHandle, Emitter, State};
 
 const MAX_TEXT_FILE_BYTES: u64 = 10 * 1024 * 1024;
 
@@ -103,6 +109,86 @@ pub fn filesystem_list(state: State<'_, AppState>, payload: FilesystemPathPayloa
         Ok::<_, NativeError>(json!({ "ok": true, "path": path, "entries": entries }))
     })();
     result.unwrap_or_else(failure)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchPayload {
+    search_id: String,
+    filesystem_id: Option<String>,
+    base_path: String,
+    query: String,
+    #[serde(rename = "type")]
+    kind: Option<String>,
+    max_results: Option<usize>,
+    hidden_name_suffixes: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchCancelPayload {
+    search_id: String,
+}
+
+#[tauri::command]
+pub fn filesystem_search(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    payload: SearchPayload,
+) -> Value {
+    if payload.search_id.is_empty() || payload.query.trim().is_empty() {
+        return failure(NativeError::new("EINVAL", "Invalid search request"));
+    }
+    let search_id = payload.search_id.clone();
+    let cancelled = Arc::new(AtomicBool::new(false));
+    state
+        .search_jobs
+        .lock()
+        .unwrap()
+        .insert(search_id.clone(), Arc::clone(&cancelled));
+    let jobs = Arc::clone(&state.search_jobs);
+    let filesystem = Arc::clone(&state.filesystem);
+    let ssh = Arc::clone(&state.ssh);
+    std::thread::spawn(move || {
+        let result = filesystem::search::search(
+            &filesystem,
+            &ssh,
+            payload.filesystem_id.as_deref().unwrap_or("local"),
+            &payload.base_path,
+            &payload.query,
+            payload.kind.as_deref().unwrap_or("all"),
+            payload
+                .max_results
+                .unwrap_or(filesystem::search::MAX_RESULTS),
+            &payload.hidden_name_suffixes.unwrap_or_default(),
+            &cancelled,
+            |entries| {
+                if !cancelled.load(Ordering::Acquire) {
+                    let _ = app.emit(
+                        "filesystem:search-results",
+                        json!({"searchId":search_id,"entries":entries}),
+                    );
+                }
+            },
+        );
+        let event = match result {
+            Ok(outcome) => {
+                json!({"searchId":search_id,"done":true,"count":outcome.count,"limited":outcome.limited,"cancelled":outcome.cancelled})
+            }
+            Err(error) => json!({"searchId":search_id,"done":true,"error":error}),
+        };
+        let _ = app.emit("filesystem:search-results", event);
+        jobs.lock().unwrap().remove(&search_id);
+    });
+    json!({"ok":true,"searchId":payload.search_id})
+}
+
+#[tauri::command]
+pub fn filesystem_search_cancel(state: State<'_, AppState>, payload: SearchCancelPayload) -> Value {
+    if let Some(cancelled) = state.search_jobs.lock().unwrap().get(&payload.search_id) {
+        cancelled.store(true, Ordering::Release);
+    }
+    json!({"ok":true})
 }
 
 #[tauri::command]

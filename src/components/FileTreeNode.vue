@@ -82,6 +82,7 @@ const props = defineProps({
   },
   watchActive: { type: Boolean, default: true },
   refreshRevision: { type: Number, default: 0 },
+  transformChildren: { type: Function, default: null },
 })
 
 const emit = defineEmits(['select', 'open', 'drop-request', 'context-menu', 'expanded-change', 'children-loaded'])
@@ -167,7 +168,7 @@ const selected = computed(() => props.selectedPaths.includes(props.node.path) ||
   (props.depth === 0 && props.selectedPath === props.node.path))
 const activeSelection = computed(() => props.selectedPath === props.node.path)
 const iconDetails = computed(() => getFileIcon(props.node, expanded.value))
-const rowPadding = computed(() => ({ paddingLeft: `${props.depth * 16 + 6}px` }))
+const rowPadding = computed(() => ({ paddingLeft: `calc(var(--file-tree-row-padding) + ${props.depth} * var(--file-tree-indent))`}))
 const formattedSize = computed(() =>
   formatFileSize(props.node.size, props.node.isDirectory),
 )
@@ -177,6 +178,8 @@ const formattedModifiedAt = computed(() =>
 const modifiedAtTitle = computed(() =>
   formatModifiedAtTitle(props.node.modifiedAt, settings.value.appearance.locale),
 )
+const displayedChildren = computed(() => props.transformChildren
+  ? props.transformChildren(children.value, props.depth) : children.value)
 const terminalPath = computed(() =>
   formatTerminalPath(props.node.path, {
     homePath: props.homePath,
@@ -280,7 +283,7 @@ const forwardOpen = (payload) => {
 
   emit('open', {
     node: payload,
-    siblings: children.value,
+    siblings: displayedChildren.value,
   })
 }
 
@@ -410,6 +413,10 @@ onMounted(() => {
   scrollToSelected()
 })
 
+watch(() => props.expandedPaths.includes(props.node.path), (included) => {
+  if (included && props.node.isDirectory && !expanded.value) void toggle()
+})
+
 watch(activeSelection, (isSelected) => {
   if (isSelected) {
     scrollToSelected()
@@ -532,7 +539,7 @@ onBeforeUnmount(() => { cancelRenameTimer(); releaseDirectoryWatch() })
         {{ error.message }}
       </div>
       <div
-        v-else-if="loaded && children.length === 0"
+        v-else-if="loaded && displayedChildren.length === 0"
         v-show="expanded"
         class="tree-state"
         :style="{ paddingLeft: `${(depth + 1) * 16 + 26}px` }"
@@ -540,12 +547,12 @@ onBeforeUnmount(() => { cancelRenameTimer(); releaseDirectoryWatch() })
         Empty folder
       </div>
       <ul
-        v-else-if="expanded && children.length"
+        v-else-if="expanded && displayedChildren.length"
         class="tree-children"
         role="group"
       >
         <FileTreeNode
-          v-for="child in children"
+          v-for="child in displayedChildren"
           :key="child.path"
           :node="child"
           :home-path="homePath"
@@ -563,6 +570,7 @@ onBeforeUnmount(() => { cancelRenameTimer(); releaseDirectoryWatch() })
           :scroll-selected-into-view="scrollSelectedIntoView"
           :watch-active="watchActive"
           :refresh-revision="refreshRevision"
+          :transform-children="transformChildren"
           @select="$emit('select', $event)"
           @open="forwardOpen"
           @drop-request="$emit('drop-request', $event)"
