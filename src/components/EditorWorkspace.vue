@@ -35,6 +35,10 @@ const saveAsBusy = ref(false)
 const saveAsError = ref('')
 const saveAsCloseTabId = ref(null)
 const historyState = ref({ tabId: null, canUndo: false, canRedo: false })
+const editorPosition = ref({ tabId: null, line: 1, column: 1, tabSize: 2, insertSpaces: true, eol: 'LF' })
+const indentationMenu = ref(null)
+const indentationButton = ref(null)
+const indentationMenuOpen = ref(false)
 const { editorLayout, setTreeWidth, toggleTree } = useEditorLayout()
 const {
   tabs,
@@ -88,6 +92,14 @@ const activeTabReady = computed(() =>
       !activeTextTab.value.loading &&
       !activeTextTab.value.error,
   ),
+)
+const activeEditorPosition = computed(() =>
+  editorPosition.value.tabId === activeTextTab.value?.id
+    ? editorPosition.value
+    : { line: 1, column: 1, tabSize: 2, insertSpaces: true, eol: 'LF' },
+)
+const indentationLabel = computed(() =>
+  `${activeEditorPosition.value.insertSpaces ? 'Spaces' : 'Tabs'}: ${activeEditorPosition.value.tabSize}`,
 )
 const canUndo = computed(() =>
   Boolean(
@@ -201,6 +213,47 @@ const saveAndClose = async () => {
 
 const updateHistoryState = (state) => {
   historyState.value = state
+}
+
+const updateEditorPosition = (state) => {
+  if (state.tabId !== editorPosition.value.tabId) indentationMenuOpen.value = false
+  editorPosition.value = state
+}
+
+const setIndentation = (options) => {
+  monacoEditor.value?.setIndentation(options)
+  indentationMenuOpen.value = false
+}
+
+const detectIndentation = () => {
+  monacoEditor.value?.detectIndentation()
+  indentationMenuOpen.value = false
+}
+
+const handleIndentationPointerDown = (event) => {
+  if (
+    indentationMenuOpen.value &&
+    !indentationMenu.value?.contains(event.target) &&
+    !indentationButton.value?.contains(event.target)
+  ) indentationMenuOpen.value = false
+}
+
+const handleIndentationKeydown = (event) => {
+  if (event.key === 'Escape') {
+    indentationMenuOpen.value = false
+    indentationButton.value?.focus()
+    return
+  }
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+  event.preventDefault()
+  const items = [...(indentationMenu.value?.querySelectorAll('.dropdown-item') || [])]
+  if (!items.length) return
+  const current = items.indexOf(document.activeElement)
+  const next = event.key === 'Home' ? 0
+    : event.key === 'End' ? items.length - 1
+      : event.key === 'ArrowDown' ? (current + 1) % items.length
+        : (current + items.length - 1) % items.length
+  items[next].focus()
 }
 
 const requestSaveAs = (tab = activeEditableTab.value) => {
@@ -367,11 +420,13 @@ const handleBeforeUnload = (event) => {
 onMounted(() => {
   window.addEventListener('keydown', handleEditorKeydown, true)
   window.addEventListener('beforeunload', handleBeforeUnload)
+  document.addEventListener('pointerdown', handleIndentationPointerDown, true)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleEditorKeydown, true)
   window.removeEventListener('beforeunload', handleBeforeUnload)
+  document.removeEventListener('pointerdown', handleIndentationPointerDown, true)
 })
 </script>
 
@@ -530,6 +585,7 @@ onBeforeUnmount(() => {
         :visible="visible && Boolean(activeTextTab) && !activeTextTab.loading && !activeTextTab.error"
         @change="updateContent"
         @history-state="updateHistoryState"
+        @status-change="updateEditorPosition"
       />
       <component
         :is="getDocumentHandler(tab.type).component"
@@ -550,6 +606,40 @@ onBeforeUnmount(() => {
         @state-change="updatePdfState"
         @prepare-retry="retryPdfTab"
       />
+      <div v-if="activeTabReady" class="editor-statusbar" aria-label="Editor status">
+        <span class="editor-statusbar-item">Line {{ activeEditorPosition.line }}, Col {{ activeEditorPosition.column }}</span>
+        <button
+          ref="indentationButton"
+          class="editor-statusbar-button"
+          type="button"
+          aria-haspopup="menu"
+          :aria-expanded="indentationMenuOpen"
+          title="Indentation settings"
+          @click="indentationMenuOpen = !indentationMenuOpen"
+          @keydown="handleIndentationKeydown"
+        >{{ indentationLabel }}</button>
+        <span class="editor-statusbar-item">{{ activeEditorPosition.eol }}</span>
+        <span class="editor-statusbar-item" title="Text files are read and saved as UTF-8">UTF-8</span>
+      </div>
+      <div
+        v-if="activeTabReady && indentationMenuOpen"
+        ref="indentationMenu"
+        class="dropdown-menu show editor-indentation-menu shadow"
+        role="menu"
+        aria-label="Indentation settings"
+        @keydown="handleIndentationKeydown"
+      >
+        <h2 class="dropdown-header">Indentation</h2>
+        <button class="dropdown-item" type="button" role="menuitemradio" :aria-checked="activeEditorPosition.insertSpaces" @click="setIndentation({ insertSpaces: true })"><i class="mdi" :class="activeEditorPosition.insertSpaces ? 'mdi-check' : 'mdi-blank'" aria-hidden="true" /> Use spaces</button>
+        <button class="dropdown-item" type="button" role="menuitemradio" :aria-checked="!activeEditorPosition.insertSpaces" @click="setIndentation({ insertSpaces: false })"><i class="mdi" :class="!activeEditorPosition.insertSpaces ? 'mdi-check' : 'mdi-blank'" aria-hidden="true" /> Use tabs</button>
+        <div class="dropdown-divider" />
+        <h2 class="dropdown-header">Tab size</h2>
+        <div class="editor-indentation-sizes">
+          <button v-for="size in 8" :key="size" class="dropdown-item" type="button" role="menuitemradio" :aria-checked="activeEditorPosition.tabSize === size" @click="setIndentation({ tabSize: size, indentSize: 'tabSize' })"><i class="mdi" :class="activeEditorPosition.tabSize === size ? 'mdi-check' : 'mdi-blank'" aria-hidden="true" /> {{ size }}</button>
+        </div>
+        <div class="dropdown-divider" />
+        <button class="dropdown-item" type="button" role="menuitem" @click="detectIndentation"><i class="mdi mdi-auto-fix" aria-hidden="true" /> Detect from content</button>
+      </div>
     </section>
 
     <UnsavedChangesModal

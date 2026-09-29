@@ -590,11 +590,12 @@ button:focus-visible,
 }
 
 .files-container {
+  --panel-seam-width: 1px;
   display: flex;
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
-  background: var(--app-bg);
+  background: var(--surface-1);
 }
 
 .file-panel {
@@ -603,12 +604,7 @@ button:focus-visible,
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid transparent;
   background: var(--surface-1);
-}
-
-.file-panel.is-active {
-  border-color: var(--active-panel-border);
 }
 
 .file-panel.is-root-drop-target {
@@ -1104,6 +1100,27 @@ body.is-swapping-panels * {
   background: var(--splitter-line);
 }
 
+/* File panels meet at one line. The invisible hit area keeps resizing easy. */
+.files-container > .splitter-vertical {
+  flex: 0 0 var(--panel-seam-width);
+  background: transparent;
+}
+
+.files-container > .splitter-vertical::before {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  left: -4px;
+  content: '';
+}
+
+.files-container > .splitter-vertical::after {
+  left: 0;
+  width: var(--panel-seam-width);
+  background: var(--splitter-line);
+}
+
 .splitter-horizontal {
   cursor: row-resize;
 }
@@ -1478,6 +1495,63 @@ body.is-resizing-horizontal {
   min-width: 0;
   min-height: 0;
   flex: 1 1 auto;
+}
+
+.editor-statusbar {
+  display: flex;
+  min-height: 25px;
+  flex: 0 0 25px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  padding: 1px 7px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  background: var(--surface-2);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.editor-statusbar-item,
+.editor-statusbar-button {
+  padding: 1px 6px;
+}
+
+.editor-statusbar-button {
+  border: 1px solid transparent;
+  border-radius: var(--bs-border-radius-sm);
+  color: inherit;
+  background: transparent;
+  font: inherit;
+}
+
+.editor-statusbar-button:hover,
+.editor-statusbar-button:focus-visible,
+.editor-statusbar-button[aria-expanded='true'] {
+  border-color: var(--border-strong);
+  color: var(--text);
+  outline: none;
+}
+
+.editor-indentation-menu {
+  position: absolute;
+  right: 86px;
+  bottom: 27px;
+  z-index: 40;
+  min-width: 204px;
+  max-height: calc(100% - 33px);
+  overflow-y: auto;
+}
+
+.editor-indentation-sizes {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.editor-indentation-menu .editor-indentation-sizes .dropdown-item:has(> .mdi) {
+  justify-content: center;
+  gap: 3px;
+  padding-inline: 2px;
 }
 
 .pdf-viewer {

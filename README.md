@@ -11,6 +11,9 @@ and an editor.
 ## What it can do
 
 - Manage local files in a Commander-style dual-pane interface.
+- Filter and sort each file panel independently, and search names and paths
+  recursively across local or SFTP folders. Search streams results in batches
+  and can be cancelled without losing the current tree view.
 - Connect to SSH/SFTP hosts, including hosts on custom ports, with persistent
   connection profiles, host-key verification, and keepalive handling. Passwords
   and private-key passphrases are kept in memory for the current session only.
@@ -19,7 +22,10 @@ and an editor.
   menus share the same file-operation layer.
 - Edit local and remote text files in a multi-tab Monaco workspace. The dark
   editor theme is a generated port of Visual Studio Code's official Dark 2026
-  theme.
+  theme. The workspace has a file tree, minimap, cursor status, and per-tab
+  indentation controls.
+- Edit DOCX documents and XLSX/XLS spreadsheets in document tabs. DOC and RTF
+  files can be imported into a new DOCX document.
 - Read PDFs with lazy page rendering, thumbnails, page navigation, zoom, text
   selection, and search. Remote PDFs use byte-range access instead of being
   downloaded into memory first.
@@ -126,9 +132,7 @@ FILE_MANAGER_ROOT=/path/to/root npm run dev
 Do not place a settings file containing personal connection profiles in the
 repository.
 
-### Platform prerequisites
-
-**macOS**
+### macOS prerequisites
 
 - Xcode Command Line Tools;
 - Rust stable with the Apple target for Tauri;
@@ -140,18 +144,34 @@ repository.
 The current native media bundle is an arm64 development artifact. Distribution
 still requires Developer ID signing and notarization.
 
-**Windows**
+### Windows prerequisites
 
 - 64-bit Node.js and npm;
-- Rust's MSVC toolchain;
-- Visual Studio Build Tools with “Desktop development with C++” and a Windows SDK;
-- the Microsoft Edge WebView2 runtime required by Tauri.
+- Visual Studio Build Tools / MSVC with “Desktop development with C++” and a
+  Windows SDK;
+- Rust stable with the MSVC target;
+- Microsoft Edge WebView2 Runtime;
+- Python 3 for native Node dependencies;
+- Strawberry Perl for vendored OpenSSL.
 
-The main Tauri/file-management paths have been exercised on Windows, but the new
-SSH/SFTP, document-search, and native libmpv work still needs a complete Windows
+Vesperwind enables `vendored-openssl` for its Rust SSH/SFTP backend. Without Perl,
+the native build can fail while compiling `openssl-sys`. Install Strawberry Perl
+with:
+
+```powershell
+winget install -e --id StrawberryPerl.StrawberryPerl
+```
+
+Restart the terminal, then check `perl -v` and `where.exe perl`. The
+`npm run dev:tauri` and `npm run build:tauri` commands check for Perl before
+starting Tauri on Windows. See [Windows build prerequisites](docs/build-windows.md)
+for the full setup and troubleshooting steps.
+
+The main Tauri/file-management paths have been exercised on Windows, but
+SSH/SFTP, recursive search, and document editing still need a complete Windows
 regression pass. Native libmpv DLL packaging is not complete.
 
-**Linux**
+### Linux status
 
 The browser/Node architecture is portable, but Linux is not currently a supported
 or release-tested target. There is no Linux Tauri/libmpv package at this stage.
@@ -175,11 +195,18 @@ security contact and policy are published.
 ### Implemented
 
 - Dual-pane local file management and reusable file actions;
+- Independent per-panel name/extension filters, folder-first sorting, and local
+  filesystem watching;
+- Cancellable, batched recursive name/path search for local and SFTP providers,
+  in both file panels and the collapsible Editor sidebar;
 - SSH/SFTP profiles, host-key verification, local/remote transfers, and SSH
   terminals;
-- Monaco and PDF document tabs, remote editing, search, and provider-neutral
-  ranged content access;
-- image viewing, web audio/video playback, and multi-tab terminals.
+- Monaco text tabs with the Dark 2026 theme, minimap, cursor/indentation status,
+  and per-tab tab settings;
+- PDF, DOCX, and XLSX/XLS document tabs, DOC/RTF import, remote text editing,
+  document search, and provider-neutral ranged content access;
+- Native local-file Open With and reveal actions on macOS and Windows;
+- Image viewing, web audio/video playback, and multi-tab terminals.
 
 ### Experimental
 
@@ -191,8 +218,9 @@ security contact and policy are published.
 
 ### Planned
 
-- Native OS “Open With” integration;
 - Finder/Explorer drag-and-drop integration;
+- Content search inside files and additional editor encodings;
+- A complete Windows regression pass for SSH/SFTP, search, and document editing;
 - Windows libmpv rendering and self-contained DLL packaging;
 - a Windows DXGI FP16/Advanced Color libmpv presentation backend;
 - VideoToolbox/D3D11VA hardware decoding and further HDR/color-management work;

@@ -34,12 +34,14 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['change', 'history-state'])
+const emit = defineEmits(['change', 'history-state', 'status-change'])
 const container = ref(null)
 const models = new Map()
 let editor = null
 let resizeObserver = null
 let contentSubscription = null
+let cursorSubscription = null
+let optionsSubscription = null
 
 const currentTheme = () =>
   document.documentElement.dataset.bsTheme === 'light'
@@ -87,6 +89,7 @@ const syncActiveTab = async () => {
   }
 
   emitHistoryState()
+  emitStatus()
 
   if (props.visible) {
     await nextTick()
@@ -118,6 +121,38 @@ const emitHistoryState = () => {
     canUndo: Boolean(model?.canUndo()),
     canRedo: Boolean(model?.canRedo()),
   })
+}
+
+const emitStatus = () => {
+  const model = editor?.getModel()
+  const position = editor?.getPosition()
+  const options = model?.getOptions()
+
+  emit('status-change', {
+    tabId: model ? props.activeTab?.id : null,
+    line: position?.lineNumber || 1,
+    column: position?.column || 1,
+    tabSize: options?.tabSize || 2,
+    insertSpaces: options?.insertSpaces ?? true,
+    eol: model?.getEOL() === '\r\n' ? 'CRLF' : 'LF',
+  })
+}
+
+const setIndentation = (options) => {
+  const model = editor?.getModel()
+  if (!model) return
+  model.updateOptions(options)
+  emitStatus()
+  editor.focus()
+}
+
+const detectIndentation = () => {
+  const model = editor?.getModel()
+  if (!model) return
+  const { insertSpaces, tabSize } = model.getOptions()
+  model.detectIndentation(insertSpaces, tabSize)
+  emitStatus()
+  editor.focus()
 }
 
 const runCommand = (command) => {
@@ -180,6 +215,8 @@ defineExpose({
   openReplace,
   findNext,
   findPrevious,
+  setIndentation,
+  detectIndentation,
 })
 
 onMounted(() => {
@@ -188,7 +225,7 @@ onMounted(() => {
     fontFamily: "'SFMono-Regular', Consolas, 'Liberation Mono', monospace",
     fontSize: 13,
     lineHeight: 20,
-    minimap: { enabled: false },
+    minimap: { enabled: true, side: 'right', showSlider: 'mouseover', maxColumn: 80 },
     padding: { top: 6 },
     scrollBeyondLastLine: false,
     smoothScrolling: true,
@@ -201,6 +238,8 @@ onMounted(() => {
       emitHistoryState()
     }
   })
+  cursorSubscription = editor.onDidChangeCursorPosition(emitStatus)
+  optionsSubscription = editor.onDidChangeModelOptions(emitStatus)
   resizeObserver = new ResizeObserver(() => editor?.layout())
   resizeObserver.observe(container.value)
   window.addEventListener('vesperwind:theme-changed', handleThemeChange)
@@ -227,6 +266,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('vesperwind:theme-changed', handleThemeChange)
   resizeObserver?.disconnect()
   contentSubscription?.dispose()
+  cursorSubscription?.dispose()
+  optionsSubscription?.dispose()
   editor?.dispose()
 
   for (const model of models.values()) {

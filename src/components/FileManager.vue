@@ -143,14 +143,14 @@ const leftPanelStyle = computed(() => {
     return { flex: '1 1 auto' }
   }
 
-  return { width: `calc(${layout.leftRatio}% - 3px)`, flex: '0 0 auto' }
+  return { width: `${layout.leftRatio}%`, flex: '0 0 auto' }
 })
 const rightPanelStyle = computed(() => {
   if (!bothPanelsVisible.value) {
     return { flex: '1 1 auto' }
   }
 
-  return { width: `calc(${100 - layout.leftRatio}% - 3px)`, flex: '0 0 auto' }
+  return { width: `calc(${100 - layout.leftRatio}% - var(--panel-seam-width))`, flex: '0 0 auto' }
 })
 const commandAvailability = computed(() => {
   const source = panelStates[activePanel.value]
