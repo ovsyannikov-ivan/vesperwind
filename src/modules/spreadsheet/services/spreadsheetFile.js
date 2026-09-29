@@ -42,19 +42,19 @@ export const loadSpreadsheet = async (tab, options = {}, io = filesystem) => {
   } catch (error) { return failure(error, 'ESPREADSHEET_OPEN') }
 }
 
-export const saveSpreadsheet = async (tab, io = filesystem) => {
+export const saveSpreadsheet = async (tab, io = filesystem, destination = null) => {
   try {
     const runtime = getSpreadsheetRuntime(tab.id)
     if (!runtime) return failure(new Error('Workbook editor is not ready'), 'ESPREADSHEET_NOT_READY')
     await runtime.finishEditing?.()
     const model = univerToModel(runtime.snapshot())
-    const format = tab.fileName.toLowerCase().endsWith('.xls') ? 'xls' : 'xlsx'
+    const format = (destination?.path || tab.fileName).toLowerCase().endsWith('.xls') ? 'xls' : 'xlsx'
     if (tab.model?.warnings?.some((warning) => warning.includes('VBA'))) {
       return failure(new Error('This workbook contains VBA macros that cannot be preserved. Save is blocked to prevent data loss.'), 'EUNSUPPORTED_WORKBOOK')
     }
     const bytes = serializeWorkbook(model, format)
     const revision = tab.revision
-    const response = await io.writeBinary(fileRef(tab), bytes)
+    const response = await io.writeBinary(destination || fileRef(tab), bytes)
     if (response.ok) {
       tab.dirty = tab.revision !== revision
       tab.modifiedAt = response.modifiedAt

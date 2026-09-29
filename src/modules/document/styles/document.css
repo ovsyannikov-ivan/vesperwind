@@ -1,0 +1,4 @@
+.word-editor { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; background: #292d34; }
+.word-editor > .docx-editor { flex: 1; min-height: 0; }
+.word-editor .docx-editor-one-surface__viewport { --doc-bg: #292d34; background: var(--doc-bg); }
+.word-import-notice { padding: .35rem .75rem; background: var(--bs-warning-bg-subtle); color: var(--bs-warning-text-emphasis); border-bottom: 1px solid var(--bs-warning-border-subtle); font-size: .8rem; }

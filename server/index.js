@@ -35,6 +35,7 @@ const startServer = async () => {
     { serveStaticAsset },
     { registerTextFileHandlers },
     { registerBinaryFileHandlers },
+    { registerDocumentConversionHandlers },
     { registerRuntimeHandlers },
     { registerSshHandlers },
     { createLocalWatchRegistry, registerDirectoryWatchHandlers },
@@ -47,6 +48,7 @@ const startServer = async () => {
     import('./staticAssets.js'),
     import('./textFiles.js'),
     import('./binaryFiles.js'),
+    import('./documentConversion.js'),
     import('./runtime.js'),
     import('./ssh.js'),
     import('./directoryWatch.js'),
@@ -99,6 +101,7 @@ const startServer = async () => {
     registerSettingsHandlers(socket)
     registerTextFileHandlers(socket, { ssh })
     registerBinaryFileHandlers(socket, { ssh })
+    registerDocumentConversionHandlers(socket)
     registerTerminalHandlers(socket, { cwd: fileManagerRoot, ssh })
     registerRuntimeHandlers(socket)
   })

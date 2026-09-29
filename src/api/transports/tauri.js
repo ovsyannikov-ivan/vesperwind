@@ -10,6 +10,7 @@ const requestCommands = Object.freeze({
   'filesystem:write-text': 'filesystem_write_text',
   'filesystem:read-binary': 'filesystem_read_binary',
   'filesystem:write-binary': 'filesystem_write_binary',
+  'document:convert': 'document_convert',
   'filesystem:operate': 'filesystem_operate',
   'desktop:operate': 'desktop_operate',
   'content:prepare': 'content_prepare',

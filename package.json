@@ -19,6 +19,9 @@
     "test:smoke": "node scripts/runtime-smoke.js"
   },
   "dependencies": {
+    "@docx-editor.dev/core": "2.22.0",
+    "@docx-editor.dev/fonts": "2.22.0",
+    "@docx-editor.dev/vue": "2.22.0",
     "@mdi/font": "^7.4.47",
     "@tauri-apps/api": "^2.11.1",
     "@univerjs/preset-sheets-core": "1.0.2",

@@ -21,7 +21,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['save', 'discard', 'cancel'])
+const emit = defineEmits(['save', 'discard', 'cancel', 'closed'])
 const modalElement = ref(null)
 let modal = null
 
@@ -32,6 +32,7 @@ const handleHide = (event) => {
 }
 
 const handleHidden = () => {
+  emit('closed')
   if (props.open) {
     emit('cancel')
   }

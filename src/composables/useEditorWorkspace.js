@@ -4,6 +4,7 @@ import { getEditorLanguage } from '../utils/editorLanguages.js'
 import { useTextFiles } from './useTextFiles.js'
 import { media } from '../api/media.js'
 import { getDocumentHandler } from '../editor/documentHandlers.js'
+import { filesystem } from '../api/filesystem.js'
 
 const tabs = ref([])
 const activeTabId = ref(null)
@@ -160,7 +161,7 @@ export const useEditorWorkspace = () => {
     tab.saveError = null
   }
 
-  const saveTab = async (tabId = activeTabId.value) => {
+  const saveTab = async (tabId = activeTabId.value, destination = null) => {
     const tab = tabs.value.find((candidate) => candidate.id === tabId)
 
     const handler = tab && getDocumentHandler(tab.type)
@@ -168,13 +169,27 @@ export const useEditorWorkspace = () => {
       return { ok: false, error: tab?.error || { message: 'No file to save' } }
     }
 
+    if (tab.importedFrom && !destination) {
+      return { ok: false, needsSaveAs: true, error: { code: 'ESAVE_AS_REQUIRED', message: 'Imported documents must be saved as DOCX' } }
+    }
+
+    if (destination && tab.type === 'word' && !destination.path.toLowerCase().endsWith('.docx')) {
+      return { ok: false, error: { code: 'EINVALID_EXTENSION', message: 'Word documents must be saved as .docx' } }
+    }
+
     const contentBeingSaved = tab.content
     tab.saving = true
     tab.saveError = null
     let response
+    let created = false
 
     try {
-      response = await handler.save(tab, { writeTextFile })
+      if (destination) {
+        const createdResponse = await filesystem.createFile({ providerId: destination.providerId, path: destination.directoryPath }, destination.name)
+        if (!createdResponse.ok) return createdResponse
+        created = true
+      }
+      response = await handler.save(tab, { writeTextFile, destination })
     } catch (error) {
       response = {
         ok: false,
@@ -188,12 +203,22 @@ export const useEditorWorkspace = () => {
     }
 
     if (!response?.ok) {
+      if (created) await filesystem.remove({ providerId: destination.providerId, path: destination.path }).catch(() => {})
       tab.saveError = response?.error || { message: 'Unable to save this file' }
       return response
     }
 
     tab.saveError = null
     handler.saved?.(tab, contentBeingSaved)
+    if (destination) {
+      tab.filesystemId = destination.providerId
+      tab.filePath = destination.path
+      tab.fileName = destination.name
+      tab.importedFrom = null
+      tab.sourceRootPath = destination.directoryPath
+      tab.sourceRootName = destination.directoryPath.split(/[\\/]/).at(-1) || destination.directoryPath
+      tab.filesystemRoot = destination.root || tab.filesystemRoot
+    }
     tab.modifiedAt = response.modifiedAt
     return response
   }

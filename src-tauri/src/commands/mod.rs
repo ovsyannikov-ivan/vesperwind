@@ -1,5 +1,6 @@
 pub mod content;
 pub mod desktop;
+pub mod document;
 pub mod filesystem;
 pub mod media;
 pub mod player;

@@ -41,3 +41,21 @@ licensed under Apache-2.0. SheetJS CE is installed from the official tarball
 vendored at `vendor/xlsx-0.20.3.tgz`; no spreadsheet runtime asset is fetched
 from a CDN. Sources and license texts are available at
 <https://github.com/dream-num/univer> and <https://git.sheetjs.com/sheetjs/sheetjs>.
+
+## Word document editor
+
+The offline Word module uses these pinned direct dependencies:
+
+| Package | Version | License | Purpose |
+| --- | --- | --- | --- |
+| `@docx-editor.dev/core` | 2.22.0 | Apache-2.0 | Native OOXML parsing, canonical document model, pagination, and DOCX serialization. |
+| `@docx-editor.dev/vue` | 2.22.0 | Apache-2.0 | Official Vue 3 document editor and toolbar. |
+| `@docx-editor.dev/fonts` | 2.22.0 | Apache-2.0 AND OFL-1.1 AND LicenseRef-GUST-Font-License | Locally packaged substitute fonts for offline layout. |
+
+The editor packages also install `@docx-editor.dev/i18n` 2.23.0 (Apache-2.0)
+for interface strings. No `@docx-editor.dev/pro`, `@docx-editor.dev/editor-api`,
+React adapter, remote font service, or remote conversion service is included.
+Project source and bundled notices: <https://github.com/eigenpal/docx-editor>.
+
+RTF and legacy DOC import can call a separately installed local LibreOffice.
+LibreOffice is discovered only at import time and is not bundled with Vesperwind.

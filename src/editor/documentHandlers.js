@@ -1,4 +1,5 @@
 import { spreadsheetHandler } from '../modules/spreadsheet/index.js'
+import { wordHandler } from '../modules/document/index.js'
 
 const textHandler = {
   id: 'text', extensions: [], icon: 'mdi-file-code-outline',
@@ -13,7 +14,7 @@ const textHandler = {
     }
     return response
   },
-  save: (tab, { writeTextFile }) => writeTextFile(tab.filePath, tab.content, tab.filesystemId),
+  save: (tab, { writeTextFile, destination }) => writeTextFile(destination?.path || tab.filePath, tab.content, destination?.providerId || tab.filesystemId),
   saved: (tab, content) => { tab.savedContent = content; tab.dirty = tab.content !== content },
 }
 
@@ -25,7 +26,7 @@ const pdfHandler = {
   load: async (tab, { preparePdfTab }) => { tab.loading = false; await preparePdfTab(tab); return { ok: !tab.error, error: tab.error } },
 }
 
-export const documentHandlers = Object.freeze([textHandler, pdfHandler, spreadsheetHandler])
+export const documentHandlers = Object.freeze([textHandler, pdfHandler, spreadsheetHandler, wordHandler])
 export const getDocumentHandler = (id) => documentHandlers.find((handler) => handler.id === id)
 export const getDocumentHandlerForExtension = (extension) =>
   documentHandlers.find((handler) => handler.extensions.includes(extension))

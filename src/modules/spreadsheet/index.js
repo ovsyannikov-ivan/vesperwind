@@ -10,5 +10,5 @@ export const spreadsheetHandler = Object.freeze({
   createTab: (common) => ({ ...common, model: null, dirty: false, revision: 0,
     loading: true, saving: false, error: null, saveError: null }),
   load: async (tab, options) => (await import('./services/spreadsheetFile.js')).loadSpreadsheet(tab, options),
-  save: async (tab) => (await import('./services/spreadsheetFile.js')).saveSpreadsheet(tab),
+  save: async (tab, options) => (await import('./services/spreadsheetFile.js')).saveSpreadsheet(tab, undefined, options?.destination),
 })

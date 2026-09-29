@@ -11,6 +11,7 @@ import EditorTree from './EditorTree.vue'
 import MonacoEditor from './MonacoEditor.vue'
 import PdfViewer from './PdfViewer.vue'
 import RevertChangesModal from './RevertChangesModal.vue'
+import SaveAsModal from './SaveAsModal.vue'
 import Splitter from './Splitter.vue'
 import UnsavedChangesModal from './UnsavedChangesModal.vue'
 
@@ -29,6 +30,10 @@ const pendingClose = ref(null)
 const pendingRevert = ref(null)
 const closeBusy = ref(false)
 const closeError = ref('')
+const saveAsTabId = ref(null)
+const saveAsBusy = ref(false)
+const saveAsError = ref('')
+const saveAsCloseTabId = ref(null)
 const historyState = ref({ tabId: null, canUndo: false, canRedo: false })
 const { editorLayout, setTreeWidth } = useEditorLayout()
 const {
@@ -176,6 +181,11 @@ const saveAndClose = async () => {
   }
 
   const tabId = pendingClose.value.id
+  if (pendingClose.value.importedFrom) {
+    saveAsCloseTabId.value = tabId
+    pendingClose.value = null
+    return
+  }
   closeBusy.value = true
   closeError.value = ''
   const response = await saveTab(tabId)
@@ -186,18 +196,54 @@ const saveAndClose = async () => {
     return
   }
 
-  finishClose(tabId)
+  if (!pendingClose.value?.dirty) finishClose(tabId)
 }
 
 const updateHistoryState = (state) => {
   historyState.value = state
 }
 
+const requestSaveAs = (tab = activeEditableTab.value) => {
+  if (!tab) return
+  saveAsError.value = ''
+  saveAsTabId.value = tab.id
+}
+
+const cancelSaveAs = () => {
+  saveAsTabId.value = null
+  saveAsCloseTabId.value = null
+}
+
+const startSaveAsAfterClose = () => {
+  if (!saveAsCloseTabId.value) return
+  const tab = tabs.value.find((item) => item.id === saveAsCloseTabId.value)
+  if (tab) requestSaveAs(tab)
+  else saveAsCloseTabId.value = null
+}
+
+const saveAs = async (destination) => {
+  if (!saveAsTabId.value || saveAsBusy.value) return
+  const tabId = saveAsTabId.value
+  saveAsBusy.value = true
+  saveAsError.value = ''
+  const response = await saveTab(tabId, destination)
+  saveAsBusy.value = false
+  if (!response.ok) { saveAsError.value = response.error?.message || 'Unable to save this file'; return }
+  saveAsTabId.value = null
+  if (saveAsCloseTabId.value === tabId) {
+    saveAsCloseTabId.value = null
+    const tab = tabs.value.find((item) => item.id === tabId)
+    if (tab && !tab.dirty) finishClose(tabId)
+    return
+  }
+  if (pendingClose.value?.id === tabId && !pendingClose.value.dirty) finishClose(tabId)
+}
+
 const saveActiveTab = () => {
   if (!canSave.value) {
     return
   }
-
+  if (activeEditableTab.value.importedFrom) { requestSaveAs(activeEditableTab.value); return }
   saveTab(activeEditableTab.value.id)
 }
 
@@ -304,6 +350,7 @@ const handleEditorKeydown = (event) => {
 
   if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 's') {
     event.preventDefault()
+    event.stopPropagation()
     saveActiveTab()
   }
 }
@@ -433,6 +480,16 @@ onBeforeUnmount(() => {
             <i class="mdi mdi-refresh" aria-hidden="true" />
           </button>
           <button
+            class="btn btn-sm toolbar-button toolbar-command"
+            type="button"
+            title="Save As"
+            :disabled="activeEditableTab.loading || activeEditableTab.saving"
+            @click="requestSaveAs()"
+          >
+            <i class="mdi mdi-content-save-move-outline" aria-hidden="true" />
+            Save As
+          </button>
+          <button
             class="btn btn-sm toolbar-button toolbar-command editor-save-button"
             type="button"
             title="Save (Cmd/Ctrl+S)"
@@ -479,6 +536,7 @@ onBeforeUnmount(() => {
         :key="tab.id"
         :tab="tab"
         :visible="visible && tab.id === activeTab?.id"
+        @save="saveActiveTab"
       />
       <PdfViewer
         v-for="tab in pdfTabs"
@@ -500,6 +558,16 @@ onBeforeUnmount(() => {
       @save="saveAndClose"
       @discard="discardAndClose"
       @cancel="cancelClose"
+      @closed="startSaveAsAfterClose"
+    />
+
+    <SaveAsModal
+      :open="Boolean(saveAsTabId)"
+      :tab="tabs.find((tab) => tab.id === saveAsTabId)"
+      :busy="saveAsBusy"
+      :error="saveAsError"
+      @save="saveAs"
+      @cancel="cancelSaveAs"
     />
 
     <RevertChangesModal
