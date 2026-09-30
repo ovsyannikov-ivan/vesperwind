@@ -37,6 +37,19 @@ body,
   cursor: none !important;
 }
 
+.media-overlay-transition-cover {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.media-overlay-transition-cover.is-active {
+  pointer-events: auto;
+}
+
 .media-overlay-header {
   position: absolute;
   inset: 0 0 auto;

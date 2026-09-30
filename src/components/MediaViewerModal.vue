@@ -4,6 +4,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import CustomMediaPlayer from './CustomMediaPlayer.vue'
 import { fullscreen } from '../api/fullscreen.js'
 import { mediaOverlay } from '../api/mediaOverlay.js'
+import { runFullscreenTransition } from '../player/fullscreenTransition.js'
 
 const props = defineProps({
   open: {
@@ -41,20 +42,32 @@ const isNativeVideo = computed(() => displayedKind.value === 'video' && playerBa
 let modal = null
 let unsubscribeFullscreen = null
 let unsubscribeOverlayAction = null
+let modeTransition = null
 
 const handlePlaybackError = (error) => {
   playbackError.value = error?.message || 'This video could not be played'
 }
 
 const requestClose = async () => {
-  if (isFullscreen.value) await fullscreen.exit()
+  await modeTransition?.catch(() => {})
+  if (isFullscreen.value) await exitFullscreen()
   emit('close')
 }
 
-const enterFullscreen = async () => {
-  await fullscreen.enter(stageElement.value)
+const changeFullscreen = (active) => {
+  if (modeTransition) return modeTransition
+  const change = () => active ? fullscreen.enter(stageElement.value) : fullscreen.exit()
+  if (!isNativeVideo.value) return change()
+  modeTransition = runFullscreenTransition({
+    cover: () => videoPlayer.value?.coverNativeTransition(),
+    change,
+    settle: () => videoPlayer.value?.settleNativePresentation(),
+    reveal: () => videoPlayer.value?.revealNativeTransition(),
+  }).catch(handlePlaybackError).finally(() => { modeTransition = null })
+  return modeTransition
 }
-const exitFullscreen = () => fullscreen.exit()
+const enterFullscreen = () => changeFullscreen(true)
+const exitFullscreen = () => changeFullscreen(false)
 const toggleFullscreen = () => isFullscreen.value ? exitFullscreen() : enterFullscreen()
 const handleOverlayAction = (payload) => {
   if (payload?.action === 'close') void requestClose()
@@ -64,6 +77,7 @@ const handleOverlayAction = (payload) => {
 }
 
 const handleKeydown = (event) => {
+  if (modeTransition) { event.preventDefault(); return }
   if (event.key === 'Escape' && isFullscreen.value) {
     event.preventDefault()
     exitFullscreen()

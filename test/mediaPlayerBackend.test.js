@@ -65,6 +65,25 @@ test('web player backend keeps a common playback state', async () => {
   assert.equal(element.src, '')
 })
 
+test('finished web video rewinds and waits for Play before replaying', async () => {
+  const element = new FakeMediaElement()
+  const player = new WebMediaPlayerBackend(element)
+  await player.setSource('short.mp4')
+  element.duration = 8
+  await player.play()
+  element.currentTime = 8
+  element.dispatchEvent(new Event('ended'))
+  assert.equal(element.currentTime, 0)
+  assert.equal(element.paused, true)
+  assert.equal(player.snapshot().currentTime, 0)
+  assert.equal(player.snapshot().status, PlayerStatus.PAUSED)
+  await player.play()
+  assert.equal(element.paused, false)
+  assert.equal(player.snapshot().status, PlayerStatus.PLAYING)
+  assert.equal(element.loadCount, 1)
+  player.close()
+})
+
 test('source switching stops the previous source without leaking listeners', async () => {
   const element = new FakeMediaElement()
   const player = new WebMediaPlayerBackend(element)

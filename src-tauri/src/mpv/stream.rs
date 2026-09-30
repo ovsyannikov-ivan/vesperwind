@@ -194,7 +194,7 @@ mod tests {
     use crate::{filesystem::Filesystem, provider_content::ContentSource};
     use std::{
         ffi::CString,
-        fs::{self, File},
+        fs,
         io::{Seek, SeekFrom, Write},
         sync::atomic::{AtomicU64, Ordering},
     };
@@ -209,8 +209,7 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         let path = root.join("large.mkv");
         let size = 5 * 1024 * 1024 * 1024 + 17;
-        let mut file = File::create(&path).unwrap();
-        file.set_len(size).unwrap();
+        let mut file = crate::test_support::sparse_file(&path, size).unwrap();
         file.seek(SeekFrom::Start(size - 4)).unwrap();
         file.write_all(b"tail").unwrap();
 

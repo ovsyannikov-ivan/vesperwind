@@ -54,6 +54,30 @@ npm ci
 Then run `npm run dev:tauri` for development or `npm run build:tauri` for a
 production native build.
 
+Use the default build command on this Windows machine without an explicit
+`--target` or `CARGO_BUILD_TARGET`. Installers are written to
+`src-tauri/target/release/bundle/msi` and
+`src-tauri/target/release/bundle/nsis`. An explicit target instead writes them
+under `src-tauri/target/x86_64-pc-windows-msvc/release/bundle`; it does not update
+installers left in the default directory.
+
+Application source files are in `src-tauri/src` and the shared frontend in `src`;
+`target` contains generated files, not a separate Windows source checkout. Keep
+one default Cargo output tree: `target/debug` for development/tests and
+`target/release` for optimized application builds and installers. Their caches
+serve different profiles and are reused by subsequent builds. Local validation
+reports and logs belong in the ignored `target/local-checks` directory.
+
+Windows release executables use the GUI subsystem and open without a separate
+console window. Debug builds keep the console for development diagnostics.
+
+Windows uses the in-app toolbar and does not create Tauri's default native menu
+bar. A Win32 menu remains visible when the window enters fullscreen; changing
+its visibility afterward also changes the client height. Menu creation belongs
+to application initialization, not video overlay updates, so images and videos
+share the same fullscreen window behavior. Existing macOS and Linux menus are
+preserved.
+
 Both npm Tauri commands run `scripts/check-native-prereqs.mjs` first. On Windows,
 it checks that `perl -v` succeeds and shows the Strawberry Perl installation
 command before Cargo starts if Perl is missing. It does not verify the other
@@ -64,6 +88,84 @@ terminal and confirm the `perl -v` and `where.exe perl` results before retrying.
 If Tauri cannot start its webview, install or repair the
 [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/).
 
-Windows native libmpv rendering and DLL packaging are still planned. The Node
-SEA packaging path is currently macOS-only; use the Tauri command above for a
-Windows native build.
+The Windows native surface uses the common libmpv player API with a Win32 child
+window, WGL/OpenGL and an RGBA8 SDR backbuffer. Advanced Color/DXGI queries are
+diagnostics only; this renderer does not present HDR. The Node SEA packaging path
+is currently macOS-only; use Tauri for a Windows native build.
+
+## Rebuilding the Windows libmpv runtime
+
+The application remains an x86_64 MSVC build. Its dynamically loaded C-ABI media
+libraries are built separately with MSYS2 UCRT64 GCC/MinGW. MSYS2 is a build-time
+dependency only. Do not install a prebuilt mpv package or copy codec DLLs from PATH.
+
+Install MSYS2 outside this repository, update it with `pacman -Syu` (restart the
+shell and repeat after a core-runtime update), then install these build tools:
+
+```sh
+pacman -S --needed make git diffutils patch mingw-w64-ucrt-x86_64-gcc \
+  mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-meson \
+  mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-pkgconf \
+  mingw-w64-ucrt-x86_64-nasm
+```
+
+From PowerShell at the project root:
+
+```powershell
+.\scripts\build-libmpv-windows.ps1 -MsysRoot C:\msys64 -BuildRoot C:\Temp\vesperwind-libmpv-windows
+node scripts/verify-libmpv-bundle.js windows
+```
+
+Use a short ASCII build path outside the repository. The wrapper does not install
+MSYS2 or change the machine PATH. Use a fresh BuildRoot when changing source pins,
+toolchain or build flags; completed stages are reused on an interrupted build.
+The source archive hashes are in `scripts/libmpv-windows-sources.json`; libplacebo
+and its submodules are verified by Git revisions. The macOS source patches are
+not applied. `BUILD-INFO.txt` records the exact installed toolchain package set,
+source revisions, configure/Meson flags and the FFmpeg H.264/HEVC D3D11VA probe.
+This is a reproducible source procedure, not a claim of bit-identical output
+across different compiler/package versions.
+
+Packaging follows normal and delay-load PE imports recursively. Only libraries
+built in the private prefix and explicitly permitted compiler support DLLs can
+be copied; other dependencies must belong to the Windows system allowlist.
+`mpv.exe` is never built or packaged. The verifier checks x86_64 PE32+, closure,
+build evidence, source pins, absence of local build paths, license/source-offer
+files and checksums covering every file. It needs only Node.js, not MSYS2.
+
+The production loader searches `vendor/libmpv/windows/mpv-2.dll` relative to the
+EXE, as used by Tauri's Windows resource layout, as well as its existing bundle
+locations. `LoadLibraryExW` resolves dependencies from the DLL directory and
+System32, excluding PATH/current-directory fallbacks. The explicit development
+override `VESPERWIND_LIBMPV_PATH` must identify the entry DLL.
+
+## Playback validation
+
+The native surface is always SDR, including when Windows Advanced Color is on.
+HDR input must display **SDR fallback**. D3D11VA availability at build time does
+not prove hardware decode on a particular GPU; inspect **hwdec-current** in Info.
+The requested policy is `auto-copy-safe`, with software fallback.
+
+The existing ignored real-file API smoke test also runs on Windows:
+
+```powershell
+$env:VESPERWIND_MPV_SMOKE_FILE = 'C:\media\sample.mp4'
+$env:VESPERWIND_MPV_EXPECT_AUDIO_OUTPUT = 'wasapi'
+cargo test --manifest-path src-tauri/Cargo.toml bundled_libmpv_decodes_a_real_provider_stream -- --ignored --nocapture
+```
+
+This test uses `vo=null`: it checks decoding, the opaque provider stream, audio
+state, pause/resume and forward/backward seek, not WGL presentation. Set
+`VESPERWIND_MPV_SMOKE_EOF=1` to check automatic rewind and replay, including mpv's
+keep-open behavior. Set
+`VESPERWIND_MPV_EXPECT_HWDEC=d3d11va-copy` only when testing known supported media
+on a capable GPU. The actual WGL/overlay, subtitles, fullscreen, source switching,
+close/reopen, audible audio and end-of-file behavior require the application smoke
+pass. Repeat Local/SFTP playback in the installed application with a minimal PATH,
+and confirm loaded DLL paths belong to its own bundle. Do not put credentials in
+test URLs or logs.
+
+Keep machine-specific validation reports and logs outside versioned documentation.
+Do not include personal filenames, user-profile paths or credentials in reports
+intended for publication. The ignored `src-tauri/target` directory can hold local
+test results, organized under `src-tauri/target/local-checks`.

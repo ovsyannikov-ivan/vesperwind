@@ -90,6 +90,13 @@ pub struct OverlayPayload {
     context: Value,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VisibilityPayload {
+    session_id: String,
+    visible: bool,
+}
+
 fn response(session_id: &str, result: Result<crate::mpv::PlayerSnapshot, String>) -> Value {
     match result {
         Ok(state) => json!({"ok":true,"sessionId":session_id,"state":state}),
@@ -202,6 +209,17 @@ pub fn player_set_geometry(state: State<'_, AppState>, payload: GeometryPayload)
 }
 
 #[tauri::command]
+pub fn player_set_visible(state: State<'_, AppState>, payload: VisibilityPayload) -> Value {
+    match state
+        .player
+        .set_visible(&payload.session_id, payload.visible)
+    {
+        Ok(()) => json!({"ok":true}),
+        Err(message) => json!({"ok":false,"error":{"code":"EMPV","message":message}}),
+    }
+}
+
+#[tauri::command]
 pub fn player_set_overlay(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -243,7 +261,14 @@ pub fn player_set_overlay(
         }
     };
     let titlebar_offset = overlay_titlebar_offset(&app);
+    let transitioning = visible
+        && payload
+            .context
+            .get("transitioning")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
     let border_inset = if visible
+        && !transitioning
         && !payload
             .context
             .get("fullscreen")
@@ -264,6 +289,24 @@ pub fn player_set_overlay(
         (geometry.height + titlebar_offset - border_inset).max(1.0),
     )) {
         return json!({"ok":false,"error":{"code":"EMPV_OVERLAY","message":error.to_string()}});
+    }
+
+    // During fullscreen changes the opaque cover fills the parent before the
+    // video grows. Follow native resize events rather than waiting for JS IPC.
+    if let Err(error) = overlay.set_auto_resize(transitioning) {
+        return json!({"ok":false,"error":{"code":"EMPV_OVERLAY","message":error.to_string()}});
+    }
+
+    #[cfg(target_os = "windows")]
+    if visible {
+        let radius = payload
+            .context
+            .get("borderRadius")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0);
+        if let Err(message) = raise_windows_overlay(&overlay, radius) {
+            return json!({"ok":false,"error":{"code":"EMPV_OVERLAY","message":message}});
+        }
     }
 
     state
@@ -289,6 +332,54 @@ fn overlay_titlebar_offset(app: &AppHandle) -> f64 {
             Some((frame_height - content_height).max(0.0))
         })
         .unwrap_or(0.0)
+}
+
+#[cfg(target_os = "windows")]
+fn raise_windows_overlay(overlay: &tauri::Webview, radius: f64) -> Result<(), String> {
+    use std::{sync::mpsc, time::Duration};
+    use windows::Win32::Foundation::HWND;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    };
+
+    let radius = radius
+        * overlay
+            .window()
+            .scale_factor()
+            .map_err(|error| error.to_string())?;
+    let (sender, receiver) = mpsc::sync_channel(1);
+    overlay
+        .with_webview(move |platform| {
+            let result = (|| {
+                // This is Wry's child container, not the application's main
+                // HWND. Keep it above the separate WGL video child.
+                let mut container = HWND::default();
+                unsafe { platform.controller().ParentWindow(&mut container) }
+                    .map_err(|error| error.to_string())?;
+                if container.0.is_null()
+                    || unsafe {
+                        SetWindowPos(
+                            container.0,
+                            HWND_TOP,
+                            0,
+                            0,
+                            0,
+                            0,
+                            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                        )
+                    } == 0
+                {
+                    return Err("Unable to raise the media overlay child window".to_string());
+                }
+                crate::mpv::set_window_clip(container.0, radius)?;
+                Ok(())
+            })();
+            let _ = sender.send(result);
+        })
+        .map_err(|error| error.to_string())?;
+    receiver
+        .recv_timeout(Duration::from_secs(5))
+        .map_err(|error| error.to_string())?
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -342,6 +433,7 @@ pub fn player_close(app: AppHandle, state: State<'_, AppState>, payload: Session
     let closed = state.player.close(&payload.session_id);
     if closed {
         if let Some(overlay) = app.get_webview("media-overlay") {
+            let _ = overlay.set_auto_resize(false);
             let _ = overlay.set_position(tauri::LogicalPosition::new(-10_000.0, -10_000.0));
             let _ = overlay.set_size(tauri::LogicalSize::new(1.0, 1.0));
         }

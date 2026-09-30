@@ -33,15 +33,37 @@ and an editor.
   provider-neutral content API.
 - Use multiple tabs of real local PTY terminals and SSH terminals.
 
-The browser and Node SEA modes use the HTML/media-chrome player. The Tauri macOS
-build also contains an **experimental** native libmpv video backend with a custom
-local/SFTP stream and a native OpenGL render surface. On macOS it has an
+The browser and Node SEA modes use the HTML/media-chrome player. Tauri contains an
+**experimental** native libmpv video backend with a custom local/SFTP stream and
+native OpenGL surfaces on macOS and Windows. On macOS it has an
 experimental FP16 Extended Dynamic Range path for HDR10 and HLG, with live EDR
 headroom and fallback diagnostics. Dolby Vision metadata is reported, but full RPU
 or enhancement-layer processing is not bundled. Its arm64 development bundle is
-not yet a signed or notarized release, and the Windows libmpv bundle and DXGI HDR
-renderer are not yet available. See [Native libmpv integration](docs/libmpv.md)
+not yet a signed or notarized release. Windows includes a source-built x64 LGPL
+DLL closure, WASAPI audio and D3D11VA copy-back decoding, with a WGL RGBA8 SDR
+surface. The Windows runtime is built and bundled, rather than a planned build;
+native playback and MSI/NSIS packaging have passed local smoke checks. Windows
+HDR presentation is not implemented. See [Native libmpv integration](docs/libmpv.md)
 for the exact build, HDR matrix, and licensing status.
+
+### HDR and Dolby Vision
+
+| Capability | Windows | macOS |
+| --- | --- | --- |
+| HDR10 / HLG source playback | Decoded and tone-mapped to SDR; no native HDR output | Experimental FP16 EDR output, with SDR fallback; XDR display validation remains pending |
+| Dolby Vision | Profile metadata is detected; compatible base-layer playback may work, but Dolby Vision RPU processing and display output are not supported | The same Dolby Vision limitations apply; compatible HDR base layers may use EDR |
+
+Playing a HEVC Dolby Vision Profile 8 file successfully does not establish Dolby
+Vision or HDR output. Profile 8.1 has an HDR10-compatible base layer and Profile
+8.4 has an HLG-compatible base layer; the compatible picture can be displayed
+without processing Dolby Vision metadata. The bundled libplacebo builds disable
+`dovi` and `libdovi`. See Dolby's [profile compatibility reference](https://ott.dolby.com/browser_test_kit/help_files/topics/r_resources.html).
+
+An HDR-capable OLED does not change the current Windows output path: it remains
+WGL RGBA8 SDR. Native Windows HDR requires Advanced Color presentation, such as
+an FP16 scRGB DXGI swapchain, and correct display/color-space handling. That work
+is still planned. The limitation is in Vesperwind's Windows presentation backend;
+OpenGL can already carry the experimental HDR path on macOS.
 
 ## Screenshots
 
@@ -167,9 +189,36 @@ Restart the terminal, then check `perl -v` and `where.exe perl`. The
 starting Tauri on Windows. See [Windows build prerequisites](docs/build-windows.md)
 for the full setup and troubleshooting steps.
 
+The source-built x64 libmpv runtime and its complete DLL dependency set are
+checked in under `src-tauri/vendor/libmpv/windows`, together with checksums,
+licenses, source pins, and build evidence. Normal application builds use that
+bundle; MSYS2 is needed only when rebuilding libmpv itself.
+
+Build and verify the Windows application with:
+
+```powershell
+node scripts/verify-libmpv-bundle.js windows
+npm run build:tauri -- --bundles msi,nsis
+```
+
+Use the default Cargo output tree: the application is
+`src-tauri/target/release/vesperwind.exe`, and installers are under
+`src-tauri/target/release/bundle/msi` and `bundle/nsis`. An explicit `--target`
+creates a separate build tree and is unnecessary for this native x64 build.
+
+Local checks covered H.264/HEVC D3D11VA copy-back decoding, WASAPI initialization,
+WGL playback, ASS subtitles, fullscreen round trips, and EOF rewind followed by
+Play. Release builds use the Windows GUI subsystem and create no console window.
+Windows uses the frontend controls without a native application menu, including
+image and video fullscreen. The shared Windows/macOS video transition hides the
+native surface under a fading black overlay during resize; repeated transitions
+were checked on Windows. Audible listening and HDR-display validation remain
+separate manual checks.
+
 The main Tauri/file-management paths have been exercised on Windows, but
 SSH/SFTP, recursive search, and document editing still need a complete Windows
-regression pass. Native libmpv DLL packaging is not complete.
+regression pass. The pinned native libmpv DLL runtime is bundled; see
+[Windows build and media checks](docs/build-windows.md) for verification steps.
 
 ### Linux status
 
@@ -206,14 +255,20 @@ security contact and policy are published.
 - PDF, DOCX, and XLSX/XLS document tabs, DOC/RTF import, remote text editing,
   document search, and provider-neutral ranged content access;
 - Native local-file Open With and reveal actions on macOS and Windows;
-- Image viewing, web audio/video playback, and multi-tab terminals.
+- Image viewing, web audio/video playback, and multi-tab terminals;
+- source-built, pinned Windows x64 libmpv runtime with dependency verification,
+  licenses, and local MSI/NSIS packaging.
 
 ### Experimental
 
-- Tauri native libmpv playback on macOS, including local/SFTP custom streams,
+- Tauri native libmpv playback on macOS and Windows, including local/SFTP custom streams,
   seeking, audio/subtitle track state, fullscreen geometry synchronization, and
   FP16 macOS EDR output for HDR10/HLG;
 - self-contained arm64 macOS libmpv dependency bundle;
+- Windows H.264/HEVC D3D11VA copy-back
+  decoding, WASAPI audio and WGL SDR rendering;
+- shared Windows/macOS native fullscreen fade through a controls overlay, with
+  layout and rendered-frame readiness before uncovering video;
 - large remote media and PDF behavior across varied SSH servers.
 
 ### Planned
@@ -221,9 +276,8 @@ security contact and policy are published.
 - Finder/Explorer drag-and-drop integration;
 - Content search inside files and additional editor encodings;
 - A complete Windows regression pass for SSH/SFTP, search, and document editing;
-- Windows libmpv rendering and self-contained DLL packaging;
 - a Windows DXGI FP16/Advanced Color libmpv presentation backend;
-- VideoToolbox/D3D11VA hardware decoding and further HDR/color-management work;
+- further hardware-decoder coverage and HDR/color-management work;
 - enhanced remote media recovery and buffering behavior;
 - external-editor synchronization;
 - additional filesystem providers.

@@ -25,8 +25,10 @@ pub struct PlayerGeometry {
     #[serde(default = "default_scale")]
     pub scale_factor: f64,
     #[serde(default)]
+    #[cfg(target_os = "macos")]
     pub viewport_height: Option<f64>,
     #[serde(default)]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     pub border_radius: f64,
     #[serde(default = "default_subtitle_position")]
     pub subtitle_position: f64,
@@ -62,6 +64,7 @@ pub struct PlayerTrack {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayerSnapshot {
+    pub presentation: super::render::FramePresentation,
     pub status: String,
     pub current_time: f64,
     pub duration: f64,
@@ -157,6 +160,7 @@ pub struct SubtitleDiagnostics {
 impl Default for PlayerSnapshot {
     fn default() -> Self {
         Self {
+            presentation: Default::default(),
             status: "idle".to_string(),
             current_time: 0.0,
             duration: 0.0,
@@ -372,6 +376,12 @@ impl MpvPlayerManager {
                 .sender
                 .send(Control::SetSubtitlePosition(geometry.subtitle_position))
                 .map_err(|_| "The native player control channel is closed".to_string())
+        })
+    }
+
+    pub fn set_visible(&self, session_id: &str, visible: bool) -> Result<(), String> {
+        self.with_running(session_id, false, |running| {
+            running.surface.set_transition_visible(visible)
         })
     }
 
@@ -595,6 +605,7 @@ fn control_loop(
     let mut last_display_refresh = Instant::now() - Duration::from_secs(1);
     let mut display = surface.display_capabilities();
     let mut shutdown_reply = None;
+    let mut eof_handled = false;
     let mut pending_load: Option<(
         mpsc::SyncSender<Result<PlayerSnapshot, String>>,
         bool,
@@ -607,6 +618,7 @@ fn control_loop(
                 autoplay,
                 reply,
             }) => {
+                eof_handled = false;
                 *lifecycle.lock().unwrap_or_else(|value| value.into_inner()) =
                     PlayerLifecycle::Opening;
                 state.status = "opening".to_string();
@@ -685,6 +697,7 @@ fn control_loop(
             }
             Ok(Control::Snapshot(reply)) => {
                 state = read_snapshot(&api, handle, &state, &display);
+                state.presentation = renderer.presentation();
                 let _ = reply.send(Ok(state.clone()));
             }
             Ok(Control::Shutdown(reply)) => {
@@ -758,6 +771,28 @@ fn control_loop(
             }
         }
         if last_emit.elapsed() >= Duration::from_millis(100) {
+            // keep-open retains the file and last frame at EOF, so no END_FILE
+            // event is required. Rewind once and leave replay under user control.
+            let at_eof = api.get_flag(handle, "eof-reached") == Some(true);
+            if at_eof && !eof_handled && pending_load.is_none() && current_uri.is_some() {
+                eof_handled = true;
+                match rewind_after_eof(&api, handle) {
+                    Ok(()) => {
+                        state.status = "paused".into();
+                        state.current_time = 0.0;
+                        *lifecycle.lock().unwrap_or_else(|value| value.into_inner()) =
+                            PlayerLifecycle::Paused;
+                        eprintln!("[player={session_id}] EOF rewound to start and paused");
+                    }
+                    Err(message) => {
+                        state.status = "error".into();
+                        state.error = Some(message);
+                    }
+                }
+                event_changed = true;
+            } else if !at_eof {
+                eof_handled = false;
+            }
             if last_display_refresh.elapsed() >= Duration::from_millis(500) {
                 surface.refresh_display_capabilities();
                 let next_display = surface.display_capabilities();
@@ -791,6 +826,11 @@ fn control_loop(
     if let Some(reply) = shutdown_reply {
         let _ = reply.send(());
     }
+}
+
+pub(super) fn rewind_after_eof(api: &MpvApi, handle: *mut MpvHandle) -> Result<(), String> {
+    api.set_property(handle, "pause", "yes")?;
+    api.command(handle, &["seek", "0", "absolute+exact"])
 }
 
 fn reply_with(
@@ -828,6 +868,7 @@ fn read_snapshot(
         };
     }
     PlayerSnapshot {
+        presentation: previous.presentation.clone(),
         status,
         current_time: api
             .get_double(handle, "time-pos")
@@ -1310,6 +1351,7 @@ mod tests {
         let geometry: PlayerGeometry =
             serde_json::from_value(json!({"x":1,"y":2,"width":640,"height":360})).unwrap();
         assert_eq!(geometry.scale_factor, 1.0);
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         assert_eq!(geometry.border_radius, 0.0);
         assert_eq!(geometry.subtitle_position, 100.0);
     }

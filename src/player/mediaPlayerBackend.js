@@ -70,7 +70,11 @@ export class WebMediaPlayerBackend extends MediaPlayerBackend {
       }),
       play: () => this.update({ status: PlayerStatus.PLAYING }),
       pause: () => this.update({ status: PlayerStatus.PAUSED }),
-      ended: () => this.update({ status: PlayerStatus.ENDED }),
+      ended: () => {
+        this.element.pause()
+        this.element.currentTime = 0
+        this.update({ status: PlayerStatus.PAUSED, currentTime: 0 })
+      },
       timeupdate: () => this.update({ currentTime: this.element.currentTime || 0 }),
       durationchange: () => this.update({
         duration: Number.isFinite(this.element.duration) ? this.element.duration : 0,
@@ -212,6 +216,7 @@ export class NativeMpvPlayerBackend extends MediaPlayerBackend {
   selectTrack(kind, id) { return this.command('player:select-track', { kind, id }) }
   setSubtitleDelay(seconds) { return this.command('player:set-subtitle-delay', { seconds: Number(seconds) || 0 }) }
   setGeometry(geometry) { return this.request('player:set-geometry', { geometry }) }
+  setVisible(visible) { return this.request('player:set-visible', { visible: Boolean(visible) }) }
   setOverlay(visible, geometry, context = {}) {
     return this.request('player:set-overlay', { visible: Boolean(visible), geometry, context })
   }

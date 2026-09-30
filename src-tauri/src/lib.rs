@@ -8,6 +8,8 @@ mod provider_content;
 mod settings;
 mod ssh;
 mod terminal;
+#[cfg(test)]
+mod test_support;
 
 use content::ContentManager;
 use filesystem::Filesystem;
@@ -15,10 +17,13 @@ use settings::SettingsStore;
 use ssh::SshManager;
 use std::collections::HashMap;
 use std::sync::{atomic::AtomicBool, Arc, Mutex};
+#[cfg(not(target_os = "windows"))]
 use tauri::menu::Menu;
 #[cfg(target_os = "macos")]
 use tauri::menu::{MenuItem, MenuItemKind, PredefinedMenuItem};
-use tauri::{Emitter, Manager};
+#[cfg(not(target_os = "windows"))]
+use tauri::Emitter;
+use tauri::Manager;
 use terminal::TerminalManager;
 
 pub struct AppState {
@@ -64,7 +69,12 @@ pub fn run() {
     let media_filesystem = Arc::clone(&filesystem);
     let media_ssh = Arc::clone(&ssh);
 
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Windows uses the application's toolbar. Attaching a native menu also
+    // leaves it visible in fullscreen and changes the client height. Preserve
+    // the existing menus on other platforms, including macOS's system menu.
+    #[cfg(not(target_os = "windows"))]
+    let builder = builder
         .menu(|app| {
             let menu = Menu::default(app)?;
             #[cfg(target_os = "macos")]
@@ -85,7 +95,9 @@ pub fn run() {
             if event.id() == "open-settings" {
                 let _ = app.emit("vesperwind:open-settings", ());
             }
-        })
+        });
+
+    let app = builder
         .manage(AppState {
             filesystem,
             content,
@@ -156,6 +168,7 @@ pub fn run() {
             commands::player::player_select_track,
             commands::player::player_set_subtitle_delay,
             commands::player::player_set_geometry,
+            commands::player::player_set_visible,
             commands::player::player_set_overlay,
             commands::player::player_overlay_snapshot,
             commands::player::player_snapshot,

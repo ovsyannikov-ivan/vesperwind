@@ -2,6 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { verifyWindowsBundle } from './verify-libmpv-windows.js'
 
 const root = fileURLToPath(new URL('../src-tauri/vendor/libmpv', import.meta.url))
 const manifest = JSON.parse(await fs.readFile(path.join(root, 'manifest.json'), 'utf8'))
@@ -32,6 +33,11 @@ const run = (command, args, options = {}) => {
     throw new Error(`${command} verification failed: ${result.error?.message || result.stderr || result.stdout}`)
   }
   return result.stdout
+}
+
+if (platformName === 'windows' || platformName === 'win32') {
+  const closure = await verifyWindowsBundle(directory, manifest)
+  console.log(JSON.stringify(closure, null, 2))
 }
 
 if (platformName === 'macos') {

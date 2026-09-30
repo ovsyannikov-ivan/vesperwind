@@ -221,6 +221,7 @@ impl NativeSurface {
         self.0.geometry_changed.store(true, Ordering::Release);
         let container = self.0.container;
         let inner = Arc::clone(&self.0);
+        let (sender, receiver) = mpsc::sync_channel(1);
         self.0
             .window
             .run_on_main_thread(move || {
@@ -230,8 +231,16 @@ impl NativeSurface {
                     .unwrap_or_else(|error| error.into_inner());
                 let container_view = unsafe { &*(container as *const NSView) };
                 container_view.setHidden(!visible);
+                let _ = sender.send(());
             })
+            .map_err(|error| error.to_string())?;
+        receiver
+            .recv_timeout(Duration::from_secs(5))
             .map_err(|error| error.to_string())
+    }
+
+    pub fn set_transition_visible(&self, visible: bool) -> Result<(), String> {
+        self.set_visible(visible)
     }
 
     pub fn is_visible(&self) -> bool {

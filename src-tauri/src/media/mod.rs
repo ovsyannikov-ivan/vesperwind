@@ -306,7 +306,7 @@ mod tests {
     use super::{parse_range, serve, MAX_RANGE_RESPONSE_LENGTH};
     use crate::{filesystem::Filesystem, ssh::SshManager};
     use std::{
-        fs::{self, File},
+        fs,
         io::{Seek, SeekFrom, Write},
         path::PathBuf,
         sync::{
@@ -346,8 +346,7 @@ mod tests {
             // 32-bit integer limits.
             let large_size = 5 * 1024 * 1024 * 1024 + 123;
             let large_pdf = root.join("large.pdf");
-            let mut file = File::create(&large_pdf).unwrap();
-            file.set_len(large_size).unwrap();
+            let mut file = crate::test_support::sparse_file(&large_pdf, large_size).unwrap();
             file.write_all(b"%PDF").unwrap();
             file.seek(SeekFrom::Start(large_size - 16)).unwrap();
             file.write_all(b"vesperwind-tail!").unwrap();

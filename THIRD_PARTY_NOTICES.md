@@ -20,13 +20,20 @@ and is converted to Monaco's `IStandaloneThemeData` format by
 
 ## Native media runtime
 
-The Tauri macOS bundle vendors a dynamically linked, LGPL-compatible libmpv
+The Tauri macOS and Windows bundles vendor a dynamically linked, LGPL-compatible libmpv
 runtime built from pinned source. It includes mpv/libmpv 0.41.0, FFmpeg 8.0,
 libplacebo 7.351.0, libass 0.17.4, FreeType 2.14.1, FriBidi 1.0.16, and HarfBuzz
 11.5.0. The exact commits, build flags, local compatibility patches, artifact
 limitations, license analysis, source/relinking offer, and per-component license
-texts are recorded in `docs/libmpv.md`, `scripts/build-libmpv-macos.sh`, and
-`src-tauri/vendor/libmpv/macos`.
+texts are recorded in `docs/libmpv.md`, the platform build scripts and
+`src-tauri/vendor/libmpv/{macos,windows}`. Windows uses MSYS2 UCRT64 GCC/MinGW
+for the shared C-ABI libraries and an MSVC application. Its closure also includes
+GCC/libstdc++/libgcc runtime support (GPL with GCC Runtime Library Exception),
+winpthreads (MIT/BSD) and GNU libiconv (LGPL); their notices are in
+`windows/LICENSES`. The libplacebo generated OpenGL loader and fast_float notices
+are retained there as well. `windows/BUILD-INFO.txt` records compiler packages,
+archive hashes, recursive source revisions and feature flags; `SHA256SUMS`
+covers the complete Windows runtime and accompanying texts.
 
 Vesperwind's MIT license does not relicense these libraries. The build excludes
 mpv's GPL source set and FFmpeg GPL/non-free/version-3-only components. Final

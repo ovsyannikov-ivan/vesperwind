@@ -78,12 +78,14 @@ fn convert(bytes: Vec<u8>, format: &str) -> Result<Vec<u8>, NativeError> {
         ));
     }
     let path = std::env::temp_dir().join(format!("vesperwind-document-{}", Uuid::new_v4()));
-    let mut builder = fs::DirBuilder::new();
+    let builder = fs::DirBuilder::new();
     #[cfg(unix)]
-    {
+    let builder = {
         use std::os::unix::fs::DirBuilderExt;
+        let mut builder = builder;
         builder.mode(0o700);
-    }
+        builder
+    };
     builder
         .create(&path)
         .map_err(|e| NativeError::from_io(&e, "Unable to prepare document conversion"))?;

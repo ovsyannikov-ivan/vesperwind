@@ -424,7 +424,9 @@ fn operation_result(
 #[cfg(test)]
 mod tests {
     use super::{perform, relative_path, OperationRequest};
-    use crate::filesystem::{paths, Filesystem};
+    #[cfg(unix)]
+    use crate::filesystem::paths;
+    use crate::filesystem::Filesystem;
     use std::{
         fs,
         path::{Path, PathBuf},

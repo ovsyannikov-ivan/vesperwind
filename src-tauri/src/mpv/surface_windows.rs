@@ -9,7 +9,7 @@ use std::{
     },
     time::Duration,
 };
-use tauri::Window;
+use tauri::{Manager, Window};
 use windows::{
     core::Interface,
     Win32::{
@@ -27,19 +27,24 @@ use windows::{
 use windows_sys::Win32::{
     Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM},
     Graphics::{
-        Gdi::{GetDC, MonitorFromWindow, ReleaseDC, HDC, MONITOR_DEFAULTTONEAREST},
+        Gdi::{
+            CreateRoundRectRgn, DeleteObject, GetClipBox, GetDC, MonitorFromWindow, ReleaseDC,
+            SetWindowRgn, HDC, MONITOR_DEFAULTTONEAREST,
+        },
         OpenGL::{
-            wglCreateContext, wglDeleteContext, wglGetProcAddress, wglMakeCurrent,
-            ChoosePixelFormat, SetPixelFormat, SwapBuffers, HGLRC, PFD_DOUBLEBUFFER,
-            PFD_DRAW_TO_WINDOW, PFD_MAIN_PLANE, PFD_SUPPORT_OPENGL, PFD_TYPE_RGBA,
-            PIXELFORMATDESCRIPTOR,
+            wglCreateContext, wglDeleteContext, wglGetCurrentContext, wglGetCurrentDC,
+            wglGetProcAddress, wglMakeCurrent, ChoosePixelFormat, SetPixelFormat, SwapBuffers,
+            HGLRC, PFD_DOUBLEBUFFER, PFD_DRAW_TO_WINDOW, PFD_MAIN_PLANE, PFD_SUPPORT_OPENGL,
+            PFD_TYPE_RGBA, PIXELFORMATDESCRIPTOR,
         },
     },
-    System::LibraryLoader::{GetModuleHandleW, GetProcAddress, LoadLibraryW},
+    System::LibraryLoader::{GetModuleHandleW, GetProcAddress},
     UI::WindowsAndMessaging::{
-        CreateWindowExW, DefWindowProcW, DestroyWindow, RegisterClassW, SetWindowPos, ShowWindow,
-        CS_HREDRAW, CS_OWNDC, CS_VREDRAW, SWP_NOACTIVATE, SWP_NOZORDER, SW_HIDE, SW_SHOW,
-        WNDCLASSW, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS,
+        CreateWindowExW, DefWindowProcW, DestroyWindow, GetClassNameW, GetClientRect, GetParent,
+        GetWindow, GetWindowLongPtrW, GetWindowRect, IsWindowVisible, RegisterClassW,
+        SetWindowLongPtrW, SetWindowPos, CS_HREDRAW, CS_OWNDC, CS_VREDRAW, GWL_EXSTYLE, GWL_STYLE,
+        GW_CHILD, GW_HWNDNEXT, HWND_TOP, SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+        SWP_NOZORDER, SWP_SHOWWINDOW, WNDCLASSW, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS,
     },
 };
 
@@ -109,7 +114,48 @@ unsafe extern "system" fn surface_window_proc(
 
 impl NativeSurface {
     pub fn create(window: &Window) -> Result<Self, String> {
-        let parent = window.hwnd().map_err(|error| error.to_string())? as usize;
+        // Transparent overlay pixels expose the native parent where its
+        // border is wider than the video child. Avoid the default white brush.
+        window
+            .set_background_color(Some(tauri::window::Color(0, 0, 0, 255)))
+            .map_err(|error| error.to_string())?;
+        let main_webview = window
+            .app_handle()
+            .get_webview("main")
+            .ok_or_else(|| "Main WebView is unavailable".to_string())?;
+        let (clip_sender, clip_receiver) = mpsc::sync_channel(1);
+        main_webview
+            .with_webview(move |platform| {
+                let result = (|| {
+                    let mut container = windows::Win32::Foundation::HWND::default();
+                    unsafe { platform.controller().ParentWindow(&mut container) }
+                        .map_err(|error| error.to_string())?;
+                    if container.0.is_null() {
+                        return Err("Main WebView child is unavailable".to_string());
+                    }
+                    unsafe {
+                        let style = GetWindowLongPtrW(container.0, GWL_STYLE);
+                        if SetWindowLongPtrW(
+                            container.0,
+                            GWL_STYLE,
+                            style | WS_CLIPSIBLINGS as isize,
+                        ) == 0
+                        {
+                            return Err(std::io::Error::last_os_error().to_string());
+                        }
+                    }
+                    Ok(())
+                })();
+                let _ = clip_sender.send(result);
+            })
+            .map_err(|error| error.to_string())?;
+        clip_receiver
+            .recv_timeout(Duration::from_secs(5))
+            .map_err(|error| error.to_string())??;
+        // Tauri returns the windows crate's HWND newtype; windows-sys uses
+        // its raw pointer. Carry the address across the main-thread closure.
+        let parent: HWND = window.hwnd().map_err(|error| error.to_string())?.0;
+        let parent = parent as usize;
         let (sender, receiver) = mpsc::sync_channel(1);
         window
             .run_on_main_thread(move || {
@@ -141,15 +187,16 @@ impl NativeSurface {
         let y = (geometry.y * scale).round() as i32;
         let width = (geometry.width.max(0.0) * scale).round() as i32;
         let height = (geometry.height.max(0.0) * scale).round() as i32;
+        let radius = geometry.border_radius.max(0.0) * scale;
         let hwnd = self.0.hwnd as usize;
         let inner = Arc::clone(&self.0);
         self.0
             .window
             .run_on_main_thread(move || {
-                let _gl_guard = inner
-                    .gl_lock
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner());
+                // Never wait for the render thread in the window's message
+                // pump: a driver can send synchronous window messages while
+                // SwapBuffers holds the render lock. HWND layout does not
+                // bind or change the worker's OpenGL context.
                 unsafe {
                     SetWindowPos(
                         hwnd as HWND,
@@ -161,30 +208,64 @@ impl NativeSurface {
                         SWP_NOACTIVATE | SWP_NOZORDER,
                     );
                 }
+                if let Err(error) = set_window_clip(hwnd as HWND, radius) {
+                    eprintln!("[WGL] window clipping failed: {error}");
+                }
                 inner.pixel_width.store(width, Ordering::Release);
                 inner.pixel_height.store(height, Ordering::Release);
                 inner.geometry_changed.store(true, Ordering::Release);
+                if std::env::var_os("VESPERWIND_MPV_RENDER_DIAGNOSTICS").is_some() {
+                    let mut clip = Default::default();
+                    let clip_type = unsafe { GetClipBox(inner.dc, &mut clip) };
+                    eprintln!(
+                        "[WGL] geometry={x},{y} {width}x{height} clip_type={clip_type} clip={},{},{},{}",
+                        clip.left, clip.top, clip.right, clip.bottom
+                    );
+                    unsafe { log_window_stack(inner.hwnd) };
+                }
             })
             .map_err(|error| error.to_string())
     }
 
     pub fn set_visible(&self, visible: bool) -> Result<(), String> {
+        self.update_visibility(visible, true)
+    }
+
+    pub fn set_transition_visible(&self, visible: bool) -> Result<(), String> {
+        self.update_visibility(visible, false)
+    }
+
+    fn update_visibility(&self, visible: bool, raise: bool) -> Result<(), String> {
         self.0.visible.store(visible, Ordering::Release);
         self.0.geometry_changed.store(true, Ordering::Release);
         let hwnd = self.0.hwnd as usize;
-        let inner = Arc::clone(&self.0);
+        let (sender, receiver) = mpsc::sync_channel(1);
         self.0
             .window
             .run_on_main_thread(move || {
-                let _gl_guard = inner
-                    .gl_lock
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner());
-                unsafe {
-                    ShowWindow(hwnd as HWND, if visible { SW_SHOW } else { SW_HIDE });
-                }
+                // Initial display raises video above the main WebView. After
+                // a fullscreen resize it must stay BELOW the opaque cover.
+                let flags = SWP_NOMOVE
+                    | SWP_NOSIZE
+                    | SWP_NOACTIVATE
+                    | if visible {
+                        SWP_SHOWWINDOW
+                    } else {
+                        SWP_HIDEWINDOW
+                    }
+                    | if visible && raise { 0 } else { SWP_NOZORDER };
+                let result =
+                    if unsafe { SetWindowPos(hwnd as HWND, HWND_TOP, 0, 0, 0, 0, flags) } == 0 {
+                        Err(std::io::Error::last_os_error().to_string())
+                    } else {
+                        Ok(())
+                    };
+                let _ = sender.send(result);
             })
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string())?;
+        receiver
+            .recv_timeout(Duration::from_secs(5))
+            .map_err(|error| error.to_string())?
     }
 
     pub fn is_visible(&self) -> bool {
@@ -217,8 +298,16 @@ impl NativeSurface {
     }
 
     pub fn make_current(&self) -> Result<(), String> {
+        // This context stays owned by the render thread. Rebinding it on every
+        // frame needlessly re-enters the driver while the HWND is resizing.
+        if unsafe { wglGetCurrentContext() == self.0.context && wglGetCurrentDC() == self.0.dc } {
+            return Ok(());
+        }
         if unsafe { wglMakeCurrent(self.0.dc, self.0.context) } == 0 {
-            return Err("Unable to activate the Win32 OpenGL context".to_string());
+            return Err(format!(
+                "Unable to activate the Win32 OpenGL context: {}",
+                std::io::Error::last_os_error()
+            ));
         }
         Ok(())
     }
@@ -237,7 +326,12 @@ impl NativeSurface {
     }
     pub fn swap_buffers(&self) {
         unsafe {
-            SwapBuffers(self.0.dc);
+            if SwapBuffers(self.0.dc) == 0 {
+                eprintln!(
+                    "[WGL] SwapBuffers failed: {}",
+                    std::io::Error::last_os_error()
+                );
+            }
         }
     }
 
@@ -248,7 +342,9 @@ impl NativeSurface {
                 return address as *mut c_void;
             }
         }
-        let module = unsafe { LoadLibraryW(OPENGL32.as_ptr()) };
+        // opengl32 is already linked by the WGL calls. Do not increment its
+        // module reference count once per resolved OpenGL function.
+        let module = unsafe { GetModuleHandleW(OPENGL32.as_ptr()) };
         if module.is_null() {
             return ptr::null_mut();
         }
@@ -256,6 +352,63 @@ impl NativeSurface {
             .map(|address| address as *const () as *mut c_void)
             .unwrap_or(ptr::null_mut())
     }
+}
+
+pub(crate) fn set_window_clip(hwnd: HWND, radius: f64) -> Result<(), String> {
+    let mut rect = Default::default();
+    if unsafe { GetClientRect(hwnd, &mut rect) } == 0 {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    let diameter = (radius * 2.0).round().max(0.0) as i32;
+    let region = if diameter > 0 {
+        let region = unsafe {
+            CreateRoundRectRgn(0, 0, rect.right + 1, rect.bottom + 1, diameter, diameter)
+        };
+        if region.is_null() {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        region
+    } else {
+        ptr::null_mut()
+    };
+    // Windows owns the region after a successful SetWindowRgn. A null region
+    // restores the full rectangle when entering fullscreen.
+    if unsafe { SetWindowRgn(hwnd, region, 1) } == 0 {
+        if !region.is_null() {
+            unsafe { DeleteObject(region) };
+        }
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    Ok(())
+}
+
+unsafe fn log_window_stack(hwnd: HWND) {
+    let parent = unsafe { GetParent(hwnd) };
+    let mut child = unsafe { GetWindow(parent, GW_CHILD) };
+    let mut order = Vec::new();
+    for _ in 0..8 {
+        if child.is_null() {
+            break;
+        }
+        let mut name = [0_u16; 80];
+        let length = unsafe { GetClassNameW(child, name.as_mut_ptr(), name.len() as i32) };
+        let mut rect = Default::default();
+        unsafe { GetWindowRect(child, &mut rect) };
+        order.push(format!(
+            "{} hwnd={:p} visible={} style={:x} ex={:x} rect={},{},{},{}",
+            String::from_utf16_lossy(&name[..length.max(0) as usize]),
+            child,
+            unsafe { IsWindowVisible(child) },
+            unsafe { GetWindowLongPtrW(child, GWL_STYLE) },
+            unsafe { GetWindowLongPtrW(child, GWL_EXSTYLE) },
+            rect.left,
+            rect.top,
+            rect.right,
+            rect.bottom
+        ));
+        child = unsafe { GetWindow(child, GW_HWNDNEXT) };
+    }
+    eprintln!("[WGL] parent={parent:p} sibling order top first: {order:?}");
 }
 
 fn query_display_capabilities(hwnd: HWND) -> Result<DisplayCapabilities, String> {
@@ -388,7 +541,7 @@ fn positive(value: f32) -> Option<f64> {
 }
 
 unsafe fn create_surface(parent: HWND) -> Result<(HWND, HDC, HGLRC), String> {
-    let instance = unsafe { GetModuleHandleW(ptr::null()) } as HINSTANCE;
+    let instance: HINSTANCE = unsafe { GetModuleHandleW(ptr::null()) };
     let class = WNDCLASSW {
         style: CS_HREDRAW | CS_VREDRAW | CS_OWNDC,
         lpfnWndProc: Some(surface_window_proc),
@@ -402,7 +555,9 @@ unsafe fn create_surface(parent: HWND) -> Result<(HWND, HDC, HGLRC), String> {
             0,
             CLASS_NAME.as_ptr(),
             CLASS_NAME.as_ptr(),
-            WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
+            // The transparent controls overlap this entire child. Clipping
+            // siblings would exclude their rectangle from the WGL drawable.
+            WS_CHILD | WS_CLIPCHILDREN,
             0,
             0,
             1,
@@ -429,6 +584,7 @@ unsafe fn create_surface(parent: HWND) -> Result<(HWND, HDC, HGLRC), String> {
         dwFlags: PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER,
         iPixelType: PFD_TYPE_RGBA,
         cColorBits: 32,
+        cAlphaBits: 8,
         cDepthBits: 24,
         cStencilBits: 8,
         iLayerType: PFD_MAIN_PLANE as u8,
@@ -458,6 +614,7 @@ unsafe fn create_surface(parent: HWND) -> Result<(HWND, HDC, HGLRC), String> {
             return Err("Unable to activate the bootstrap Win32 OpenGL context".to_string());
         }
         let modern = wglGetProcAddress(c"wglCreateContextAttribsARB".as_ptr().cast())
+            .filter(|address| ![-1, 0, 1, 2, 3].contains(&(*address as *const () as isize)))
             .map(|address| {
                 let create: WglCreateContextAttribs = transmute(address);
                 let attributes = [

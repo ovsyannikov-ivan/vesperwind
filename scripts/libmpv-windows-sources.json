@@ -1,0 +1,32 @@
+[
+  {
+    "name": "mpv",
+    "url": "https://codeload.github.com/mpv-player/mpv/tar.gz/2c219aa822df18a1b7fd9abe3e151cd93ad67307",
+    "sha256": "9ef6644ce3ac76b07bf768cc84d31a371ad52aadc5f725167dcbe040fd6d2d5f"
+  },
+  {
+    "name": "ffmpeg",
+    "url": "https://codeload.github.com/FFmpeg/FFmpeg/tar.gz/refs/tags/n8.0",
+    "sha256": "dd4030dbfdc34d9ff255a116bdd1caade42500ac2981efa27f8b151cc54c7b9e"
+  },
+  {
+    "name": "freetype",
+    "url": "https://codeload.github.com/freetype/freetype/tar.gz/refs/tags/VER-2-14-1",
+    "sha256": "44bd69d1f0750603410cfd4f26f1c5523c5a3a087a2dfa8639b757dc7c6677be"
+  },
+  {
+    "name": "fribidi",
+    "url": "https://codeload.github.com/fribidi/fribidi/tar.gz/refs/tags/v1.0.16",
+    "sha256": "5a1d187a33daa58fcee2ad77f0eb9d136dd6fa4096239199ba31e850d397e8a8"
+  },
+  {
+    "name": "harfbuzz",
+    "url": "https://codeload.github.com/harfbuzz/harfbuzz/tar.gz/refs/tags/11.5.0",
+    "sha256": "119778e3a692806e45104b2cdfda807a8df2ccf5421c50a016aa4b7b82260205"
+  },
+  {
+    "name": "libass",
+    "url": "https://codeload.github.com/libass/libass/tar.gz/refs/tags/0.17.4",
+    "sha256": "c287d180d93dc9c9021872574b618ac49027e84cc90e1289318b1ee68bb42251"
+  }
+]

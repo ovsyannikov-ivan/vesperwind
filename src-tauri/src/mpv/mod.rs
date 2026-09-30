@@ -13,6 +13,8 @@ use std::{
 use self::stream::MpvStreamOpenFn;
 use dynamic_library::DynamicLibrary;
 pub use player::{MpvPlayerManager, PlayerGeometry, PlayerSnapshot};
+#[cfg(target_os = "windows")]
+pub(crate) use surface::set_window_clip;
 
 pub(crate) type MpvHandle = c_void;
 pub(crate) type MpvRenderContext = c_void;
@@ -422,6 +424,8 @@ fn bundled_candidates() -> Vec<PathBuf> {
             {
                 candidates.push(directory.join("mpv-2.dll"));
                 candidates.push(directory.join("libmpv-2.dll"));
+                // Tauri's Windows resource directory is the executable directory.
+                candidates.push(directory.join("vendor/libmpv/windows/mpv-2.dll"));
                 candidates.push(directory.join("resources/vendor/libmpv/windows/mpv-2.dll"));
             }
         }
@@ -431,12 +435,15 @@ fn bundled_candidates() -> Vec<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{stream, MpvApi, MPV_EVENT_END_FILE, MPV_EVENT_FILE_LOADED};
+    use super::MpvApi;
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    use super::{stream, MPV_EVENT_END_FILE, MPV_EVENT_FILE_LOADED};
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     use crate::{filesystem::Filesystem, provider_content::ContentSource, ssh::SshManager};
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     use std::{
         ffi::CString,
         path::PathBuf,
@@ -491,7 +498,7 @@ mod tests {
         api.destroy(handle);
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     #[test]
     #[ignore = "manual real-file smoke test; set VESPERWIND_MPV_SMOKE_FILE"]
     fn bundled_libmpv_decodes_a_real_provider_stream() {
@@ -525,6 +532,7 @@ mod tests {
                 ("config", "no"),
                 ("idle", "yes"),
                 ("vo", "null"),
+                ("keep-open", "yes"),
                 ("volume", "0"),
                 ("hwdec", "auto-copy-safe"),
             ] {
@@ -651,9 +659,11 @@ mod tests {
                     audio_sample_rate.is_some_and(|rate| rate > 0),
                     "audio sample rate is missing"
                 );
+                // Some containers do not provide a demux bitrate (for example
+                // the EAC3 MKV smoke sample). Missing metadata is valid.
                 assert!(
-                    audio_bitrate.is_some_and(|rate| rate > 0),
-                    "audio bitrate is missing"
+                    audio_bitrate.is_none_or(|rate| rate > 0),
+                    "invalid audio bitrate"
                 );
 
                 let wall_start = Instant::now();
@@ -679,6 +689,85 @@ mod tests {
             }
             let current_ao = api.get_string(handle, "current-ao");
             eprintln!("audio output after track switches: {current_ao:?}");
+            api.set_property(handle, "pause", "yes").expect("pause");
+            assert_eq!(api.get_flag(handle, "pause"), Some(true));
+            for target in [duration * 0.6, duration * 0.2] {
+                api.command(handle, &["seek", &target.to_string(), "absolute+exact"])
+                    .expect("seek provider stream");
+                let deadline = Instant::now() + Duration::from_secs(5);
+                while Instant::now() < deadline {
+                    api.wait_event_details(handle, 0.05);
+                    if api
+                        .get_double(handle, "time-pos")
+                        .is_some_and(|position| (position - target).abs() < 1.0)
+                    {
+                        break;
+                    }
+                }
+                assert!(
+                    api.get_double(handle, "time-pos")
+                        .is_some_and(|position| (position - target).abs() < 1.0),
+                    "seek did not reach {target}"
+                );
+            }
+            api.set_property(handle, "pause", "no").expect("resume");
+            assert_eq!(api.get_flag(handle, "pause"), Some(false));
+            if std::env::var_os("VESPERWIND_MPV_SMOKE_EOF").is_some() {
+                api.command(
+                    handle,
+                    &[
+                        "seek",
+                        &(duration - 0.5).max(0.0).to_string(),
+                        "absolute+exact",
+                    ],
+                )
+                .expect("seek near EOF");
+                let deadline = Instant::now() + Duration::from_secs(5);
+                let mut ended = false;
+                while Instant::now() < deadline {
+                    let event = api.wait_event_details(handle, 0.05);
+                    assert!(event.error >= 0 && event.end_file_error >= 0);
+                    if api.get_flag(handle, "eof-reached") == Some(true) {
+                        ended = true;
+                        break;
+                    }
+                }
+                assert!(ended, "provider stream did not reach EOF");
+                super::player::rewind_after_eof(&api, handle).expect("rewind at EOF");
+                let deadline = Instant::now() + Duration::from_secs(5);
+                while Instant::now() < deadline {
+                    api.wait_event_details(handle, 0.05);
+                    if api
+                        .get_double(handle, "time-pos")
+                        .is_some_and(|time| time < 0.25)
+                        && api.get_flag(handle, "eof-reached") == Some(false)
+                    {
+                        break;
+                    }
+                }
+                assert_eq!(api.get_flag(handle, "pause"), Some(true));
+                assert_eq!(api.get_flag(handle, "eof-reached"), Some(false));
+                assert!(api
+                    .get_double(handle, "time-pos")
+                    .is_some_and(|time| time < 0.25));
+                api.set_property(handle, "pause", "no")
+                    .expect("Play after EOF");
+                let deadline = Instant::now() + Duration::from_secs(3);
+                while Instant::now() < deadline {
+                    api.wait_event_details(handle, 0.05);
+                    if api
+                        .get_double(handle, "time-pos")
+                        .is_some_and(|time| time > 0.25)
+                    {
+                        break;
+                    }
+                }
+                assert!(api
+                    .get_double(handle, "time-pos")
+                    .is_some_and(|time| time > 0.25));
+                assert_eq!(api.get_flag(handle, "pause"), Some(false));
+                eprintln!("provider stream EOF: rewound, paused, Play restarted successfully");
+            }
             api.command(handle, &["stop"]).ok();
             api.destroy(handle);
             registry.remove(&uri);

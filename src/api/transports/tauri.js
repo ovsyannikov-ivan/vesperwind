@@ -30,6 +30,7 @@ const requestCommands = Object.freeze({
   'player:select-track': 'player_select_track',
   'player:set-subtitle-delay': 'player_set_subtitle_delay',
   'player:set-geometry': 'player_set_geometry',
+  'player:set-visible': 'player_set_visible',
   'player:set-overlay': 'player_set_overlay',
   'player:overlay-snapshot': 'player_overlay_snapshot',
   'player:snapshot': 'player_snapshot',

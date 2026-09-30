@@ -32,6 +32,26 @@ the renderer is joined before its context and surface are destroyed.
 Closing or switching a source tears down the previous stream, render context, and
 mpv handle.
 
+Native fullscreen transitions fade the controls WebView to black, expand it to
+cover the whole window, and acknowledge its resized presentation before changing
+fullscreen. The cover follows native parent-window resizing automatically while
+ordinary video-geometry updates are suspended. After layout settles, the viewer
+waits for the cover at the new size and a newly rendered video frame before
+restoring the overlay bounds and fading in. The same coordination is used on
+Windows and macOS; reduced motion still waits for presentation without animating.
+After fading out, the native video surface is hidden before either sibling is
+resized. Once the cover has reached the final viewport, video is shown beneath
+it without raising its Windows HWND above the cover; the viewer waits for a new
+frame before fading in. Native visibility changes acknowledge completion on the
+window thread, followed by a 150 ms hold under the opaque cover before resizing
+so the compositor can retire the previous video frame. This avoids relying on
+WebView paint timing to fence composition
+of an independently rendered native video surface.
+Transition steps have bounded waits, and the overlay has its own watchdog to
+remove an abandoned cover and restore controls. On Windows, HWND layout never
+waits for the render mutex: the graphics driver may synchronously message the
+window during buffer presentation. The WGL context remains on the render thread.
+
 The backend currently reports duration, position, pause/play state, volume, mute,
 audio/subtitle track metadata, selected tracks, and subtitle delay. Embedded ASS
 subtitles and embedded fonts are handled by libass/libmpv. Automatic external
@@ -40,8 +60,10 @@ planned work.
 
 Browser and Node SEA modes continue to use HTML/media-chrome. Audio also remains on
 the established persistent web player for now. Windows has the common player and
-stream implementation, but the native surface and reviewed DLL bundle are not yet
-release-ready.
+stream implementation, a WGL RGBA8 SDR child HWND, and a pinned source-built x64
+DLL closure. See [Windows build and media checks](build-windows.md) for the
+decoder/audio/application verification procedure. Windows presentation is SDR;
+hardware decoding depends on the media, GPU and driver.
 
 ## HDR and color pipeline
 
@@ -83,7 +105,13 @@ instead of setting gpu-next-only options.
 | HLG | Implemented through the same linear EDR target; manual XDR playback validation still required | Source detection works; native HDR output blocked on the DXGI renderer |
 | Dolby Vision profile 5 | Profile metadata is detected, but the bundled libplacebo build has `dovi`/`libdovi` disabled; correct RPU reshaping is not claimed | Not supported |
 | Dolby Vision profile 7 | Profile metadata is detected; an HDR10 base layer may be usable, but RPU, MEL, FEL, and enhancement-layer reconstruction are not claimed | Not supported |
-| Dolby Vision profile 8 | Profile metadata is detected; a compatible base layer may be usable, but RPU processing is not claimed | Not supported |
+| Dolby Vision profile 8 | Profile metadata is detected; a compatible base layer may be usable, but RPU processing is not claimed | Compatible base-layer playback may work with SDR tone mapping; no Dolby Vision RPU processing or native HDR output |
+
+Profile 8.1 has an HDR10-compatible base layer and Profile 8.4 has an
+HLG-compatible base layer. Successful playback of such a file can therefore
+come from the compatible base layer rather than Dolby Vision processing. The
+profile number alone does not establish base-layer compatibility; see Dolby's
+[profile compatibility reference](https://ott.dolby.com/browser_test_kit/help_files/topics/r_resources.html).
 
 ### Windows Advanced Color blocker
 
@@ -156,7 +184,40 @@ through the caller-owned Render API surface rather than probing a standalone mpv
 GPU window.
 
 This bundle targets macOS 12 or newer and is arm64-only. A universal/x86_64 bundle,
-Developer ID signature, notarization, and Windows DLL closure are release blockers.
+Developer ID signature and notarization remain release blockers for macOS.
+
+## Bundled Windows runtime
+
+`src-tauri/vendor/libmpv/windows` contains the same seven pinned media-library
+versions listed above, built with MSYS2 UCRT64 GCC 16.2.0 (Rev4). The application
+uses `x86_64-pc-windows-msvc`; the media boundary is the public C ABI. The upstream
+`libmpv-2.dll` is packaged under the existing `mpv-2.dll` entry name. No prebuilt
+mpv DLL or `mpv.exe` is used. libass uses DirectWrite; mpv enables WASAPI, OpenGL,
+Win32 threads and D3D hardware decode. FFmpeg enables H.264/HEVC D3D11VA and DXVA2
+while disabling GPL, non-free and version-3-only features. See `BUILD-INFO.txt`
+for all source hashes, submodule revisions, compiler packages and build flags.
+
+The 16-DLL closure includes avcodec, avformat, avfilter, avutil, swresample,
+swscale, libplacebo, libass, FreeType, FriBidi, HarfBuzz, GNU libiconv and GCC
+runtime support. All non-system dependencies are colocated. The PE verifier
+checks normal and delay-load imports, x64 PE32+ DLL headers, an explicit Windows
+system-library allowlist, absence of local build paths, feature evidence,
+license/source-offer files and exhaustive SHA-256 checksums. Runtime loading uses
+an absolute entry path with `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR` and
+`LOAD_LIBRARY_SEARCH_SYSTEM32`, so codec dependencies cannot come from PATH.
+
+Windows retains the public libmpv OpenGL Render API with an RGBA8 SDR backbuffer.
+Its native layer order is controls WebView2 → WGL child → main WebView2. Native
+window ordering is explicit; CSS z-index cannot order separate HWNDs. D3D11VA
+copy-back accelerates decoding and does not imply a D3D11 presentation surface
+or HDR output. The runtime probes reported `d3d11va-copy` for H.264 and HEVC on
+Intel UHD Graphics 630. HDR input still uses SDR fallback.
+
+Rebuild instructions are in [Windows build prerequisites](build-windows.md).
+The source build root and MSYS2 installation must remain outside the repository.
+The build procedure is reproducible with the recorded packages; bit-identical
+output across different toolchain versions is not claimed. The existing macOS
+runtime and platform-specific source patches remain unchanged.
 
 ## Rebuilding
 
@@ -193,10 +254,10 @@ approval and a compatible project licensing decision.
 
 The bundle includes:
 
-- the applicable license/copyright texts in `macos/LICENSES`;
+- the applicable license/copyright texts in each platform's `LICENSES` directory;
 - exact source versions, archive hashes, configure flags, and local changes in the
   checked-in build script and manifest;
-- a source/relinking offer and SHA-256 manifest beside the dylibs;
+- a source/relinking offer and SHA-256 manifest beside the platform libraries;
 - dynamically replaceable LGPL libraries, with no anti-relinking measure.
 
 This is an engineering compliance review, not legal advice. Final public binaries
@@ -217,5 +278,4 @@ Exercise display movement and brightness/power changes while watching the built-
 diagnostics. Dolby Vision profiles 5/7/8 must be checked separately and must not be
 reported as fully supported. Observe memory while seeking in a
 several-hundred-megabyte remote file; it must not grow with total file size. Repeat
-the complete matrix on Windows after the DXGI renderer and DLL bundle are
-implemented.
+the SDR playback matrix on Windows independently of the future DXGI HDR work.

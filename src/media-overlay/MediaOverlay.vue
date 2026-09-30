@@ -1,6 +1,8 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { mediaOverlay } from '../api/mediaOverlay.js'
+import { waitForOverlayPresentation } from '../player/overlayPresentation.js'
+import { createOverlayTransitionHandler } from '../player/overlayTransition.js'
 import {
   NativeMpvPlayerBackend,
   PlayerStatus,
@@ -26,6 +28,39 @@ const state = reactive({
   error: null,
 })
 const activeMenu = ref('')
+const transitionCover = ref(null)
+const transitioning = ref(false)
+let coverAnimation = null
+let unsubscribeTransition = null
+const paintTransition = async ({ covered, immediate, viewport }) => {
+  transitioning.value = true
+  restoreControls()
+  const element = transitionCover.value
+  if (!element) throw new Error('Media transition cover is unavailable')
+  const opacity = getComputedStyle(element).opacity
+  coverAnimation?.cancel()
+  const duration = immediate || matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : covered ? 130 : 180
+  coverAnimation = element.animate([{ opacity }, { opacity: covered ? 1 : 0 }], {
+    duration, easing: 'ease-in-out', fill: 'forwards',
+  })
+  await coverAnimation.finished
+  element.style.opacity = covered ? '1' : '0'
+  coverAnimation.cancel()
+  coverAnimation = null
+  transitioning.value = covered
+  await waitForOverlayPresentation({ viewport })
+}
+const transitionHandler = createOverlayTransitionHandler({
+  paint: paintTransition,
+  reset: () => {
+    coverAnimation?.cancel()
+    coverAnimation = null
+    if (transitionCover.value) transitionCover.value.style.opacity = '0'
+    transitioning.value = false
+    restoreControls()
+  },
+  acknowledge: (id, error) => mediaOverlay.completeTransition(id, error).catch(() => {}),
+})
 const controlsVisible = ref(true)
 const isPlaying = computed(() => state.status === PlayerStatus.PLAYING)
 const isCursorHidden = computed(() => (
@@ -89,12 +124,14 @@ const selectTrack = async (kind, id) => {
 }
 const sendAction = (action) => mediaOverlay.sendAction(action)
 const handlePointerDown = (event) => {
+  if (transitioning.value) { event.preventDefault(); event.stopPropagation(); return }
   showControls()
   if (!activeMenu.value) return
   if (event.target?.closest?.('.media-overlay-dropdown, .media-overlay-info, .media-overlay-info-toggle')) return
   closeMenu()
 }
 const handleKeydown = (event) => {
+  if (transitioning.value) { event.preventDefault(); return }
   showControls()
   if (event.key === 'Escape') {
     event.preventDefault()
@@ -125,6 +162,7 @@ watch(() => context.fullscreen, () => showControls())
 
 onMounted(async () => {
   unsubscribeContext = mediaOverlay.onContext(applyContext)
+  unsubscribeTransition = mediaOverlay.onTransition(transitionHandler.handle)
   document.addEventListener('pointerdown', handlePointerDown, true)
   document.addEventListener('keydown', handleKeydown)
   document.addEventListener('wheel', showControls, { passive: true })
@@ -141,6 +179,8 @@ onBeforeUnmount(() => {
   document.removeEventListener('wheel', showControls)
   document.removeEventListener('touchstart', showControls)
   unsubscribeContext?.()
+  unsubscribeTransition?.()
+  transitionHandler.dispose()
   unsubscribeState?.()
   player?.dispose()
 })
@@ -154,6 +194,7 @@ onBeforeUnmount(() => {
     @pointermove="showControls"
     @pointerleave="restoreControls"
   >
+    <div ref="transitionCover" class="media-overlay-transition-cover" aria-hidden="true" :class="{ 'is-active': transitioning }" />
     <header v-if="!context.fullscreen" class="media-overlay-header">
       <h1 class="media-overlay-title">
         <i class="mdi mdi-movie-open-play-outline" aria-hidden="true" />

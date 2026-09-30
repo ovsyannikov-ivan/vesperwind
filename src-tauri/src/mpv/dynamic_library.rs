@@ -90,19 +90,30 @@ mod platform {
 
     #[link(name = "kernel32")]
     unsafe extern "system" {
-        fn LoadLibraryW(path: *const u16) -> *mut c_void;
+        fn LoadLibraryExW(path: *const u16, file: *mut c_void, flags: u32) -> *mut c_void;
         fn GetProcAddress(module: *mut c_void, name: *const c_char) -> *mut c_void;
         fn FreeLibrary(module: *mut c_void) -> i32;
         fn GetLastError() -> u32;
     }
 
     pub unsafe fn open(path: &Path) -> Result<*mut c_void, String> {
+        // DLL_LOAD_DIR requires an absolute filename. Resolve even a relative
+        // development override, then exclude PATH/current-directory DLL lookup.
+        let path = path.canonicalize().map_err(|error| error.to_string())?;
         let path = path
             .as_os_str()
             .encode_wide()
             .chain(std::iter::once(0))
             .collect::<Vec<_>>();
-        let handle = unsafe { LoadLibraryW(path.as_ptr()) };
+        const LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR: u32 = 0x00000100;
+        const LOAD_LIBRARY_SEARCH_SYSTEM32: u32 = 0x00000800;
+        let handle = unsafe {
+            LoadLibraryExW(
+                path.as_ptr(),
+                std::ptr::null_mut(),
+                LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32,
+            )
+        };
         if handle.is_null() {
             Err(last_error())
         } else {

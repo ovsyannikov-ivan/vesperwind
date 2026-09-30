@@ -82,7 +82,7 @@ test('watch paths obey FILE_MANAGER_ROOT and symlink restrictions', async () => 
   const consumer = { emit() {} }
   await assert.rejects(registry.subscribe(consumer, os.tmpdir()), { code: 'EOUTSIDE_ROOT' })
   const link = path.join(root, 'outside-link')
-  await fs.symlink(os.tmpdir(), link)
+  await fs.symlink(os.tmpdir(), link, process.platform === 'win32' ? 'junction' : 'dir')
   await assert.rejects(registry.subscribe(consumer, link), { code: 'EOUTSIDE_ROOT' })
   assert.equal(registry.size(), 0)
 })

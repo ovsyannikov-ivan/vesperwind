@@ -385,8 +385,7 @@ mod tests {
         video.seek(SeekFrom::Start(1024 * 1024)).unwrap();
         video.write_all(b"seek-target-0001").unwrap();
         let size = 5 * 1024 * 1024 * 1024 + 123;
-        let mut file = File::create(&path).unwrap();
-        file.set_len(size).unwrap();
+        let mut file = crate::test_support::sparse_file(&path, size).unwrap();
         file.write_all(b"%PDF-1.7").unwrap();
         file.seek(SeekFrom::Start(size - 16)).unwrap();
         file.write_all(b"vesperwind-tail!").unwrap();

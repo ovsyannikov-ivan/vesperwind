@@ -24,6 +24,9 @@ mod platform {
         pub fn set_visible(&self, _: bool) -> Result<(), String> {
             Ok(())
         }
+        pub fn set_transition_visible(&self, visible: bool) -> Result<(), String> {
+            self.set_visible(visible)
+        }
         pub fn is_visible(&self) -> bool {
             false
         }
@@ -83,6 +86,8 @@ pub(crate) struct DisplayCapabilities {
     pub reason: Option<String>,
 }
 
+#[cfg(target_os = "windows")]
+pub(crate) use platform::set_window_clip;
 pub(crate) use platform::NativeSurface;
 
 pub(crate) const SUPPORTED: bool = cfg!(any(target_os = "macos", target_os = "windows"));

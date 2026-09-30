@@ -5,12 +5,13 @@ use std::{
     ptr,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        mpsc, Arc,
+        mpsc, Arc, Mutex,
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MPV_RENDER_UPDATE_FRAME: u64 = 1;
 
 struct RenderWakeup {
@@ -48,7 +49,16 @@ struct MpvOpenGlFbo {
 
 pub(crate) struct Renderer {
     stop: Arc<AtomicBool>,
+    presentation: Arc<Mutex<FramePresentation>>,
     thread: Option<JoinHandle<()>>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FramePresentation {
+    pub sequence: u64,
+    pub width: i32,
+    pub height: i32,
 }
 
 impl Renderer {
@@ -60,6 +70,8 @@ impl Renderer {
     ) -> Result<Self, String> {
         let stop = Arc::new(AtomicBool::new(false));
         let thread_stop = Arc::clone(&stop);
+        let presentation = Arc::new(Mutex::new(FramePresentation::default()));
+        let thread_presentation = Arc::clone(&presentation);
         let handle_address = handle as usize;
         let render_session_id = session_id.to_string();
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
@@ -73,6 +85,7 @@ impl Renderer {
                     &thread_stop,
                     &ready_tx,
                     &render_session_id,
+                    &thread_presentation,
                 );
                 if let Err(error) = &result {
                     eprintln!("libmpv renderer stopped: {error}");
@@ -86,6 +99,7 @@ impl Renderer {
         match ready_rx.recv_timeout(Duration::from_secs(5)) {
             Ok(Ok(())) => Ok(Self {
                 stop,
+                presentation,
                 thread: Some(thread),
             }),
             Ok(Err(error)) => {
@@ -109,6 +123,13 @@ impl Renderer {
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
+    }
+
+    pub(crate) fn presentation(&self) -> FramePresentation {
+        self.presentation
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
     }
 }
 
@@ -135,6 +156,7 @@ fn run_renderer(
     stop: &AtomicBool,
     ready: &mpsc::SyncSender<Result<(), String>>,
     session_id: &str,
+    presentation: &Mutex<FramePresentation>,
 ) -> Result<(), String> {
     surface.make_current()?;
     let api_type = CString::new("opengl").unwrap();
@@ -168,14 +190,18 @@ fn run_renderer(
         dirty: AtomicBool::new(true),
         callbacks: AtomicU64::new(0),
     };
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     let diagnostics_enabled = std::env::var_os("VESPERWIND_MPV_RENDER_DIAGNOSTICS").is_some();
     let solid_color = std::env::var_os("VESPERWIND_MPV_DEBUG_SOLID_COLOR").is_some();
-    #[cfg(target_os = "macos")]
-    let gl_diagnostics = diagnostics_enabled
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    let gl_diagnostics = (diagnostics_enabled || solid_color)
         .then(|| GlDiagnostics::load(surface))
         .transpose()?;
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     let mut render_calls = 0_u64;
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     let mut frame_updates = 0_u64;
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     let mut logged_non_black = false;
     let mut last_render = Instant::now() - Duration::from_millis(17);
     unsafe {
@@ -200,7 +226,7 @@ fn run_renderer(
             let (width, height) = surface.pixel_size();
             if width > 0 && height > 0 {
                 surface.make_current()?;
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", target_os = "windows"))]
                 if solid_color {
                     let diagnostics = gl_diagnostics
                         .as_ref()
@@ -245,8 +271,10 @@ fn run_renderer(
                     },
                 ];
                 unsafe {
-                    let update_flags = (api.render_context_update)(context);
-                    if update_flags & MPV_RENDER_UPDATE_FRAME != 0 {
+                    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+                    (api.render_context_update)(context);
+                    #[cfg(any(target_os = "macos", target_os = "windows"))]
+                    if (api.render_context_update)(context) & MPV_RENDER_UPDATE_FRAME != 0 {
                         frame_updates += 1;
                     }
                     let render_status =
@@ -256,8 +284,11 @@ fn run_renderer(
                             "mpv_render_context_render failed with {render_status}"
                         ));
                     }
-                    render_calls += 1;
-                    #[cfg(target_os = "macos")]
+                    #[cfg(any(target_os = "macos", target_os = "windows"))]
+                    {
+                        render_calls += 1;
+                    }
+                    #[cfg(any(target_os = "macos", target_os = "windows"))]
                     if diagnostics_enabled
                         && (render_calls == 1
                             || render_calls == 30
@@ -279,6 +310,13 @@ fn run_renderer(
                 }
                 surface.swap_buffers();
                 unsafe { (api.render_context_report_swap)(context) };
+                let mut frame = presentation
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                frame.sequence += 1;
+                frame.width = width;
+                frame.height = height;
+                drop(frame);
                 last_render = Instant::now();
             }
         }
@@ -293,16 +331,16 @@ fn run_renderer(
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 struct GlDiagnostics {
-    clear_color: unsafe extern "C" fn(f32, f32, f32, f32),
-    clear: unsafe extern "C" fn(u32),
-    read_buffer: unsafe extern "C" fn(u32),
-    read_pixels: unsafe extern "C" fn(i32, i32, i32, i32, u32, u32, *mut c_void),
-    finish: unsafe extern "C" fn(),
+    clear_color: unsafe extern "system" fn(f32, f32, f32, f32),
+    clear: unsafe extern "system" fn(u32),
+    read_buffer: unsafe extern "system" fn(u32),
+    read_pixels: unsafe extern "system" fn(i32, i32, i32, i32, u32, u32, *mut c_void),
+    finish: unsafe extern "system" fn(),
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 impl GlDiagnostics {
     fn load(surface: &NativeSurface) -> Result<Self, String> {
         unsafe fn symbol(surface: &NativeSurface, name: &str) -> Result<*mut c_void, String> {

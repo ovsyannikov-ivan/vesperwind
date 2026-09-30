@@ -22,5 +22,21 @@ fn main() {
     println!("cargo:rustc-env=VESPERWIND_GIT_SHA={git_sha}");
     println!("cargo:rerun-if-env-changed=VESPERWIND_BUILD_NONCE");
     println!("cargo:rerun-if-changed=build.rs");
-    tauri_build::build()
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
+        && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc")
+    {
+        // Tauri's resource.lib is linked only into binary targets. Unit-test
+        // executables also import TaskDialogIndirect, so every linked target
+        // needs Common Controls v6. Let MSVC embed the same dependency instead
+        // of embedding a second manifest in Tauri's binary-only resources.
+        tauri_build::try_build(
+            tauri_build::Attributes::new()
+                .windows_attributes(tauri_build::WindowsAttributes::new_without_app_manifest()),
+        )
+        .expect("Tauri Windows build resources");
+        println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
+        println!("cargo:rustc-link-arg=/MANIFESTDEPENDENCY:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'");
+    } else {
+        tauri_build::build()
+    }
 }

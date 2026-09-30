@@ -22,17 +22,21 @@ test('binary LocalProvider reads and writes arbitrary bytes at Unicode paths', a
 test('binary LocalProvider rejects root escape, symlink escape, malformed payload and oversized file', async () => {
   const outside = path.join(os.tmpdir(), 'outside.xlsx')
   await assert.rejects(() => readBinaryFile(outside), { code: 'EOUTSIDE_ROOT' })
-  const target = path.join(os.tmpdir(), 'vesperwind-outside.xlsx')
+  const outsideDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'vesperwind-outside-binary-'))
+  const target = path.join(outsideDirectory, 'outside.xlsx')
   await fs.writeFile(target, 'outside')
-  const link = path.join(root, 'link.xlsx')
-  await fs.symlink(target, link)
+  // Directory junctions exercise realpath escapes without symlink privileges on Windows.
+  const directoryLink = path.join(root, 'outside-link')
+  await fs.symlink(outsideDirectory, directoryLink, process.platform === 'win32' ? 'junction' : 'dir')
+  const link = path.join(directoryLink, 'outside.xlsx')
   await assert.rejects(() => readBinaryFile(link), { code: 'EOUTSIDE_ROOT' })
   await assert.rejects(() => writeBinaryFile(link, '!!!!'), { code: 'EINVAL' })
   const large = path.join(root, 'large.xlsx')
   await fs.writeFile(large, '')
   await fs.truncate(large, 32 * 1024 * 1024 + 1)
   await assert.rejects(() => readBinaryFile(large), { code: 'EFILE_TOO_LARGE' })
-  await fs.rm(target)
+  await fs.rm(directoryLink, { recursive: true, force: true })
+  await fs.rm(outsideDirectory, { recursive: true, force: true })
 })
 
 test('Socket binary handlers route SFTP paths through the same events as LocalProvider', async () => {

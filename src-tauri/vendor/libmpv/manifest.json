@@ -15,8 +15,21 @@
     "entry": "macos/libmpv.2.dylib"
   },
   "windows": {
-    "artifactStatus": "not-vendored",
-    "entry": "windows/mpv-2.dll"
+    "artifactStatus": "built-from-pinned-source",
+    "architecture": "x86_64",
+    "minimumVersion": "10",
+    "buildToolchain": "MSYS2 UCRT64 GCC 16.2.0 (Rev4); application x86_64-pc-windows-msvc",
+    "entry": "windows/mpv-2.dll",
+    "upstreamEntry": "libmpv-2.dll",
+    "ffmpegVersion": "8.0",
+    "audioOutput": "WASAPI",
+    "hardwareDecode": true,
+    "hardwareDecodePolicy": "auto-copy-safe; D3D11VA copy-back with software fallback",
+    "hardwareDecodeBuildEvidence": {"h264D3d11va": true, "hevcD3d11va": true},
+    "presentation": "public OpenGL Render API; WGL RGBA8 SDR",
+    "buildEvidence": "windows/BUILD-INFO.txt",
+    "runtimeValidation": "Windows Intel UHD 630: Local H.264/HEVC D3D11VA copy-back and WASAPI API smoke passed; WGL/ASS/fullscreen/EOF replay application smoke passed; SFTP and audible listening unverified",
+    "validationInstructions": "../../../docs/build-windows.md"
   },
   "dependencies": {
     "FFmpeg": "8.0",

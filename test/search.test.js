@@ -50,7 +50,7 @@ test('local search never descends through a symlink escape and skips inaccessibl
   const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'vesperwind-outside-'))
   try {
     await fs.writeFile(path.join(outside, 'secret.txt'), '')
-    await fs.symlink(outside, path.join(root, 'escape'))
+    await fs.symlink(outside, path.join(root, 'escape'), process.platform === 'win32' ? 'junction' : 'dir')
     const found = await collect({ query: 'secret' })
     assert.equal(found.entries.length, 0)
   } finally { await fs.rm(outside, { recursive: true, force: true }) }
