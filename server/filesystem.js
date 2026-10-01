@@ -87,7 +87,7 @@ const toEntry = async (parentPath, entry) => {
 }
 
 const directoryEntry = async (directory) => {
-  if (directory === COMPUTER_PATH) return { name: 'This Computer', path: COMPUTER_PATH,
+  if (directory === COMPUTER_PATH) return { name: 'This PC', path: COMPUTER_PATH,
     type: 'computer', isDirectory: true, isSymbolicLink: false, size: null,
     modifiedAt: null, metadataError: null }
   const stats = await fs.stat(directory)

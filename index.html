@@ -27,9 +27,50 @@
       href="/icons/Icon-iOS-Default-16x16@1x.png"
     />
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-180.png" />
+    <style>
+      :root {
+        --startup-bg: #1c1c1e;
+        --startup-muted: #98989d;
+        color-scheme: dark;
+        background: var(--startup-bg);
+      }
+      :root[data-bs-theme='light'] {
+        --startup-bg: #f2f2f2;
+        --startup-muted: #6e6e73;
+        color-scheme: light;
+      }
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: var(--startup-bg); }
+      .app-startup {
+        position: fixed;
+        inset: 0;
+        z-index: 10000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--app-bg, var(--startup-bg));
+        transition: opacity 180ms ease;
+      }
+      .app-startup-indicator {
+        width: 22px;
+        height: 22px;
+        box-sizing: border-box;
+        border: 2px solid var(--startup-muted);
+        border-right-color: transparent;
+        border-radius: 50%;
+        animation: startup-spin 900ms linear infinite;
+      }
+      .app-startup.is-ready { opacity: 0; pointer-events: none; }
+      @keyframes startup-spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) {
+        .app-startup { transition: none; }
+        .app-startup-indicator { animation: none; }
+      }
+    </style>
     <script>
       (() => {
-        const storedTheme = localStorage.getItem('vesperwind:theme')
+        let storedTheme
+        try { storedTheme = localStorage.getItem('vesperwind:theme') } catch {}
         const theme = ['dark', 'light'].includes(storedTheme)
           ? storedTheme
           : window.matchMedia('(prefers-color-scheme: dark)').matches
@@ -49,6 +90,9 @@
     <title>Vesperwind File Manager</title>
   </head>
   <body>
+    <div id="app-startup" class="app-startup" role="status" aria-label="Loading Vesperwind">
+      <span class="app-startup-indicator" aria-hidden="true"></span>
+    </div>
     <div id="app"></div>
     <script type="module" src="/src/main.js"></script>
   </body>

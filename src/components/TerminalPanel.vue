@@ -8,7 +8,7 @@ import {
 import TerminalInstance from './TerminalInstance.vue'
 import { navigateDropdown } from '../utils/dropdownNavigation.js'
 
-defineProps({ visible: { type: Boolean, required: true } })
+const props = defineProps({ visible: { type: Boolean, required: true } })
 const emit = defineEmits(['toggle', 'manage-connections'])
 const { settings } = useSettings()
 const tabs = ref([])
@@ -42,6 +42,10 @@ const activate = async (id) => {
   activeId.value = id
   await nextTick()
   instances.value[id]?.activate()
+}
+const selectTab = async (id) => {
+  if (!props.visible) emit('toggle')
+  await activate(id)
 }
 const add = async (type = 'local', profile = null) => {
   const id = `terminal-${++sequence}`
@@ -99,7 +103,7 @@ onBeforeUnmount(() => {
   <section class="terminal-panel" :class="{ 'is-collapsed': !visible }">
     <header class="terminal-header" @dblclick="$emit('toggle')">
       <div class="terminal-tabs" role="tablist" aria-label="Terminal sessions">
-        <button v-for="tab in tabs" :key="tab.id" class="terminal-tab" :class="{ 'is-active': activeId === tab.id }" type="button" role="tab" :aria-selected="activeId === tab.id" :title="tab.error || tab.title" @click.stop="activate(tab.id)">
+        <button v-for="tab in tabs" :key="tab.id" class="terminal-tab" :class="{ 'is-active': activeId === tab.id }" type="button" role="tab" :aria-selected="activeId === tab.id" :title="tab.error || tab.title" @click.stop="selectTab(tab.id)" @dblclick.stop>
           <span class="terminal-tab-status" :class="`status-${tab.status}`" />
           <span class="text-truncate">{{ tab.title }}<template v-if="tab.status === 'disconnected'"> — Disconnected</template><template v-else-if="tab.status === 'error'"> — Error</template></span>
           <span

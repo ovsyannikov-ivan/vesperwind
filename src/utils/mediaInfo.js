@@ -1,4 +1,4 @@
-const present = (value) => value !== null && value !== undefined && value !== ''
+const present = (value) => value !== null && value !== undefined && value !== '' && value !== false
 
 const join = (values) => values.filter(present).join(' · ')
 
@@ -41,9 +41,15 @@ const formatProfile = (profile, level) => {
   return `${profile}@${normalizedLevel}`
 }
 
-const channelLayout = (layout, count) => {
+export const formatMediaChannels = (layout, count) => {
   if (layout) {
     const normalized = String(layout).toLowerCase()
+    // mpv uses e.g. "undefined8" when the channel count is known but positions are not.
+    const unspecified = normalized.match(/^(?:undefined|unknown)(\d*)$/)
+    if (unspecified) {
+      const channels = Number(count) || Number(unspecified[1])
+      return channels > 0 ? `${channels} channels` : ''
+    }
     if (normalized === 'stereo') return 'Stereo'
     if (normalized === 'mono') return 'Mono'
     if (normalized === '5.1(side)' || normalized === '5.1(back)') return '5.1'
@@ -52,6 +58,12 @@ const channelLayout = (layout, count) => {
   }
   return Number(count) > 0 ? `${count} channels` : ''
 }
+
+export const formatMediaTrack = (track) => join([
+  track.title || track.friendlyLanguage || track.language || `Track ${track.id}`,
+  track.friendlyCodec || track.codec,
+  track.kind === 'audio' && formatMediaChannels(track.channelLayout, track.channels),
+])
 
 const friendlyDecoder = (value, fallback) => {
   const normalized = String(value || '').toLowerCase()
@@ -88,31 +100,26 @@ export const buildMediaInfoSections = (diagnostics = {}, fallbackDuration = 0) =
   const hardwareDecoder = diagnostics.hardwareDecoder || ''
   const output = join([diagnostics.outputMode, diagnostics.outputColorSpace])
   const display = diagnostics.display || {}
-  const displayHeadroom = `${Number(display.currentHeadroom || 1).toFixed(2)}× current / ${Number(display.potentialHeadroom || 1).toFixed(2)}× potential`
+  const windowsOutput = diagnostics.windowsOutput
+  const isWindows = display.platform === 'windows'
 
   const sections = [
     {
       title: 'General',
       rows: [
-        row('Container', diagnostics.friendlyContainer || diagnostics.container || 'Unknown', diagnostics.container || ''),
-        row('File size', formatMediaBytes(diagnostics.fileSize)),
+        row('File', join([diagnostics.friendlyContainer || diagnostics.container || 'Unknown', formatMediaBytes(diagnostics.fileSize)]), diagnostics.container || ''),
         row('Duration', formatMediaDuration(diagnostics.duration || fallbackDuration)),
-        row('Average bitrate', formatMediaBitrate(diagnostics.overallBitrate)),
       ],
     },
     {
-      title: 'Video',
+      title: 'Source video',
       rows: [
-        row('Format', join([video.friendlyCodec || video.codec || 'Unknown', profile]), rawVideo),
+        row('Format', join([video.friendlyCodec || video.codec || 'Unknown', profile, diagnostics.bitDepth && `${diagnostics.bitDepth}-bit`]), rawVideo),
         row('Picture', join([
           video.width && video.height ? `${video.width}×${video.height}` : '',
           formatFrameRate(video.frameRate),
-          video.progressive == null ? '' : video.progressive ? 'Progressive' : 'Interlaced',
-        ])),
-        row('Average bitrate', formatMediaBitrate(video.bitrate)),
-        row('Signal', join([
-          diagnostics.bitDepth && `${diagnostics.bitDepth}-bit`,
-          video.chroma,
+          video.progressive === false && 'Interlaced',
+          formatMediaBitrate(video.bitrate),
         ])),
         row('Color', colorSummary, colorDetails),
       ],
@@ -122,7 +129,7 @@ export const buildMediaInfoSections = (diagnostics = {}, fallbackDuration = 0) =
       rows: [
         row('Format', join([
           audio.friendlyCodec || audio.codec || 'Unknown',
-          channelLayout(audio.channelLayout, audio.channelCount),
+          formatMediaChannels(audio.channelLayout, audio.channelCount),
           formatMediaBitrate(audio.bitrate),
           audio.sampleRate ? `${Number(audio.sampleRate / 1000).toFixed(audio.sampleRate % 1000 ? 1 : 0)} kHz` : '',
         ]), rawAudio),
@@ -138,36 +145,46 @@ export const buildMediaInfoSections = (diagnostics = {}, fallbackDuration = 0) =
     sections.push({
       title: 'Subtitle',
       rows: [
-        row('Format', subtitle.friendlyFormat || subtitle.format, rawSubtitle),
         row('Track', join([
+          subtitle.friendlyFormat || subtitle.format,
           subtitle.friendlyLanguage || subtitle.language,
           subtitle.title,
           subtitle.forced ? 'Forced' : '',
-          subtitle.default ? 'Default' : '',
-        ]), subtitle.language || ''),
+        ]), rawSubtitle),
       ],
     })
   }
 
   sections.push({
-    title: 'Playback',
+    title: 'Decode',
     rows: [
-      row('Backend', 'libmpv'),
-      row('Demuxer', `FFmpeg / ${diagnostics.friendlyContainer || diagnostics.container || 'Unknown'}`, diagnostics.container || ''),
       row('Decoder', friendlyDecoder(hardwareDecoder, diagnostics.decoder), hardwareDecoder || diagnostics.decoder || ''),
-      row('Hardware decode', hardwareDecoder ? 'Active' : 'Off'),
-      row('Decoded pixel format', decodedPixelFormat(diagnostics.pixelFormat), diagnostics.pixelFormat || ''),
-      row('Render surface', diagnostics.renderer || 'libmpv OpenGL Render API'),
-      row('Output', output),
+      row('Surface', decodedPixelFormat(diagnostics.sourcePixelFormat || diagnostics.pixelFormat)),
+    ].filter(Boolean),
+  }, {
+    title: 'Processing',
+    rows: [
+      diagnostics.dolbyVisionProfile != null ? row('Dolby Vision', isWindows ? 'Disabled' : diagnostics.dolbyVisionSupport) : null,
       row('Tone mapping', diagnostics.toneMapping === 'none' ? 'None' : diagnostics.toneMapping),
-      row('Display', join([displayHeadroom, display.surfaceFormat])),
-      diagnostics.fallbackReason ? row('Fallback reason', diagnostics.fallbackReason) : null,
+    ].filter(Boolean),
+  }, {
+    title: 'Presentation',
+    rows: [
+      row('Renderer', /gpu-next.*D3D11/.test(diagnostics.renderer || '') ? 'gpu-next / D3D11 / DXGI' : 'OpenGL Render API', diagnostics.renderer || ''),
       diagnostics.presentationFallbackReason ? row('Renderer fallback', diagnostics.presentationFallbackReason) : null,
+    ].filter(Boolean),
+  }, {
+    title: 'Output',
+    rows: [
+      row('Output', output),
+      windowsOutput ? row('Surface', windowsOutput.targetVerified ? windowsOutput.targetPixelFormat?.toUpperCase() : 'not verified', windowsOutput.formatEvidence) : null,
+      isWindows ? row('Windows HDR enabled', display.hdrStateVerified ? (display.hdrEnabled ? 'Yes' : 'No') : 'not verified') : null,
+      diagnostics.fallbackReason ? row('Fallback reason', diagnostics.fallbackReason) : null,
     ].filter(Boolean),
   })
 
   return sections.map((section) => ({
     ...section,
-    rows: section.rows.filter((item) => present(item.value)),
-  }))
+    rows: section.rows.filter((item) => item && present(item.value)),
+  })).filter((section) => section.rows.length)
 }

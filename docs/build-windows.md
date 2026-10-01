@@ -89,8 +89,9 @@ If Tauri cannot start its webview, install or repair the
 [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/).
 
 The Windows native surface uses the common libmpv player API with a Win32 child
-window, mpv-owned gpu-next/D3D11 SDR and a WGL/OpenGL fallback. Advanced Color/DXGI
-queries are diagnostics only; neither backend currently presents HDR. The Node SEA packaging path
+window, mpv-owned gpu-next/D3D11 with HDR10 PQ/BT.2020 policy and a WGL/OpenGL SDR fallback.
+Real HDR-display validation remains not verified; see [libmpv output diagnostics](libmpv.md).
+The Node SEA packaging path
 is currently macOS-only; use Tauri for a Windows native build.
 
 ## Rebuilding the Windows libmpv runtime
@@ -146,18 +147,23 @@ override `VESPERWIND_LIBMPV_PATH` must identify the entry DLL.
 
 ## Playback validation
 
-Windows defaults to mpv-owned `wid + gpu-next + D3D11` with an RGBA8 BT.709
-swapchain. WGL Render API is retained as automatic startup fallback. For separate
+Windows defaults to mpv-owned `wid + gpu-next + D3D11`, starting with RGBA8 BT.709
+and negotiating RGB10A2 PQ/BT.2020 for HDR10 sources on active HDR displays.
+WGL Render API is retained as automatic startup fallback. For separate
 application checks set `VESPERWIND_MPV_WINDOWS_BACKEND=d3d11` or `wgl`; `auto`
 is the default. Strict `d3d11` mode must not silently pass via WGL. Check renderer
 and fallback diagnostics as well as the mpv log when proving the selected path.
 The executable embeds Windows 10/11 compatibility so mpv's VersionHelpers can
 select the correct DXGI behavior.
 
-The native surface is always SDR, including when Windows Advanced Color is on.
-HDR input must display **SDR fallback**. D3D11VA availability at build time does
+With Windows HDR off, HDR input must display **SDR fallback**. With HDR on,
+check actual mpv target PQ/BT.2020 and `rgb10a2`; requested options alone do not
+prove negotiated output. DXGI metadata delivery and Philips/HDMI checks remain
+**not verified**. SDR input must stay BT.709 on the HDR desktop.
+D3D11VA availability at build time does
 not prove hardware decode on a particular GPU; inspect **hwdec-current** in Info.
-The requested policy is `auto-copy-safe`, with software fallback.
+Owned D3D11 requests `auto-safe` and direct decoder surfaces; WGL requests
+`auto-copy-safe`, both with software fallback.
 
 The existing ignored real-file API smoke test also runs on Windows:
 

@@ -127,7 +127,7 @@ impl Filesystem {
         if self.desktop {
             if cfg!(target_os = "windows") {
                 return Ok(directory_location(
-                    "This Computer",
+                    "This PC",
                     COMPUTER_PATH,
                     "computer",
                 ));
@@ -240,7 +240,7 @@ fn logical_drives() -> Result<Vec<FileEntry>, NativeError> {
 fn logical_drives() -> Result<Vec<FileEntry>, NativeError> {
     Err(NativeError::new(
         "EINVAL",
-        "This Computer is only available on Windows",
+        "This PC is only available on Windows",
     ))
 }
 

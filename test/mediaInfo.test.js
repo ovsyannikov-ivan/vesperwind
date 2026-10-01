@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildMediaInfoSections } from '../src/utils/mediaInfo.js'
+import { buildMediaInfoSections, formatMediaChannels, formatMediaTrack } from '../src/utils/mediaInfo.js'
 
 const diagnostics = {
   container: 'mkv',
@@ -68,14 +68,11 @@ const section = (sections, title) => Object.fromEntries(
 test('builds compact human-friendly media summaries while retaining raw details', () => {
   const sections = buildMediaInfoSections(diagnostics)
 
-  assert.equal(section(sections, 'General').Container.value, 'Matroska')
-  assert.equal(section(sections, 'Video').Format.value, 'AVC / H.264 · High@L4.1')
-  assert.equal(section(sections, 'Video').Picture.value, '1280×536 · 23.976 fps · Progressive')
-  assert.equal(section(sections, 'Video')['Average bitrate'].value, '6.20 Mbps')
-  assert.equal(section(sections, 'Video').Signal.value, '8-bit · YUV 4:2:0')
-  assert.equal(section(sections, 'Video').Signal.title, '')
-  assert.equal(section(sections, 'Video').Color.value, 'SDR · BT.709 · BT.1886')
-  assert.match(section(sections, 'Video').Color.title, /Matrix: BT\.709/)
+  assert.match(section(sections, 'General').File.value, /^Matroska · /)
+  assert.equal(section(sections, 'Source video').Format.value, 'AVC / H.264 · High@L4.1 · 8-bit')
+  assert.equal(section(sections, 'Source video').Picture.value, '1280×536 · 23.976 fps · 6.20 Mbps')
+  assert.equal(section(sections, 'Source video').Color.value, 'SDR · BT.709 · BT.1886')
+  assert.match(section(sections, 'Source video').Color.title, /Matrix: BT\.709/)
 })
 
 test('summarizes selected audio, subtitles, and runtime playback separately', () => {
@@ -83,11 +80,9 @@ test('summarizes selected audio, subtitles, and runtime playback separately', ()
 
   assert.equal(section(sections, 'Current audio').Format.value, 'Dolby Digital Plus · 5.1 · 1.02 Mbps · 48 kHz')
   assert.equal(section(sections, 'Current audio').Track.value, 'Russian · Дубляж (MovieDalen)')
-  assert.equal(section(sections, 'Subtitle').Format.value, 'SubRip / SRT')
-  assert.equal(section(sections, 'Subtitle').Track.value, 'Russian · Форсированные (iTunes) · Default')
-  assert.equal(section(sections, 'Playback').Decoder.value, 'VideoToolbox (copy-back)')
-  assert.equal(section(sections, 'Playback')['Hardware decode'].value, 'Active')
-  assert.equal(section(sections, 'Playback')['Decoded pixel format'].value, 'NV12')
+  assert.equal(section(sections, 'Subtitle').Track.value, 'SubRip / SRT · Russian · Форсированные (iTunes)')
+  assert.equal(section(sections, 'Decode').Decoder.value, 'VideoToolbox (copy-back)')
+  assert.equal(section(sections, 'Decode').Surface.value, 'NV12')
 })
 
 test('does not invent a surround layout from channel count alone', () => {
@@ -115,12 +110,74 @@ test('shows AAC stereo bitrate and sample rate on one current-audio line', () =>
 test('reports the active D3D11 renderer and preserves a separate presentation fallback reason', () => {
   const value = structuredClone(diagnostics)
   value.renderer = 'libmpv-owned gpu-next / D3D11 (SDR)'
-  let playback = section(buildMediaInfoSections(value), 'Playback')
-  assert.equal(playback['Render surface'].value, value.renderer)
+  let playback = section(buildMediaInfoSections(value), 'Presentation')
+  assert.equal(playback.Renderer.value, 'gpu-next / D3D11 / DXGI')
+  assert.equal(playback.Renderer.title, value.renderer)
   assert.equal(playback['Renderer fallback'], undefined)
   value.renderer = diagnostics.renderer
   value.presentationFallbackReason = 'D3D11 video output could not initialize'
-  playback = section(buildMediaInfoSections(value), 'Playback')
-  assert.equal(playback['Render surface'].value, diagnostics.renderer)
+  playback = section(buildMediaInfoSections(value), 'Presentation')
+  assert.equal(playback.Renderer.value, 'OpenGL Render API')
+  assert.equal(playback.Renderer.title, diagnostics.renderer)
   assert.equal(playback['Renderer fallback'].value, value.presentationFallbackReason)
+})
+
+test('HDR10 diagnostics keep source, decode, processing, presentation and output evidence separate', () => {
+  const value = structuredClone(diagnostics)
+  Object.assign(value, {
+    sourceFormat: 'Dolby Vision profile 8', dolbyVisionProfile: 8,
+    transfer: 'pq', primaries: 'bt.2020', friendlyTransfer: 'PQ / ST 2084', friendlyPrimaries: 'BT.2020',
+    hardwareDecoder: 'd3d11va', sourcePixelFormat: 'd3d11',
+    renderer: 'libmpv-owned gpu-next / D3D11 / DXGI',
+    outputMode: 'HDR10 (mpv target verified)', outputColorSpace: 'PQ / BT.2020',
+    toneMapping: 'HDR display mapping (libplacebo)',
+    display: { platform: 'windows', hdrCapable: true, hdrEnabled: true,
+      hdrStateVerified: true, hdrCapabilityVerified: true, advancedColorEnabled: true },
+    windowsOutput: { requested: 'HDR10 / PQ / BT.2020', targetVerified: true,
+      targetTransfer: 'pq', targetPrimaries: 'bt.2020', targetPixelFormat: 'rgb10a2',
+      dxgiFormat: 'DXGI_FORMAT_R10G10B10A2_UNORM',
+      expectedDxgiColorSpace: 'DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020',
+      hdrMetadataState: 'not verified: public API has no delivery acknowledgement' },
+  })
+  const sections = buildMediaInfoSections(value)
+  assert.match(section(sections, 'Source video').Color.value, /Dolby Vision profile 8/)
+  assert.match(section(sections, 'Decode').Surface.value, /D3D11/i)
+  assert.equal(section(sections, 'Processing')['Dolby Vision'].value, 'Disabled')
+  assert.doesNotMatch(section(sections, 'Processing')['Tone mapping'].value, /SDR fallback|passthrough/)
+  assert.equal(section(sections, 'Output').Surface.value, 'RGB10A2')
+  assert.equal(section(sections, 'Output').Output.value, 'HDR10 (mpv target verified) · PQ / BT.2020')
+  assert.equal(section(sections, 'Source video').Output, undefined)
+})
+
+test('SDR fallback and unknown Windows state do not inherit HDR source claims', () => {
+  const value = { ...diagnostics, sourceFormat: 'HDR10 / PQ', outputMode: 'SDR fallback',
+    fallbackReason: 'Windows HDR disabled', toneMapping: 'HDR-to-SDR fallback',
+    display: { platform: 'windows', hdrStateVerified: false, hdrCapabilityVerified: false },
+    droppedFrames: 0, decoderDroppedFrames: 0, delayedFrames: 0 }
+  const sections = buildMediaInfoSections(value)
+  assert.equal(section(sections, 'Output').Output.value, 'SDR fallback · BT.709')
+  assert.equal(section(sections, 'Output')['Fallback reason'].value, 'Windows HDR disabled')
+  assert.equal(section(sections, 'Output')['Windows HDR enabled'].value, 'not verified')
+  assert.ok(!JSON.stringify(sections).includes('false'))
+})
+
+test('Info omits raw HDR metadata, long floats, and requested output details', () => {
+  const value = { ...diagnostics, sourceHdrMetadata: { minLuminanceNits: 0.0020296412334634 },
+    windowsOutput: { requested: 'HDR10 / PQ / BT.2020', targetVerified: false, targetPixelFormat: 'rgb10a2',
+      targetHdrMetadata: { minLuminanceNits: 0.0020296412334634 } } }
+  const sections = buildMediaInfoSections(value)
+  assert.ok(sections.flatMap((item) => item.rows).length <= 20)
+  assert.doesNotMatch(JSON.stringify(sections), /0\.002029|Min .*nits|Requested rendering|DXGI_COLOR_SPACE/)
+  assert.equal(section(sections, 'Output').Surface.value, 'not verified')
+})
+
+test('unknown mpv channel layouts get a readable count in menus and Info', () => {
+  const track = { id: 8, kind: 'audio', friendlyLanguage: 'English', friendlyCodec: 'DTS-HD MA', channelLayout: 'undefined8' }
+  assert.equal(formatMediaChannels('undefined8'), '8 channels')
+  assert.equal(formatMediaChannels('unknown', '6'), '6 channels')
+  assert.equal(formatMediaChannels('undefined'), '')
+  assert.equal(formatMediaTrack(track), 'English · DTS-HD MA · 8 channels')
+  assert.equal(formatMediaTrack({ id: 3, kind: 'audio' }), 'Track 3')
+  assert.match(section(buildMediaInfoSections({ ...diagnostics,
+    audio: { ...diagnostics.audio, channelLayout: 'undefined8', channelCount: 8 } }), 'Current audio').Format.value, /8 channels/)
 })

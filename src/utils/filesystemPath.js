@@ -69,7 +69,7 @@ export const isSameOrDescendantPath = (parentPath, targetPath) => {
 }
 
 export const getFilesystemPathName = (value) => {
-  if (isComputerPath(value)) return 'This Computer'
+  if (isComputerPath(value)) return 'This PC'
   if (typeof value !== 'string' || value.length === 0) {
     return ''
   }

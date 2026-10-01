@@ -75,8 +75,8 @@ const info = {
   ffmpegFlags: (await readBuild('ffmpeg-flags.txt')).split(/\r?\n/),
   mpvFlags: (await readBuild('mpv-flags.txt')).split(/\r?\n/),
   d3d11va: JSON.parse(await readBuild('d3d11va-probe.json')),
-  hardwareDecodePolicy: 'auto-copy-safe; runtime hwdec-current must be checked separately',
-  presentation: 'mpv-owned gpu-next D3D11 RGBA8 SDR; OpenGL Render API WGL fallback',
+  hardwareDecodePolicy: manifest.windows.hardwareDecodePolicy,
+  presentation: manifest.windows.presentation,
   libplaceboOptions: JSON.parse(await fs.readFile(path.join(work, 'build/libplacebo/meson-info/intro-buildoptions.json'), 'utf8'))
     .filter(({ name }) => ['d3d11', 'opengl', 'shaderc', 'dovi', 'libdovi'].includes(name))
     .map(({ name, value }) => `-D${name}=${value}`),

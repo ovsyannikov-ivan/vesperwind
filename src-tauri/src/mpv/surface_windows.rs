@@ -17,7 +17,8 @@ use windows::{
             DisplayConfigGetDeviceInfo, GetDisplayConfigBufferSizes, QueryDisplayConfig,
             DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO,
             DISPLAYCONFIG_DEVICE_INFO_GET_SDR_WHITE_LEVEL,
-            DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME, DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO,
+            DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME, DISPLAYCONFIG_DEVICE_INFO_HEADER,
+            DISPLAYCONFIG_DEVICE_INFO_TYPE, DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO,
             DISPLAYCONFIG_PATH_INFO, DISPLAYCONFIG_SDR_WHITE_LEVEL,
             DISPLAYCONFIG_SOURCE_DEVICE_NAME, QDC_ONLY_ACTIVE_PATHS,
         },
@@ -297,8 +298,20 @@ impl NativeSurface {
                 ..DisplayCapabilities::default()
             });
         if self.0.context.is_null() {
-            display.surface_format = "mpv-owned D3D11 SDR (RGBA8 / BT.709)".into();
-            display.reason = Some("D3D11 prototype is restricted to SDR output".into());
+            display.surface_format = "mpv-owned D3D11 / DXGI".into();
+            display.output_supported = true;
+            display.reason =
+                if !display.hdr_state_verified {
+                    Some("Windows HDR state could not be verified".into())
+                } else if !display.hdr_capable && display.hdr_capability_verified {
+                    Some("The current display is not HDR capable".into())
+                } else if !display.hdr_enabled {
+                    Some(if display.hdr_user_enabled == Some(true) {
+                    "Windows HDR is enabled by the user but not active on the current output"
+                } else { "Windows HDR disabled" }.into())
+                } else {
+                    None
+                };
         }
         display
     }
@@ -450,16 +463,21 @@ fn query_display_capabilities(hwnd: HWND) -> Result<DisplayCapabilities, String>
                 if let Ok(description) = unsafe { output6.GetDesc1() } {
                     if description.Monitor.0 == monitor.cast() {
                         let device_name = trim_wide(&description.DeviceName);
-                        let (capable, enabled, sdr_white_nits) =
-                            display_config_color_state(&device_name).unwrap_or((
-                                description.ColorSpace.0 == 12,
-                                description.ColorSpace.0 == 12,
-                                None,
-                            ));
+                        let color = display_config_color_state(
+                            &device_name,
+                            description.ColorSpace.0 == 12,
+                        );
+                        let sdr_white_nits = color.as_ref().and_then(|state| state.sdr_white_nits);
                         return Ok(DisplayCapabilities {
                             platform: "windows".to_string(),
-                            hdr_capable: capable,
-                            hdr_enabled: enabled,
+                            hdr_capable: color.as_ref().is_some_and(|state| state.capable),
+                            hdr_enabled: color.as_ref().is_some_and(|state| state.enabled),
+                            hdr_state_verified: color.is_some(),
+                            hdr_capability_verified: color.as_ref().is_some_and(|state| state.capability_verified),
+                            advanced_color_enabled: color.as_ref().map(|state| state.advanced_enabled),
+                            hdr_user_enabled: color.as_ref().and_then(|state| state.user_enabled),
+                            desktop_color_space: Some(format!("DXGI_COLOR_SPACE_TYPE({})", description.ColorSpace.0)),
+                            monitor_id: Some(format!("{monitor:p}")),
                             output_supported: false,
                             surface_format: "WGL RGBA8".to_string(),
                             max_luminance_nits: positive(description.MaxLuminance),
@@ -484,7 +502,29 @@ fn query_display_capabilities(hwnd: HWND) -> Result<DisplayCapabilities, String>
     Err("Unable to match the video surface to an IDXGIOutput6 display".to_string())
 }
 
-fn display_config_color_state(device_name: &str) -> Option<(bool, bool, Option<f64>)> {
+struct WindowsColorState {
+    capable: bool,
+    enabled: bool,
+    capability_verified: bool,
+    advanced_enabled: bool,
+    user_enabled: Option<bool>,
+    sdr_white_nits: Option<f64>,
+}
+
+// windows-rs 0.61 does not expose this Windows 11 SDK 26100 structure yet.
+// Read-only request 15: no OS HDR settings are changed. Older Windows returns
+// ERROR_INVALID_PARAMETER and uses the legacy request plus DXGI below.
+#[repr(C)]
+#[derive(Default)]
+struct AdvancedColorInfo2 {
+    header: DISPLAYCONFIG_DEVICE_INFO_HEADER,
+    flags: u32,
+    color_encoding: u32,
+    bits_per_color_channel: u32,
+    active_color_mode: u32,
+}
+
+fn display_config_color_state(device_name: &str, desktop_pq: bool) -> Option<WindowsColorState> {
     let mut path_count = 0;
     let mut mode_count = 0;
     if unsafe {
@@ -527,12 +567,17 @@ fn display_config_color_state(device_name: &str) -> Option<(bool, bool, Option<f
         color.header.size = size_of::<DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO>() as u32;
         color.header.adapterId = path.targetInfo.adapterId;
         color.header.id = path.targetInfo.id;
-        if unsafe { DisplayConfigGetDeviceInfo(&mut color.header) } != 0 {
-            return None;
-        }
-        let flags = unsafe { color.Anonymous.value };
-        let capable = flags & 1 != 0;
-        let enabled = flags & 2 != 0;
+        let legacy_ok = unsafe { DisplayConfigGetDeviceInfo(&mut color.header) } == 0;
+        let mut color2 = AdvancedColorInfo2::default();
+        color2.header = color.header;
+        color2.header.r#type = DISPLAYCONFIG_DEVICE_INFO_TYPE(15);
+        color2.header.size = size_of::<AdvancedColorInfo2>() as u32;
+        let modern_ok = unsafe { DisplayConfigGetDeviceInfo(&mut color2.header) } == 0;
+        let mut state = decode_color_state(
+            modern_ok.then_some((color2.flags, color2.active_color_mode)),
+            legacy_ok.then(|| unsafe { color.Anonymous.value }),
+            desktop_pq,
+        )?;
 
         let mut white = DISPLAYCONFIG_SDR_WHITE_LEVEL::default();
         white.header.r#type = DISPLAYCONFIG_DEVICE_INFO_GET_SDR_WHITE_LEVEL;
@@ -541,9 +586,98 @@ fn display_config_color_state(device_name: &str) -> Option<(bool, bool, Option<f
         white.header.id = path.targetInfo.id;
         let sdr_white_nits = (unsafe { DisplayConfigGetDeviceInfo(&mut white.header) } == 0)
             .then_some(white.SDRWhiteLevel as f64 / 1000.0 * 80.0);
-        return Some((capable, enabled, sdr_white_nits));
+        state.sdr_white_nits = sdr_white_nits;
+        return Some(state);
     }
     None
+}
+
+fn decode_color_state(
+    modern: Option<(u32, u32)>,
+    legacy: Option<u32>,
+    desktop_pq: bool,
+) -> Option<WindowsColorState> {
+    let (capable, enabled, capability_verified, advanced_enabled, user_enabled) =
+        if let Some((flags, mode)) = modern {
+            let capable = flags & (1 << 4) != 0;
+            let advanced_enabled = flags & 2 != 0;
+            let enabled = capable && advanced_enabled && flags & 8 == 0 && mode == 2 && desktop_pq;
+            (
+                capable,
+                enabled,
+                true,
+                advanced_enabled,
+                Some(flags & (1 << 5) != 0),
+            )
+        } else {
+            let flags = legacy?;
+            let supported = flags & 1 != 0;
+            let advanced_enabled = flags & 2 != 0;
+            // Legacy Advanced Color includes WCG-only SDR displays. PQ proves
+            // active HDR; capability stays unknown if only AC support is known.
+            let enabled = supported && advanced_enabled && flags & 8 == 0 && desktop_pq;
+            (
+                enabled,
+                enabled,
+                !supported || enabled,
+                advanced_enabled,
+                None,
+            )
+        };
+    Some(WindowsColorState {
+        capable,
+        enabled,
+        capability_verified,
+        advanced_enabled,
+        user_enabled,
+        sdr_white_nits: None,
+    })
+}
+
+#[cfg(test)]
+mod hdr_display_tests {
+    use super::*;
+
+    #[test]
+    fn modern_hdr_capability_user_setting_and_active_output_are_distinct() {
+        let flags = 1 | 2 | 16 | 32;
+        let active = decode_color_state(Some((flags, 2)), None, true).unwrap();
+        assert!(active.capable && active.enabled && active.capability_verified);
+        let off = decode_color_state(Some((16, 0)), None, false).unwrap();
+        assert!(off.capable && !off.enabled);
+        assert_eq!(off.user_enabled, Some(false));
+        for (f, mode, pq) in [(flags, 1, false), (flags | 8, 2, true), (flags, 2, false)] {
+            assert!(
+                !decode_color_state(Some((f, mode)), None, pq)
+                    .unwrap()
+                    .enabled
+            );
+        }
+        // HDR user setting on with inactive output still cannot enable policy.
+        assert!(
+            !decode_color_state(Some((flags, 0)), None, false)
+                .unwrap()
+                .enabled
+        );
+    }
+
+    #[test]
+    fn legacy_wcg_and_query_failure_cannot_claim_hdr() {
+        assert!(decode_color_state(None, None, true).is_none());
+        let wcg = decode_color_state(None, Some(3), false).unwrap();
+        assert!(wcg.advanced_enabled && !wcg.enabled && !wcg.capability_verified);
+        assert!(decode_color_state(None, Some(3), true).unwrap().enabled);
+        assert!(!decode_color_state(None, Some(3 | 8), true).unwrap().enabled);
+        assert!(
+            !decode_color_state(Some((1 | 2 | 64 | 128, 1)), None, false)
+                .unwrap()
+                .capable
+        );
+        assert_eq!(
+            size_of::<AdvancedColorInfo2>(),
+            size_of::<DISPLAYCONFIG_DEVICE_INFO_HEADER>() + 16
+        );
+    }
 }
 
 fn trim_wide(value: &[u16]) -> String {

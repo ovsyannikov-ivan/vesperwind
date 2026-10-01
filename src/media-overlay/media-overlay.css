@@ -222,6 +222,11 @@ body,
 }
 
 .media-overlay-dropdown .dropdown-item {
+  min-width: 0;
+}
+
+.media-overlay-track-label {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -7,7 +7,7 @@ import {
   NativeMpvPlayerBackend,
   PlayerStatus,
 } from '../player/mediaPlayerBackend.js'
-import { buildMediaInfoSections, formatMediaDuration } from '../utils/mediaInfo.js'
+import { buildMediaInfoSections, formatMediaDuration, formatMediaTrack } from '../utils/mediaInfo.js'
 
 const context = reactive({
   title: '',
@@ -116,7 +116,6 @@ const toggleMenu = (menu) => {
   activeMenu.value = activeMenu.value === menu ? '' : menu
 }
 const closeMenu = () => { activeMenu.value = '' }
-const trackChannelLabel = (track) => track.channelLayout || (track.channels ? `${track.channels} channels` : '')
 const togglePlay = () => isPlaying.value ? player?.pause() : player?.play()
 const selectTrack = async (kind, id) => {
   await player?.selectTrack(kind, id).catch(() => {})
@@ -272,10 +271,11 @@ onBeforeUnmount(() => {
 
           <div v-if="audioTracks.length" class="dropup media-overlay-dropdown">
             <button class="btn btn-sm btn-dark dropdown-toggle" type="button" :aria-expanded="activeMenu === 'audio'" @click="toggleMenu('audio')">Audio</button>
-            <ul v-if="activeMenu === 'audio'" class="dropdown-menu dropdown-menu-dark show">
+            <ul v-if="activeMenu === 'audio'" class="dropdown-menu dropdown-menu-dark show" role="menu" aria-label="Audio tracks">
               <li v-for="track in audioTracks" :key="track.id">
-                <button class="dropdown-item" :class="{ active: track.selected }" type="button" @click="selectTrack('audio', track.id)">
-                  {{ track.title || track.friendlyLanguage || track.language || `Track ${track.id}` }}<span v-if="track.friendlyCodec || track.codec"> · {{ track.friendlyCodec || track.codec }}</span><span v-if="trackChannelLabel(track)"> · {{ trackChannelLabel(track) }}</span>
+                <button class="dropdown-item" type="button" role="menuitemradio" :aria-checked="track.selected" @click="selectTrack('audio', track.id)">
+                  <i class="mdi" :class="track.selected ? 'mdi-check' : 'mdi-blank'" aria-hidden="true" />
+                  <span class="media-overlay-track-label">{{ formatMediaTrack(track) }}</span>
                 </button>
               </li>
             </ul>
@@ -283,11 +283,12 @@ onBeforeUnmount(() => {
 
           <div v-if="subtitleTracks.length" class="dropup media-overlay-dropdown">
             <button class="btn btn-sm btn-dark dropdown-toggle" type="button" :aria-expanded="activeMenu === 'subtitle'" @click="toggleMenu('subtitle')">Subtitles</button>
-            <ul v-if="activeMenu === 'subtitle'" class="dropdown-menu dropdown-menu-dark show">
-              <li><button class="dropdown-item" :class="{ active: !subtitleTracks.some((track) => track.selected) }" type="button" @click="selectTrack('subtitle', null)">Off</button></li>
+            <ul v-if="activeMenu === 'subtitle'" class="dropdown-menu dropdown-menu-dark show" role="menu" aria-label="Subtitle tracks">
+              <li><button class="dropdown-item" type="button" role="menuitemradio" :aria-checked="!subtitleTracks.some((track) => track.selected)" @click="selectTrack('subtitle', null)"><i class="mdi" :class="subtitleTracks.some((track) => track.selected) ? 'mdi-blank' : 'mdi-check'" aria-hidden="true" />Off</button></li>
               <li v-for="track in subtitleTracks" :key="track.id">
-                <button class="dropdown-item" :class="{ active: track.selected }" type="button" @click="selectTrack('subtitle', track.id)">
-                  {{ track.title || track.friendlyLanguage || track.language || `Track ${track.id}` }}<span v-if="track.friendlyCodec || track.codec"> · {{ track.friendlyCodec || track.codec }}</span>
+                <button class="dropdown-item" type="button" role="menuitemradio" :aria-checked="track.selected" @click="selectTrack('subtitle', track.id)">
+                  <i class="mdi" :class="track.selected ? 'mdi-check' : 'mdi-blank'" aria-hidden="true" />
+                  <span class="media-overlay-track-label">{{ formatMediaTrack(track) }}</span>
                 </button>
               </li>
               <li><hr class="dropdown-divider"></li>

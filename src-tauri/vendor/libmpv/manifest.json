@@ -24,9 +24,9 @@
     "ffmpegVersion": "8.0",
     "audioOutput": "WASAPI",
     "hardwareDecode": true,
-    "hardwareDecodePolicy": "auto-copy-safe; D3D11VA copy-back with software fallback",
+    "hardwareDecodePolicy": "auto-safe with direct D3D11VA surfaces for owned D3D11; auto-copy-safe for WGL; software fallback",
     "hardwareDecodeBuildEvidence": {"h264D3d11va": true, "hevcD3d11va": true},
-    "presentation": "mpv-owned gpu-next D3D11 RGBA8 SDR; OpenGL Render API WGL fallback",
+    "presentation": "mpv-owned gpu-next D3D11: HDR10 PQ/BT.2020 policy with negotiated target verification; RGBA8 SDR fallback; OpenGL Render API WGL SDR fallback; physical HDR output not verified",
     "requiredMesonOptions": ["-Dd3d11=enabled", "-Dshaderc=enabled", "-Dspirv-cross=enabled"],
     "requiredLibplaceboOptions": ["-Dd3d11=enabled", "-Dopengl=enabled", "-Dshaderc=enabled", "-Ddovi=disabled", "-Dlibdovi=disabled"],
     "shaderToolchainPackages": {

@@ -69,6 +69,30 @@ pub fn run() {
     let media_filesystem = Arc::clone(&filesystem);
     let media_ssh = Arc::clone(&ssh);
 
+    // The native window and WebView need a background before HTML/CSS can paint.
+    let startup_theme = settings.load().ok().and_then(|value| {
+        match value
+            .pointer("/appearance/theme")
+            .and_then(|theme| theme.as_str())
+        {
+            Some("light") => Some(tauri::Theme::Light),
+            Some("dark") => Some(tauri::Theme::Dark),
+            _ => None,
+        }
+    });
+    let mut context = tauri::generate_context!();
+    if startup_theme == Some(tauri::Theme::Light) {
+        if let Some(window) = context
+            .config_mut()
+            .app
+            .windows
+            .iter_mut()
+            .find(|window| window.label == "main")
+        {
+            window.background_color = Some(tauri::window::Color(242, 242, 242, 255));
+        }
+    }
+
     let builder = tauri::Builder::default();
     // Windows uses the application's toolbar. Attaching a native menu also
     // leaves it visible in fullscreen and changes the client height. Preserve
@@ -109,10 +133,20 @@ pub fn run() {
             directory_watches: filesystem::watch::DirectoryWatches::default(),
             search_jobs: Arc::new(Mutex::new(HashMap::new())),
         })
-        .setup(|app| {
+        .setup(move |app| {
             let window = app
                 .get_window("main")
                 .expect("main window must exist before creating media overlay");
+            let theme =
+                startup_theme.unwrap_or_else(|| window.theme().unwrap_or(tauri::Theme::Dark));
+            let background = match theme {
+                tauri::Theme::Light => tauri::window::Color(242, 242, 242, 255),
+                _ => tauri::window::Color(28, 28, 30, 255),
+            };
+            window.set_background_color(Some(background))?;
+            if let Some(webview) = app.get_webview("main") {
+                webview.set_background_color(Some(background))?;
+            }
             let overlay = window.add_child(
                 tauri::webview::WebviewBuilder::new(
                     "media-overlay",
@@ -184,7 +218,7 @@ pub fn run() {
             commands::ssh::ssh_disconnect,
             commands::ssh::ssh_status,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while running Vesperwind");
 
     app.run(move |_app_handle, event| {

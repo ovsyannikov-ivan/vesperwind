@@ -17,7 +17,7 @@ impl Backend {
         match self {
             Self::RenderApi => "libmpv OpenGL Render API (vo=libmpv/vo_gpu)",
             #[cfg(target_os = "windows")]
-            Self::D3d11 => "libmpv-owned gpu-next / D3D11 (SDR)",
+            Self::D3d11 => "libmpv-owned gpu-next / D3D11 / DXGI",
         }
     }
 }

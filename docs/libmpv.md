@@ -55,9 +55,9 @@ planned work.
 
 Browser and Node SEA modes continue to use HTML/media-chrome. Audio also remains on
 the established persistent web player for now. Windows has the common player and
-stream implementation, an mpv-owned D3D11 SDR child HWND with WGL fallback, and a pinned source-built x64
+stream implementation, an mpv-owned D3D11 HDR10-capable child HWND with WGL SDR fallback, and a pinned source-built x64
 DLL closure. See [Windows build and media checks](build-windows.md) for the
-decoder/audio/application verification procedure. Windows presentation is SDR;
+decoder/audio/application verification procedure. Windows HDR10 display validation is still **not verified**;
 hardware decoding depends on the media, GPU and driver.
 
 ## HDR and color pipeline
@@ -96,11 +96,11 @@ instead of setting gpu-next-only options.
 
 | Format | macOS EDR status | Windows status |
 | --- | --- | --- |
-| HDR10 / HEVC Main10, BT.2020 PQ | Implemented in the FP16 EDR path; manual XDR playback validation still required | Source detection works; D3D11 currently outputs SDR, with PQ/BT.2020 output planned next |
+| HDR10 / HEVC Main10, BT.2020 PQ | Implemented in the FP16 EDR path; manual XDR playback validation still required | D3D11 PQ/BT.2020 output policy implemented; actual RGB10A2/PQ target checked through mpv. HDR display/HDMI validation: **not verified** |
 | HLG | Implemented through the same linear EDR target; manual XDR playback validation still required | Source detection works; native HLG output planned after HDR10 validation |
 | Dolby Vision profile 5 | Profile metadata is detected, but the bundled libplacebo build has `dovi`/`libdovi` disabled; correct RPU reshaping is not claimed | Not supported |
 | Dolby Vision profile 7 | Profile metadata is detected; an HDR10 base layer may be usable, but RPU, MEL, FEL, and enhancement-layer reconstruction are not claimed | Not supported |
-| Dolby Vision profile 8 | Profile metadata is detected; a compatible base layer may be usable, but RPU processing is not claimed | Compatible base-layer playback may work with SDR tone mapping; no Dolby Vision RPU processing or native HDR output |
+| Dolby Vision profile 8 | Profile metadata is detected; a compatible base layer may be usable, but RPU processing is not claimed | PQ/BT.2020 compatible base layer can use HDR10 policy; no Dolby Vision RPU processing or Dolby Vision signalling |
 
 Profile 8.1 has an HDR10-compatible base layer and Profile 8.4 has an
 HLG-compatible base layer. Successful playback of such a file can therefore
@@ -108,27 +108,99 @@ come from the compatible base layer rather than Dolby Vision processing. The
 profile number alone does not establish base-layer compatibility; see Dolby's
 [profile compatibility reference](https://ott.dolby.com/browser_test_kit/help_files/topics/r_resources.html).
 
-### Windows D3D11 SDR prototype and HDR roadmap
+### Windows HDR10 PQ / BT.2020 output
 
 The Windows surface now queries the monitor containing the player through
-`DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO`, `DISPLAYCONFIG_SDR_WHITE_LEVEL`, and
-`IDXGIOutput6::GetDesc1`. This reports whether Advanced Color is supported and
-enabled, bits per color, display luminance, and the OS SDR reference-white level.
-It is capability/diagnostic work only: both Windows presentation backends are
-currently restricted to SDR and report native HDR output as unavailable.
+`DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2` when supported, with the legacy
+`DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO` fallback, `DISPLAYCONFIG_SDR_WHITE_LEVEL`,
+and `IDXGIOutput6::GetDesc1`. The modern query distinguishes HDR capability,
+the user's HDR setting, Advanced Color activity and active HDR mode. Active HDR
+also requires the DXGI output to report PQ/BT.2020. Advanced Color/WCG alone is
+not treated as HDR. Legacy APIs can prove active HDR, but HDR capability on a
+disabled Advanced Color display may remain **not verified**. Query failure
+selects SDR conservatively; cached HDR capability is never used as proof.
 
 The new backend passes a child HWND through `wid` and lets mpv's `gpu-next`
 own the D3D11 device and swapchain. It does not use the caller-owned Render API.
-`d3d11-output-format=rgba8`, `d3d11-output-csp=srgb`, BT.709/gamma 2.2 and a
-203-nit target keep this first stage SDR. Automatic startup/VO initialization
+Initial `d3d11-output-format=rgba8` is a best-effort SDR preference in gpu-next,
+not a fixed HDR format. `d3d11-output-csp=srgb` keeps initial presentation SDR.
+`target-colorspace-hint=yes`, `target-colorspace-hint-mode=target` and
+`target-colorspace-hint-strict=yes` let libplacebo negotiate its own swapchain
+and render to the returned color space. Source PQ/BT.2020 plus verified active
+Windows HDR selects `target-trc=pq`, `target-prim=bt.2020`, `target-peak=auto`.
+All other cases, including SDR on an HDR desktop and HLG in this stage, select
+BT.709/gamma 2.2 and `target-peak=203`. Primaries change first when leaving HDR;
+transfer changes first when entering it, avoiding a transient wide-gamut SDR
+hint that pinned libplacebo would map to FP16 scRGB. Decoder selection remains
+`hwdec=auto-safe` with direct D3D11VA surfaces; HDR adds no RAM copy-back.
+Automatic startup/VO initialization
 failure retries through the existing WGL Render API; source/decoder errors do
 not trigger that retry. `VESPERWIND_MPV_WINDOWS_BACKEND=auto|d3d11|wgl` selects
 automatic or strict diagnostic modes. The Info diagnostics retain any startup
 fallback reason. Owned VO has no public per-Present callback, so its Render API
 frame counters remain zero rather than fabricating presentation evidence.
 
-After SDR lifecycle/overlay/fullscreen and Local/SFTP validation, the order is:
-HDR10 through PQ/BT.2020 with measured HDR output; HLG; then a reviewed FP16 scRGB
+The pinned upstream path is used without changes to mpv 0.41.0, FFmpeg 8.0 or
+libplacebo 7.351.0. mpv creates the DXGI swapchain and libplacebo wraps it, selects
+`DXGI_FORMAT_R10G10B10A2_UNORM` / `DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020`,
+checks format/color-space support, calls `SetColorSpace1`, resizes buffers and
+calls `Present`. Vesperwind does not implement another DXGI renderer.
+libplacebo's `set_swapchain_metadata` calls `SetHDRMetaData(HDR10)` with mastering
+primaries/white point, min/max mastering luminance, MaxCLL and MaxFALL from the
+negotiated hint; SDR clears metadata with type `NONE`. Hint mode `target`
+merges display parameters and source metadata, and upstream may infer missing
+values or adjust light levels for display mapping. This is not claimed to be
+bitstream metadata passthrough. Runtime diagnostics distinguish exposed source
+metadata from mpv target metadata; missing source values are not invented by
+Vesperwind. Info shows compact playback summaries, without raw luminance values,
+DXGI enum names or performance counters. Detailed evidence remains in the runtime
+diagnostic snapshot and optional mpv log. Unknown audio layouts such as
+`undefined8` appear as `8 channels`; selected tracks use a checkmark. Native
+scrollbars use the same thin, theme-aware style in the main and media windows.
+
+Pinned source references:
+[mpv D3D11 context](https://github.com/mpv-player/mpv/blob/2c219aa822df18a1b7fd9abe3e151cd93ad67307/video/out/d3d11/context.c),
+[gpu-next target and hints](https://github.com/mpv-player/mpv/blob/2c219aa822df18a1b7fd9abe3e151cd93ad67307/video/out/vo_gpu_next.c),
+[libplacebo DXGI negotiation and metadata](https://github.com/haasn/libplacebo/blob/3188549fba13bbdf3a5a98de2a38c2e71f04e21e/src/d3d11/swapchain.c).
+
+**Evidence levels:** requested target options are separate from actual
+`video-target-params`. gpu-next sets that property after rendering, using the
+actual backbuffer format (`rgb10a2`, `rgba8`, etc.) and negotiated target color.
+HDR output is labelled active only when policy, current display state, current
+requested rendering options and the PQ/BT.2020 `rgb10a2` target agree. The DXGI
+format is mapped from that actual backbuffer name using the pinned format table.
+The DXGI color-space enum is labelled **Expected**, not directly queried:
+libmpv has no client getter for the last `SetColorSpace1` result. Neither
+`SetHDRMetaData` acknowledgement nor physical HDMI color state is exposed;
+metadata delivery remains **not verified**, even if target metadata is present.
+The upstream log line “New swap chain configuration received from hint” is
+printed before negotiation and must not be used alone as proof.
+
+The DLLs and their checksums/build provenance are unchanged. The original
+`windows/BUILD-INFO.txt` records the application policy at the time the runtime
+was packaged (SDR); that historical string does not limit the library's HDR
+capabilities. Current application policy is recorded in `manifest.json`, and
+future packaging copies those descriptions from the manifest.
+
+The current monitor/Windows state is re-queried every two seconds. Policy changes
+update target options on the existing VO and request its normal redraw, including
+when paused; a stale HDR target on an SDR output cannot keep the HDR-active flag.
+Output mismatch is labelled unverified rather than claiming successful HDR.
+Display migration and live HDR toggles on real HDR hardware are **not verified**.
+If negotiation remains in fallback (including libplacebo's sticky 8-bit fallback),
+close and reopen the viewer to recreate the player/VO. The fixed opaque fullscreen
+holds and audio/stream lifecycle are unchanged.
+
+**Manual acceptance remains pending:** Philips HDR ON/OFF, SDR on the HDR desktop,
+HDR/SDR monitor migration, live HDR toggle, physical HDR output and HDR metadata
+delivery. Automated policy tests do not replace those checks. Compare frame-drop,
+decoder-drop and delayed-frame counters over a steady playback interval, excluding
+startup/seek/fullscreen, and confirm `hwdec-current=d3d11va` with decoded `d3d11`
+surfaces. Check tracks, seek, subtitles, fullscreen and WGL separately. Runtime
+diagnostics also include `video-sync` and `avsync`; mpv's optional log records
+presentation errors. Never infer HDR from source metadata or a TV popup alone.
+
+After manual HDR10 validation, the separate future stages are HLG and a reviewed FP16 scRGB
 path. Windows defines scRGB 1.0 as 80 nits while the pinned libplacebo path uses
 a 203-nit reference, requiring a backport or coordinated library update first.
 Dolby Vision reshaping follows separately with `dovi=enabled`, Profile 8 before
@@ -210,14 +282,14 @@ license/source-offer files and exhaustive SHA-256 checksums. Runtime loading use
 an absolute entry path with `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR` and
 `LOAD_LIBRARY_SEARCH_SYSTEM32`, so codec dependencies cannot come from PATH.
 
-Windows defaults to the mpv-owned D3D11 SDR backend and retains the public libmpv
+Windows defaults to the mpv-owned D3D11 backend with HDR10 policy and retains the public libmpv
 OpenGL Render API with an RGBA8 SDR backbuffer as fallback.
 Its native layer order is controls WebView2 → video child → main WebView2. Native
 window ordering is explicit; CSS z-index cannot order separate HWNDs. The owned
 backend uses `hwdec=auto-safe` and can import D3D11VA surfaces directly; the
 OpenGL fallback retains `auto-copy-safe`. A 4K HEVC GUI check reported `d3d11va`
 on Intel UHD Graphics 630. Hardware decoding does not imply HDR output: HDR input
-still uses SDR fallback. This SDR path uses bilinear downscaling without the
+still uses SDR fallback when Windows HDR is inactive. The existing performance settings use bilinear downscaling without the
 antialiasing correction pass and disables per-frame HDR peak analysis; tone
 mapping still uses source metadata and output dithering remains enabled.
 

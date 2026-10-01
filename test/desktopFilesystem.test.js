@@ -50,26 +50,26 @@ test('Windows drive inventory omits absent letters and retains inaccessible volu
   assert.ok(entries.every((entry) => entry.type === 'drive' && entry.isDirectory))
 })
 
-test('This Computer breadcrumbs reach other drive roots and retain panel state', () => {
-  const root = { name: 'This Computer', path: COMPUTER_PATH, isDirectory: true }
+test('This PC breadcrumbs reach other drive roots and retain panel state', () => {
+  const root = { name: 'This PC', path: COMPUTER_PATH, isDirectory: true }
   const initial = { name: 'Films', path: 'E:\\Films', isDirectory: true }
   assert.deepEqual(buildPathBreadcrumbs(root, initial.path), [
-    { name: 'This Computer', path: COMPUTER_PATH },
+    { name: 'This PC', path: COMPUTER_PATH },
     { name: 'E:\\', path: 'E:\\' },
     { name: 'Films', path: 'E:\\Films' },
   ])
   assert.equal(isSameOrDescendantPath(COMPUTER_PATH, 'C:\\Windows'), true)
   assert.equal(isSameOrDescendantPath(COMPUTER_PATH, '/etc'), false)
   assert.equal(restorePanelViewState({ providerId: 'local', root: initial }, 'local', root, root).root, initial)
-  assert.deepEqual(buildPathBreadcrumbs(root, COMPUTER_PATH), [{ name: 'This Computer', path: COMPUTER_PATH }])
+  assert.deepEqual(buildPathBreadcrumbs(root, COMPUTER_PATH), [{ name: 'This PC', path: COMPUTER_PATH }])
   assert.deepEqual(buildPathBreadcrumbs(root, '\\\\server\\share\\Movies'), [
-    { name: 'This Computer', path: COMPUTER_PATH },
+    { name: 'This PC', path: COMPUTER_PATH },
     { name: '\\\\server\\share', path: '\\\\server\\share' },
     { name: 'Movies', path: '\\\\server\\share\\Movies' },
   ])
 })
 
-test('This Computer refreshes on drive attachment and releases its inventory timer', async (t) => {
+test('This PC refreshes on drive attachment and releases its inventory timer', async (t) => {
   t.mock.timers.enable({ apis: ['setInterval'] })
   let drives = ['C:\\']
   let requests = 0

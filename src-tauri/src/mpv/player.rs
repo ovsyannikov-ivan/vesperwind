@@ -1,4 +1,5 @@
 use super::{
+    hdr_policy::{dxgi_format, WindowsOutputPolicy},
     presentation::{Backend, Presentation},
     stream::MpvStreamRegistry,
     surface::{DisplayCapabilities, NativeSurface},
@@ -113,6 +114,43 @@ pub struct PlaybackDiagnostics {
     pub hardware_decoder: Option<String>,
     pub renderer: String,
     pub display: DisplayCapabilities,
+    pub windows_output: Option<WindowsOutputDiagnostics>,
+    pub dropped_frames: Option<i64>,
+    pub decoder_dropped_frames: Option<i64>,
+    pub delayed_frames: Option<i64>,
+    pub video_sync: Option<String>,
+    pub av_sync_seconds: Option<f64>,
+    pub source_hdr_metadata: HdrMetadataDiagnostics,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HdrMetadataDiagnostics {
+    pub min_luminance_nits: Option<f64>,
+    pub max_luminance_nits: Option<f64>,
+    pub max_cll_nits: Option<f64>,
+    pub max_fall_nits: Option<f64>,
+    // Available only when mpv exposes all chromaticity coordinates; never
+    // substitute BT.2020 for missing mastering-display primaries.
+    pub mastering_primaries: Option<[f64; 8]>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowsOutputDiagnostics {
+    pub requested: String,
+    pub requested_transfer: Option<String>,
+    pub requested_primaries: Option<String>,
+    pub target_verified: bool,
+    pub target_transfer: Option<String>,
+    pub target_primaries: Option<String>,
+    pub target_pixel_format: Option<String>,
+    pub dxgi_format: Option<String>,
+    pub format_evidence: String,
+    pub expected_dxgi_color_space: Option<String>,
+    pub color_space_evidence: String,
+    pub hdr_metadata_state: String,
+    pub target_hdr_metadata: HdrMetadataDiagnostics,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
@@ -704,6 +742,8 @@ fn control_loop(
     let mut display = surface.display_capabilities();
     let mut shutdown_reply = None;
     let mut eof_handled = false;
+    #[cfg(target_os = "windows")]
+    let mut output_policy = Some(WindowsOutputPolicy::Sdr);
     let mut waiting_for_vo: Option<Instant> = None;
     let mut pending_load: Option<(
         mpsc::SyncSender<Result<PlayerSnapshot, String>>,
@@ -827,6 +867,10 @@ fn control_loop(
                 MPV_EVENT_NONE => break,
                 MPV_EVENT_FILE_LOADED => {
                     #[cfg(target_os = "windows")]
+                    if backend == Backend::D3d11 {
+                        update_windows_output_policy(&api, handle, &display, &mut output_policy);
+                    }
+                    #[cfg(target_os = "windows")]
                     if backend == Backend::D3d11
                         && api.get_i64(handle, "current-tracks/video/id").is_some()
                         && api.get_flag(handle, "vo-configured") != Some(true)
@@ -948,6 +992,10 @@ fn control_loop(
             // require many synchronous mpv property queries and change rarely.
             let next = if event_changed || last_metadata_refresh.elapsed() >= Duration::from_secs(1)
             {
+                #[cfg(target_os = "windows")]
+                if backend == Backend::D3d11 {
+                    update_windows_output_policy(&api, handle, &display, &mut output_policy);
+                }
                 last_metadata_refresh = Instant::now();
                 read_snapshot(&api, handle, &state, &display)
             } else {
@@ -961,9 +1009,11 @@ fn control_loop(
             if std::env::var_os("VESPERWIND_MPV_LOG").is_some()
                 && last_performance_log.elapsed() >= Duration::from_secs(5)
             {
-                eprintln!("[player={session_id}] performance time={:.2} hwdec={:?} dropped={:?} decoder_dropped={:?}",
+                eprintln!("[player={session_id}] performance time={:.2} hwdec={:?} decoded={:?} dropped={:?} decoder_dropped={:?} delayed={:?} video_sync={:?} av_sync={:?} output={:?}",
                     state.current_time, state.diagnostics.hardware_decoder,
-                    api.get_i64(handle, "frame-drop-count"), api.get_i64(handle, "decoder-frame-drop-count"));
+                    state.diagnostics.source_pixel_format, state.diagnostics.dropped_frames,
+                    state.diagnostics.decoder_dropped_frames, state.diagnostics.delayed_frames,
+                    state.diagnostics.video_sync, state.diagnostics.av_sync_seconds, state.diagnostics.windows_output);
                 last_performance_log = Instant::now();
             }
         }
@@ -1099,6 +1149,65 @@ fn configure_display_output(
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
+fn update_windows_output_policy(
+    api: &MpvApi,
+    handle: *mut MpvHandle,
+    display: &DisplayCapabilities,
+    applied: &mut Option<WindowsOutputPolicy>,
+) {
+    let transfer = api.get_string(handle, "video-params/gamma");
+    let primaries = api.get_string(handle, "video-params/primaries");
+    let (policy, _) =
+        WindowsOutputPolicy::select(transfer.as_deref(), primaries.as_deref(), display);
+    if *applied == Some(policy) {
+        return;
+    }
+    for (name, value) in policy.options() {
+        if let Err(error) = api.set_property(handle, name, value) {
+            // If an HDR option fails, restore SDR as a complete policy. Actual
+            // options + target params below prevent claiming partial success.
+            for (sdr_name, sdr_value) in WindowsOutputPolicy::Sdr.options() {
+                let _ = api.set_property(handle, sdr_name, sdr_value);
+            }
+            *applied = None;
+            eprintln!("[HDR10] output policy failed ({name}={value}): {error}");
+            return;
+        }
+    }
+    *applied = Some(policy);
+    eprintln!(
+        "[HDR10] requested output policy={policy:?}; negotiated target must be verified separately"
+    );
+}
+
+fn read_hdr_metadata(api: &MpvApi, handle: *mut MpvHandle, prefix: &str) -> HdrMetadataDiagnostics {
+    let get = |name: &str| {
+        api.get_double(handle, &format!("{prefix}/{name}"))
+            .filter(|value| value.is_finite() && *value >= 0.0)
+    };
+    let coordinates: Option<Vec<f64>> = [
+        "prim-red-x",
+        "prim-red-y",
+        "prim-green-x",
+        "prim-green-y",
+        "prim-blue-x",
+        "prim-blue-y",
+        "prim-white-x",
+        "prim-white-y",
+    ]
+    .into_iter()
+    .map(get)
+    .collect();
+    HdrMetadataDiagnostics {
+        min_luminance_nits: get("min-luma"),
+        max_luminance_nits: get("max-luma").filter(|value| *value > 0.0),
+        max_cll_nits: get("max-cll").filter(|value| *value > 0.0),
+        max_fall_nits: get("max-fall").filter(|value| *value > 0.0),
+        mastering_primaries: coordinates.and_then(|v| v.try_into().ok()),
+    }
+}
+
 fn read_diagnostics(
     api: &MpvApi,
     handle: *mut MpvHandle,
@@ -1129,29 +1238,29 @@ fn read_diagnostics(
         primaries.as_deref(),
         dolby_vision_profile,
     );
-    let output_hdr_active = is_hdr_output_active(source_hdr, display);
+    let mut output_hdr_active = is_hdr_output_active(source_hdr, display);
     let target_peak_nits =
         (display.platform == "macos").then_some(203.0 * display.current_headroom.max(1.0));
-    let tone_mapping = if !source_hdr {
+    let mut tone_mapping = if !source_hdr {
         "none".to_string()
     } else if output_hdr_active {
         "display-adaptive to current EDR headroom".to_string()
     } else {
         "HDR-to-SDR fallback".to_string()
     };
-    let output_mode = if output_hdr_active {
+    let mut output_mode = if output_hdr_active {
         "HDR (macOS EDR)".to_string()
     } else if source_hdr {
         "SDR fallback".to_string()
     } else {
         "SDR".to_string()
     };
-    let output_color_space = if output_hdr_active {
+    let mut output_color_space = if output_hdr_active {
         "linear Display P3".to_string()
     } else {
         "BT.709".to_string()
     };
-    let fallback_reason = (source_hdr && !output_hdr_active).then(|| {
+    let mut fallback_reason = (source_hdr && !output_hdr_active).then(|| {
         display.reason.clone().unwrap_or_else(|| {
             if !display.output_supported {
                 "The native surface cannot present HDR".to_string()
@@ -1162,6 +1271,86 @@ fn read_diagnostics(
             }
         })
     });
+    let windows_output = if display.platform == "windows"
+        && display.surface_format.starts_with("mpv-owned D3D11")
+    {
+        let (policy, reason) =
+            WindowsOutputPolicy::select(transfer.as_deref(), primaries.as_deref(), display);
+        let target_transfer = api.get_string(handle, "video-target-params/gamma");
+        let target_primaries = api.get_string(handle, "video-target-params/primaries");
+        let target_pixel_format = api.get_string(handle, "video-target-params/pixelformat");
+        let requested_transfer = api.get_string(handle, "target-trc");
+        let requested_primaries = api.get_string(handle, "target-prim");
+        let options = policy.options();
+        let target_verified = requested_transfer.as_deref()
+            == options
+                .iter()
+                .find(|(name, _)| *name == "target-trc")
+                .map(|(_, value)| *value)
+            && requested_primaries.as_deref()
+                == options
+                    .iter()
+                    .find(|(name, _)| *name == "target-prim")
+                    .map(|(_, value)| *value)
+            && policy.matches_target(
+                target_transfer.as_deref(),
+                target_primaries.as_deref(),
+                target_pixel_format.as_deref(),
+            );
+        output_hdr_active = policy == WindowsOutputPolicy::Hdr10 && target_verified;
+        let sdr_verified = WindowsOutputPolicy::Sdr.matches_target(
+            target_transfer.as_deref(),
+            target_primaries.as_deref(),
+            target_pixel_format.as_deref(),
+        );
+        output_mode = if output_hdr_active {
+            "HDR10 (mpv target verified)"
+        } else if sdr_verified && source_hdr {
+            "SDR fallback"
+        } else if sdr_verified {
+            "SDR"
+        } else {
+            "Not verified (output changing or unavailable)"
+        }
+        .into();
+        output_color_space = if output_hdr_active {
+            "PQ / BT.2020"
+        } else if sdr_verified {
+            "BT.709"
+        } else {
+            "not verified"
+        }
+        .into();
+        tone_mapping = if !source_hdr {
+            "none"
+        } else if output_hdr_active {
+            "HDR display mapping (libplacebo)"
+        } else if sdr_verified {
+            "HDR-to-SDR fallback"
+        } else {
+            "not verified"
+        }
+        .into();
+        fallback_reason =
+            (source_hdr && !output_hdr_active).then(|| {
+                reason.unwrap_or_else(||
+            "HDR10 target not negotiated; reopen the player if this persists (see mpv log)".into())
+            });
+        Some(WindowsOutputDiagnostics {
+            requested: if policy == WindowsOutputPolicy::Hdr10 { "HDR10 / PQ / BT.2020" } else { "SDR / gamma 2.2 / BT.709" }.into(),
+            requested_transfer, requested_primaries, target_verified,
+            dxgi_format: dxgi_format(target_pixel_format.as_deref()).map(str::to_string),
+            format_evidence: "Actual backbuffer format via mpv video-target-params (pinned libplacebo format mapping)".into(),
+            expected_dxgi_color_space: if output_hdr_active { Some("DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020".into()) }
+                else if sdr_verified { Some("DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709".into()) } else { None },
+            color_space_evidence: "Expected from verified mpv target and pinned libplacebo mapping; DXGI SetColorSpace1 result is not exposed by the client API".into(),
+            hdr_metadata_state: "not verified: DXGI SetHDRMetaData result is not exposed by the client API".into(),
+            target_hdr_metadata: read_hdr_metadata(api, handle, "video-target-params"),
+            target_transfer, target_primaries, target_pixel_format,
+        })
+    } else {
+        None
+    };
     let container = api.get_string(handle, "file-format");
     let matrix = api.get_string(handle, "video-params/colormatrix");
     PlaybackDiagnostics {
@@ -1261,11 +1450,18 @@ fn read_diagnostics(
             .get_string(handle, "hwdec-current")
             .filter(|decoder| decoder != "no"),
         renderer: if display.surface_format.starts_with("mpv-owned D3D11") {
-            "libmpv-owned gpu-next / D3D11 (SDR)".to_string()
+            "libmpv-owned gpu-next / D3D11 / DXGI".to_string()
         } else {
             Backend::RenderApi.name().to_string()
         },
         display: display.clone(),
+        windows_output,
+        dropped_frames: api.get_i64(handle, "frame-drop-count"),
+        decoder_dropped_frames: api.get_i64(handle, "decoder-frame-drop-count"),
+        delayed_frames: api.get_i64(handle, "vo-delayed-frame-count"),
+        video_sync: api.get_string(handle, "video-sync"),
+        av_sync_seconds: api.get_double(handle, "avsync"),
+        source_hdr_metadata: read_hdr_metadata(api, handle, "video-params"),
     }
 }
 
@@ -1394,7 +1590,11 @@ fn chroma_subsampling(pixel_format: Option<&str>) -> Option<String> {
 }
 
 fn is_hdr_output_active(source_hdr: bool, display: &DisplayCapabilities) -> bool {
-    source_hdr && display.output_supported && display.hdr_enabled && display.current_headroom > 1.0
+    display.platform == "macos"
+        && source_hdr
+        && display.output_supported
+        && display.hdr_enabled
+        && display.current_headroom > 1.0
 }
 
 fn classify_hdr_source(

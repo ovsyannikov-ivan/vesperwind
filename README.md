@@ -40,18 +40,20 @@ experimental FP16 Extended Dynamic Range path for HDR10 and HLG, with live EDR
 headroom and fallback diagnostics. Dolby Vision metadata is reported, but full RPU
 or enhancement-layer processing is not bundled. Its arm64 development bundle is
 not yet a signed or notarized release. Windows includes a source-built x64 LGPL
-DLL closure, WASAPI audio and D3D11VA copy-back decoding, with an mpv-owned
-gpu-next/D3D11 RGBA8 SDR surface and an automatic WGL fallback.
+DLL closure, WASAPI audio and direct D3D11VA hardware surfaces, with an mpv-owned
+gpu-next/D3D11 HDR10-capable surface and an automatic WGL SDR fallback.
 The Windows runtime is built and bundled, rather than a planned build;
 native playback and MSI/NSIS packaging have passed local smoke checks. Windows
-HDR presentation is not implemented. See [Native libmpv integration](docs/libmpv.md)
+HDR10 PQ/BT.2020 output policy and negotiated-target diagnostics are implemented;
+real HDR-display validation remains **not verified**. See [Native libmpv integration](docs/libmpv.md)
 for the exact build, HDR matrix, and licensing status.
 
 ### HDR and Dolby Vision
 
 | Capability | Windows | macOS |
 | --- | --- | --- |
-| HDR10 / HLG source playback | Decoded and tone-mapped to SDR; no native HDR output | Experimental FP16 EDR output, with SDR fallback; XDR display validation remains pending |
+| HDR10 source playback | PQ/BT.2020 RGB10A2 presentation through libplacebo when Windows HDR is active; SDR fallback otherwise. Real HDR-display validation: **not verified** | Experimental FP16 EDR output, with SDR fallback; XDR display validation remains pending |
+| HLG source playback | SDR tone mapping; native HLG output is a separate future stage | Experimental FP16 EDR output; XDR display validation remains pending |
 | Dolby Vision | Profile metadata is detected; compatible base-layer playback may work, but Dolby Vision RPU processing and display output are not supported | The same Dolby Vision limitations apply; compatible HDR base layers may use EDR |
 
 Playing a HEVC Dolby Vision Profile 8 file successfully does not establish Dolby
@@ -60,11 +62,15 @@ Vision or HDR output. Profile 8.1 has an HDR10-compatible base layer and Profile
 without processing Dolby Vision metadata. The bundled libplacebo builds disable
 `dovi` and `libdovi`. See Dolby's [profile compatibility reference](https://ott.dolby.com/browser_test_kit/help_files/topics/r_resources.html).
 
-An HDR-capable OLED does not change the current Windows output path: it remains
-D3D11 or WGL RGBA8 SDR. Native Windows HDR requires a separate output stage,
-starting with PQ/BT.2020 and verified display/color-space handling. That work
-is still planned. The limitation is in Vesperwind's Windows presentation backend;
-OpenGL can already carry the experimental HDR path on macOS.
+Windows HDR10 requires HDR to be active on the monitor containing the player.
+HDR capability, the Windows setting, and verified player output are reported
+separately. SDR video stays BT.709 even on an HDR desktop; WGL stays SDR.
+Info gives compact source, decode, processing, presentation, and output summaries;
+the runtime diagnostic snapshot retains detailed evidence and metadata. Requested
+settings alone do not prove HDR: the actual `video-target-params` must report
+PQ, BT.2020 and `rgb10a2`. DXGI color-space mapping is labelled **Expected**;
+HDR metadata delivery and physical HDMI output require external verification.
+There is no Windows FP16 scRGB or Dolby Vision processing in this stage.
 
 ## Screenshots
 
@@ -146,7 +152,7 @@ to ignored `dist/`, `staging/`, and `src-tauri/target/` directories.
 
 Desktop filesystem access follows the current user's OS permissions and is not
 confined to the starting folder. Tauri and standalone SEA start both panels in
-the home directory on macOS, at `/` on Linux, and at **This Computer** on Windows
+the home directory on macOS, at `/` on Linux, and at **This PC** on Windows
 with the available drive letters, including removable drives. Breadcrumbs allow
 navigation to the OS root and other volumes. Linux SEA packaging is still a future
 target; its runtime navigation policy is already defined.
@@ -282,7 +288,8 @@ security contact and policy are published.
   FP16 macOS EDR output for HDR10/HLG;
 - self-contained arm64 macOS libmpv dependency bundle;
 - Windows H.264/HEVC D3D11VA copy-back
-  decoding, WASAPI audio and mpv-owned `wid + gpu-next + D3D11` SDR rendering,
+  decoding for WGL and direct D3D11VA surfaces for owned output, WASAPI audio and
+  mpv-owned `wid + gpu-next + D3D11` rendering with HDR10 PQ/BT.2020 policy,
   with the existing WGL renderer as an automatic startup fallback;
 - shared Windows/macOS native fullscreen fade through a controls overlay, with
   a fixed 500 ms hold after resizing before uncovering video;
@@ -293,8 +300,8 @@ security contact and policy are published.
 - Finder/Explorer drag-and-drop integration;
 - Content search inside files and additional editor encodings;
 - A complete Windows regression pass for SSH/SFTP, search, and document editing;
-- Windows HDR10 output through PQ/BT.2020 after the D3D11 SDR prototype is stable,
-  followed by HLG and a reviewed FP16 scRGB path with correct Windows white scaling;
+- Manual Windows HDR10 validation on an HDR display, then separate HLG and
+  reviewed FP16 scRGB stages with correct Windows white scaling;
 - Dolby Vision reshaping with `dovi` first (Profile 8, then Profile 5), and `libdovi`
   only if its additional metadata provides a practical benefit;
 - further hardware-decoder coverage and HDR/color-management work;

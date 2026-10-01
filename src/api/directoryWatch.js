@@ -49,7 +49,7 @@ export const createDirectoryWatchRegistry = (transport, delay = 100) => {
   const subscribe = (providerId, path, callback) => {
     if (providerId !== 'local' || !path) return () => {}
     // Logical drives are not an OS directory. Poll their small inventory so
-    // removable disks appear while This Computer is open, without fs.watch.
+    // removable disks appear while This PC is open, without fs.watch.
     if (isComputerPath(path)) {
       let stopped = false
       let previous = null

@@ -1,4 +1,5 @@
 mod dynamic_library;
+mod hdr_policy;
 mod player;
 mod presentation;
 mod render;
@@ -232,11 +233,14 @@ impl MpvApi {
                 self.set_option(handle, "gpu-context", "d3d11")?;
                 self.set_option(handle, "fullscreen", "no")?;
                 self.set_option(handle, "d3d11-exclusive-fs", "no")?;
-                // Phase one is deliberately SDR, including on an HDR desktop.
-                // Disable hints so source metadata cannot select PQ or FP16.
+                // RGBA8 is a best-effort SDR preference for gpu-next. HDR hints
+                // let libplacebo upgrade its own swapchain to RGB10A2 / PQ.
+                // Start in SDR until source and Windows HDR state are known.
                 self.set_option(handle, "d3d11-output-format", "rgba8")?;
                 self.set_option(handle, "d3d11-output-csp", "srgb")?;
-                self.set_option(handle, "target-colorspace-hint", "no")?;
+                self.set_option(handle, "target-colorspace-hint", "yes")?;
+                self.set_option(handle, "target-colorspace-hint-mode", "target")?;
+                self.set_option(handle, "target-colorspace-hint-strict", "yes")?;
                 self.set_option(handle, "target-trc", "gamma2.2")?;
                 self.set_option(handle, "target-prim", "bt.709")?;
                 self.set_option(handle, "target-peak", "203")?;

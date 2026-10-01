@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import 'bootstrap/dist/css/bootstrap.min.css'
 import '@mdi/font/css/materialdesignicons.min.css'
 import '@xterm/xterm/css/xterm.css'
+import './styles/scrollbar.css'
 import './styles/main.css'
 import './styles/dropdown.css'
 import App from './App.vue'
@@ -9,6 +10,13 @@ import { runtime } from './api/runtime.js'
 
 void runtime.getInfo()
 createApp(App).mount('#app')
+
+// Let the mounted interface paint before fading out the early HTML preloader.
+requestAnimationFrame(() => requestAnimationFrame(() => {
+  const startup = document.getElementById('app-startup')
+  startup?.classList.add('is-ready')
+  window.setTimeout(() => startup?.remove(), 200)
+}))
 
 if ('serviceWorker' in navigator && window.isSecureContext) {
   window.addEventListener('load', () => {
