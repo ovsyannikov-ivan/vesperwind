@@ -1,8 +1,3 @@
-# Keep the vendored Windows runtime byte-identical to its SHA256SUMS on checkout.
-/src-tauri/vendor/libmpv/windows/** -text
-# Upstream license texts retain their original whitespace as well as their hashes.
-/src-tauri/vendor/libmpv/windows/LICENSES/** whitespace=-blank-at-eol,-blank-at-eof
-
 # Keep repository text files consistently LF on every platform.
 * text=auto eol=lf
 
@@ -41,3 +36,8 @@
 *.woff binary
 *.woff2 binary
 *.pdf binary
+
+# Keep the vendored Windows runtime byte-identical to its SHA256SUMS on checkout.
+/src-tauri/vendor/libmpv/windows/** -text
+# Upstream license texts retain their original whitespace as well as their hashes.
+/src-tauri/vendor/libmpv/windows/LICENSES/** whitespace=-blank-at-eol,-blank-at-eof
