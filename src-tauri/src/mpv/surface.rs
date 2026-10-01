@@ -90,6 +90,10 @@ pub(crate) struct DisplayCapabilities {
     pub sdr_white_nits: Option<f64>,
     pub bits_per_color: Option<u32>,
     pub reason: Option<String>,
+    pub metal_pixel_format: Option<u64>,
+    pub metal_color_space: Option<String>,
+    pub metal_edr_enabled: Option<bool>,
+    pub metal_edr_metadata_present: Option<bool>,
 }
 
 #[cfg(target_os = "windows")]

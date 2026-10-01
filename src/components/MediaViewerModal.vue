@@ -81,12 +81,14 @@ const handleOverlayAction = (payload) => {
 }
 
 const handleKeydown = (event) => {
+  if (event.defaultPrevented) return
   if (modeTransition) { event.preventDefault(); return }
   if (event.key === 'Escape' && isFullscreen.value) {
     event.preventDefault()
     exitFullscreen()
     return
   }
+  if (displayedKind.value === 'video') return
   if (!props.open || props.total < 2) {
     return
   }
@@ -256,7 +258,7 @@ onBeforeUnmount(() => {
                 class="btn media-viewer-navigation is-previous"
                 type="button"
                 aria-label="Previous item"
-                title="Previous item (Left arrow)"
+                title="Previous item"
                 @click="$emit('previous')"
               >
                 <i class="mdi mdi-chevron-left" aria-hidden="true" />
@@ -265,7 +267,7 @@ onBeforeUnmount(() => {
                 class="btn media-viewer-navigation is-next"
                 type="button"
                 aria-label="Next item"
-                title="Next item (Right arrow)"
+                title="Next item"
                 @click="$emit('next')"
               >
                 <i class="mdi mdi-chevron-right" aria-hidden="true" />

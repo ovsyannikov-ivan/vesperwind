@@ -4,6 +4,10 @@ use std::{
 };
 
 fn main() {
+    println!(
+        "cargo:rustc-env=VESPERWIND_TARGET_TRIPLE={}",
+        std::env::var("TARGET").unwrap()
+    );
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|value| value.as_secs().to_string())

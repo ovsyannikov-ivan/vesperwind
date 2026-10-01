@@ -1,0 +1,172 @@
+--- a/meson.options
++++ b/meson.options
+@@ -104,6 +104,8 @@
+ option('videotoolbox-gl', type: 'feature', value: 'auto', description: 'Videotoolbox with OpenGL')
+ option('videotoolbox-pl', type: 'feature', value: 'auto', description: 'Videotoolbox with libplacebo')
+ 
++option('macvk-embedded', type: 'feature', value: 'disabled', description: 'Vesperwind CAMetalLayer wid context')
++
+ # macOS features
+ option('macos-10-15-4-features', type: 'feature', value: 'auto', description: 'macOS 10.15.4 SDK Features')
+ option('macos-11-features', type: 'feature', value: 'auto', description: 'macOS 11 SDK Features')
+--- a/meson.build
++++ b/meson.build
+@@ -1330,6 +1330,14 @@
+      sources += files('video/out/vulkan/context_xlib.c')
+ endif
+ 
++macvk_embedded = get_option('macvk-embedded').require(darwin and features['vulkan'],
++    error_message: 'macvk-embedded requires macOS and Vulkan')
++features += {'macvk-embedded': macvk_embedded.allowed()}
++if features['macvk-embedded']
++    dependencies += dependency('appleframeworks', modules: ['QuartzCore', 'Metal'])
++    sources += files('video/out/vulkan/context_metal_embedded.m')
++endif
++
+ features += {'vk-khr-display': vulkan.type_name() == 'internal' or
+                                cc.has_function('vkCreateDisplayPlaneSurfaceKHR', prefix: '#include <vulkan/vulkan_core.h>',
+                                                dependencies: [vulkan])}
+--- a/video/out/gpu/context.c
++++ b/video/out/gpu/context.c
+@@ -50,6 +50,7 @@
+ extern const struct ra_ctx_fns ra_ctx_vulkan_android;
+ extern const struct ra_ctx_fns ra_ctx_vulkan_display;
+ extern const struct ra_ctx_fns ra_ctx_vulkan_mac;
++extern const struct ra_ctx_fns ra_ctx_vulkan_metal_embedded;
+ 
+ /* Direct3D 11 */
+ extern const struct ra_ctx_fns ra_ctx_d3d11;
+@@ -92,6 +93,9 @@
+ #endif
+ #if HAVE_X11
+     &ra_ctx_vulkan_xlib,
++#endif
++#if HAVE_MACVK_EMBEDDED
++    &ra_ctx_vulkan_metal_embedded,
+ #endif
+ #if HAVE_COCOA && HAVE_SWIFT
+     &ra_ctx_vulkan_mac,
+--- a/video/out/vulkan/common.h
++++ b/video/out/vulkan/common.h
+@@ -22,7 +22,7 @@
+ #if HAVE_WIN32_DESKTOP
+ #define VK_USE_PLATFORM_WIN32_KHR
+ #endif
+-#if HAVE_COCOA
++#if HAVE_COCOA || HAVE_MACVK_EMBEDDED
+ #define VK_USE_PLATFORM_METAL_EXT
+ #endif
+ 
+--- /dev/null
++++ b/video/out/vulkan/context_metal_embedded.m
+@@ -0,0 +1,110 @@
++/*
++ * Vesperwind CAMetalLayer embedding for pinned mpv 0.41.
++ * Copyright (c) 2026 Vesperwind contributors
++ * SPDX-License-Identifier: LGPL-2.1-or-later
++ *
++ * Contract inspired by mpv PR #7857 / MPVKit / Plex. No standalone Cocoa UI.
++ * The caller retains the host through mpv_terminate_destroy. WinID is a
++ * CAMetalLayer pointer cast to intptr_t, not an NSView/NSWindow identifier.
++ */
++#import <QuartzCore/CAMetalLayer.h>
++#include "common.h"
++#include "context.h"
++#include "utils.h"
++#include "osdep/timer.h"
++
++struct priv {
++    struct mpvk_ctx vk;
++    CAMetalLayer *layer;
++};
++
++static void embedded_uninit(struct ra_ctx *ctx)
++{
++    struct priv *p = ctx->priv;
++    if (!p) return;
++    // Destroy swapchain/device/surface before releasing the host layer.
++    ra_vk_ctx_uninit(ctx);
++    mpvk_uninit(&p->vk);
++    [p->layer release];
++    p->layer = nil;
++}
++
++static bool embedded_resize(struct ra_ctx *ctx)
++{
++    struct priv *p = ctx->priv;
++    CGSize size = p->layer.drawableSize;
++    // Don't allow parked surfaces or MoltenVK's internal 1x1 workaround to
++    // replace the last usable extent. Host always publishes dimensions >=2.
++    int width = size.width, height = size.height;
++    if (width < 2 || height < 2) return true;
++    if (!ra_vk_ctx_resize(ctx, width, height)) return false;
++    return true;
++}
++
++static bool embedded_init(struct ra_ctx *ctx)
++{
++    struct priv *p = ctx->priv = talloc_zero(ctx, struct priv);
++    if (ctx->vo->opts->WinID <= 0) {
++        MP_ERR(ctx, "macvk-embedded requires a retained CAMetalLayer pointer in wid\n");
++        goto fail;
++    }
++    @autoreleasepool {
++        p->layer = [(CAMetalLayer *)(intptr_t)ctx->vo->opts->WinID retain];
++        if (![p->layer isKindOfClass:[CAMetalLayer class]]) {
++            MP_ERR(ctx, "macvk-embedded wid is not a CAMetalLayer\n");
++            goto fail;
++        }
++    }
++    if (!mpvk_init(&p->vk, ctx, VK_EXT_METAL_SURFACE_EXTENSION_NAME)) goto fail;
++    VkMetalSurfaceCreateInfoEXT info = {
++        .sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT,
++        .pLayer = p->layer,
++    };
++    VkResult result = vkCreateMetalSurfaceEXT(p->vk.vkinst->instance,
++                                              &info, NULL, &p->vk.surface);
++    if (result != VK_SUCCESS) {
++        MP_ERR(ctx, "Embedded Metal surface creation failed (%d)\n", result);
++        goto fail;
++    }
++    if (!ra_vk_ctx_init(ctx, &p->vk, (struct ra_ctx_params){0}, VK_PRESENT_MODE_FIFO_KHR)) goto fail;
++    MP_VERBOSE(ctx, "Vesperwind embedded CAMetalLayer Vulkan surface initialized\n");
++    return true;
++fail:
++    embedded_uninit(ctx);
++    return false;
++}
++
++static bool embedded_reconfig(struct ra_ctx *ctx)
++{
++    @autoreleasepool { return embedded_resize(ctx); }
++}
++
++static int embedded_control(struct ra_ctx *ctx, int *events, int request, void *arg)
++{
++    if (request != VOCTRL_CHECK_EVENTS) return VO_NOTIMPL;
++    struct priv *p = ctx->priv;
++    @autoreleasepool {
++        CGSize size = p->layer.drawableSize;
++        if (size.width >= 2 && size.height >= 2 &&
++            ((int)size.width != ctx->vo->dwidth || (int)size.height != ctx->vo->dheight)) {
++            if (!embedded_resize(ctx)) return VO_ERROR;
++            *events |= VO_EVENT_RESIZE | VO_EVENT_EXPOSE;
++        }
++    }
++    return VO_TRUE;
++}
++
++static void embedded_wait_events(struct ra_ctx *ctx, int64_t until_time_ns)
++{
++    // Bound latency of paused resize without installing a CALayerDelegate on
++    // an AppKit backing layer or keeping callbacks into a destroyed VO.
++    vo_wait_default(ctx->vo, MPMIN(until_time_ns, mp_time_ns() + MP_TIME_MS_TO_NS(50)));
++}
++
++const struct ra_ctx_fns ra_ctx_vulkan_metal_embedded = {
++    .type = "vulkan", .name = "macvk-embedded",
++    .description = "Vesperwind embedded CAMetalLayer / Vulkan / MoltenVK",
++    .init = embedded_init, .uninit = embedded_uninit,
++    .reconfig = embedded_reconfig, .control = embedded_control,
++    .wait_events = embedded_wait_events,
++};

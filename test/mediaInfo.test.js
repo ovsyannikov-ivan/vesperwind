@@ -181,3 +181,24 @@ test('unknown mpv channel layouts get a readable count in menus and Info', () =>
   assert.match(section(buildMediaInfoSections({ ...diagnostics,
     audio: { ...diagnostics.audio, channelLayout: 'undefined8', channelCount: 8 } }), 'Current audio').Format.value, /8 channels/)
 })
+
+
+test('Metal info shows actual surface and unknown output without inventing HDR or DV', () => {
+  const value = {
+    ...diagnostics, renderer: 'gpu-next / Vulkan / MoltenVK / Metal (runtime VO/context verified)',
+    outputMode: 'Not verified (output changing or unavailable)', outputHdrActive: false,
+    targetTransfer: 'pq', targetPrimaries: 'bt.2020', dolbyVisionProfile: 8,
+    dolbyVisionProcessing: 'Not observed; base-layer fallback', dolbyVisionRpu: null,
+    systemDolbyVisionOutput: false,
+    display: { platform: 'macos', metalPixelFormat: 115, surfaceFormat: 'mpv-owned Metal / RGBA16Float (115)',
+      metalColorSpace: 'kCGColorSpaceITUR_2100_PQ', metalEdrEnabled: true, metalEdrMetadataPresent: false,
+      currentHeadroom: 1, potentialHeadroom: 2 },
+  }
+  const sections = buildMediaInfoSections(value)
+  assert.equal(section(sections, 'Presentation').Renderer.value, 'gpu-next / Vulkan / MoltenVK / Metal')
+  assert.equal(section(sections, 'Output')['Metal surface'].value, value.display.surfaceFormat)
+  assert.equal(section(sections, 'Output')['Layer colorspace'].value, value.display.metalColorSpace)
+  assert.match(section(sections, 'Output').Output.value, /Not verified/)
+  assert.equal(section(sections, 'Processing').RPU.value, 'Not verified')
+  assert.equal(section(sections, 'Processing')['System Dolby Vision output'].value, 'Not used')
+})

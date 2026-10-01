@@ -78,7 +78,7 @@ test('native video chrome lives in a transparent child WebView with stable geome
   )
   const tauri = projectFile('src-tauri/src/lib.rs')
   const commands = projectFile('src-tauri/src/commands/player.rs')
-  const surface = projectFile('src-tauri/src/mpv/surface_macos.rs')
+  const surfaces = ['surface_opengl_macos.rs', 'surface_metal_macos.rs'].map((file) => projectFile(`src-tauri/src/mpv/${file}`))
   const player = projectFile('src/components/CustomMediaPlayer.vue')
   const modal = projectFile('src/components/MediaViewerModal.vue')
 
@@ -93,9 +93,11 @@ test('native video chrome lives in a transparent child WebView with stable geome
   assert.match(player, /borderRadius:\s*modalBorderRadius\(\)/)
   assert.match(player, /subtitlePosition:\s*subtitlePosition\(rect\.height\)/)
   assert.match(player, /if \(props\.fullscreen\) return 100/)
-  assert.match(surface, /setCornerRadius\(geometry\.border_radius/)
-  assert.match(surface, /setMasksToBounds\(geometry\.border_radius\s*>\s*0\.0\)/)
-  assert.match(surface, /CACornerMask::LayerMinXMinYCorner/)
+  for (const surface of surfaces) {
+    assert.match(surface, /setCornerRadius\(geometry\.border_radius/)
+    assert.match(surface, /setMasksToBounds\(geometry\.border_radius\s*>\s*0\.0\)/)
+    assert.match(surface, /CACornerMask::LayerMinXMinYCorner/)
+  }
   assert.doesNotMatch(player, /native-mpv-controls/)
   assert.match(modal, /isNativeVideo/)
   assert.match(modal, /@backend="playerBackend = \$event"/)

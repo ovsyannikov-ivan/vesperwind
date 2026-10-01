@@ -34,6 +34,7 @@ pub struct AppState {
     terminal: Arc<TerminalManager>,
     ssh: Arc<SshManager>,
     player: Arc<mpv::MpvPlayerManager>,
+    thumbnails: media::thumbnail::ThumbnailManager,
     directory_watches: filesystem::watch::DirectoryWatches,
     search_jobs: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
 }
@@ -130,6 +131,7 @@ pub fn run() {
             terminal,
             ssh: Arc::clone(&ssh),
             player,
+            thumbnails: media::thumbnail::ThumbnailManager::default(),
             directory_watches: filesystem::watch::DirectoryWatches::default(),
             search_jobs: Arc::new(Mutex::new(HashMap::new())),
         })
@@ -192,6 +194,7 @@ pub fn run() {
             commands::content::content_cancel,
             commands::runtime::runtime_info,
             commands::media::media_source,
+            commands::media::video_thumbnail,
             commands::player::player_capabilities,
             commands::player::player_open,
             commands::player::player_play,

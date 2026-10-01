@@ -9,6 +9,22 @@ FFmpeg config: CONFIG_HEVC_VIDEOTOOLBOX_HWACCEL=1
 Available hwaccel: videotoolbox
 libavcodec VideoToolbox decoders: h264=yes hevc=yes
 mpv hwdec policy: auto-copy-safe (software fallback retained)
-mpv video output: vo=libmpv (OpenGL Render API)
+mpv video output: macvk; vo=libmpv OpenGL Render API fallback retained
+mpv macvk-embedded: enabled
+mpv videotoolbox-pl: enabled
+libplacebo Vulkan: enabled; vk-proc-addr: enabled
+libplacebo dovi: disabled; libdovi: disabled
+mpv embedded context patch: scripts/patches/mpv-macos-embedded-context.patch
+libplacebo private glslang patch: scripts/patches/libplacebo-macos-private-glslang.patch
 mpv audio output: CoreAudio, AVFoundation fallback
 mpv macOS 27 CoreAudio patch: scripts/patches/mpv-macos27-coreaudio.patch
+MoltenVK: 1.3.0 (49b97f26ae013b9e5bfb3098ee5dea5e4f58e9e8); dynamic direct Vulkan link
+glslang: 15.1.0; static, optimizer disabled
+SPIRV-Cross_repo_revision: 7918775748c5e2f5c40d9918ce68825035b5a1e1
+SPIRV-Headers_repo_revision: bab63ff679c41eb75fc67dac76e1dc44426101e1
+SPIRV-Tools_repo_revision: 783d7033613cedaa7147d0700b517abc5c32312d
+Volk_repo_revision: 43c29e655cb8117fd9cfb65ad9cefe2d40965102
+Vulkan-Headers_repo_revision: e2e53a724677f6eba8ff0ce1ccb64ee321785cbd
+Vulkan-Tools_repo_revision: 682e42f7ae70a8fadf374199c02de737daa5c70d
+cereal_repo_revision: 51cbda5f30e56c801c07fe3d3aba5d7fb9e6cca4
+mpv owned hwdec policy: auto-safe; actual hwdec-current must be checked at runtime

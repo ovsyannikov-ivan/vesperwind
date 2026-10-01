@@ -543,3 +543,5 @@ mod tests {
         assert!(response.body().is_empty());
     }
 }
+
+pub mod thumbnail;

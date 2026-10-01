@@ -1,5 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import VideoProgressRange from '../components/VideoProgressRange.vue'
+import { createSeekController, canHandleSeekKey } from '../player/seekController.js'
 import { mediaOverlay } from '../api/mediaOverlay.js'
 import { waitForOverlayPresentation } from '../player/overlayPresentation.js'
 import { createOverlayTransitionHandler } from '../player/overlayTransition.js'
@@ -27,12 +29,22 @@ const state = reactive({
   diagnostics: null,
   error: null,
 })
+const seekFeedback = ref(null)
+const seekController = createSeekController({
+  getTime: () => state.currentTime, getDuration: () => state.duration,
+  seek: (target) => player?.seek(target), onChange: (value) => { seekFeedback.value = value },
+  onError: (error) => console.warn('Video seek failed', error),
+})
+const progressRange = ref(null)
+const seekTo = (target) => { seekController.reset(); void player?.seek(target)?.catch(() => {}) }
 const activeMenu = ref('')
 const transitionCover = ref(null)
 const transitioning = ref(false)
 let coverAnimation = null
 let unsubscribeTransition = null
 const paintTransition = async ({ covered, immediate, viewport }) => {
+  seekController.reset()
+  progressRange.value?.hidePreview()
   transitioning.value = true
   restoreControls()
   const element = transitionCover.value
@@ -78,9 +90,14 @@ let unsubscribeState = null
 let unsubscribeContext = null
 let controlsTimer = 0
 
-const applyState = (snapshot) => Object.assign(state, snapshot || {})
+const applyState = (snapshot) => {
+  Object.assign(state, snapshot || {})
+  if ([PlayerStatus.ERROR, PlayerStatus.CLOSED, PlayerStatus.LOADING, PlayerStatus.ENDED].includes(snapshot?.status)) seekController.reset()
+}
 const attachToSession = async (sessionId) => {
   if (!sessionId || player?.sessionId === sessionId) return
+  seekController.reset()
+  progressRange.value?.hidePreview()
   unsubscribeState?.()
   player?.dispose()
   player = new NativeMpvPlayerBackend({ sessionId })
@@ -121,7 +138,11 @@ const selectTrack = async (kind, id) => {
   await player?.selectTrack(kind, id).catch(() => {})
   closeMenu()
 }
-const sendAction = (action) => mediaOverlay.sendAction(action)
+const sendAction = (action) => {
+  seekController.reset()
+  progressRange.value?.hidePreview()
+  return mediaOverlay.sendAction(action)
+}
 const handlePointerDown = (event) => {
   if (transitioning.value) { event.preventDefault(); event.stopPropagation(); return }
   showControls()
@@ -137,12 +158,9 @@ const handleKeydown = (event) => {
     if (activeMenu.value) closeMenu()
     else if (context.fullscreen) void sendAction('fullscreen')
     else void sendAction('close')
-  } else if (event.key === 'ArrowLeft' && context.total > 1 && !activeMenu.value) {
-    event.preventDefault()
-    void sendAction('previous')
-  } else if (event.key === 'ArrowRight' && context.total > 1 && !activeMenu.value) {
-    event.preventDefault()
-    void sendAction('next')
+  } else if (!activeMenu.value && canHandleSeekKey(event)
+    && [PlayerStatus.READY, PlayerStatus.PLAYING, PlayerStatus.PAUSED].includes(state.status)) {
+    if (seekController.add(event.key === 'ArrowRight' ? 10 : -10)) event.preventDefault()
   } else if (event.key === ' ' && !activeMenu.value) {
     event.preventDefault()
     void togglePlay()
@@ -163,7 +181,7 @@ onMounted(async () => {
   unsubscribeContext = mediaOverlay.onContext(applyContext)
   unsubscribeTransition = mediaOverlay.onTransition(transitionHandler.handle)
   document.addEventListener('pointerdown', handlePointerDown, true)
-  document.addEventListener('keydown', handleKeydown)
+  document.addEventListener('keydown', handleKeydown, true)
   document.addEventListener('wheel', showControls, { passive: true })
   document.addEventListener('touchstart', showControls, { passive: true })
   const overlay = await mediaOverlay.snapshot().catch(() => null)
@@ -174,7 +192,8 @@ onBeforeUnmount(() => {
   clearControlsTimer()
   controlsVisible.value = true
   document.removeEventListener('pointerdown', handlePointerDown, true)
-  document.removeEventListener('keydown', handleKeydown)
+  document.removeEventListener('keydown', handleKeydown, true)
+  seekController.reset()
   document.removeEventListener('wheel', showControls)
   document.removeEventListener('touchstart', showControls)
   unsubscribeContext?.()
@@ -207,6 +226,7 @@ onBeforeUnmount(() => {
     </header>
 
     <section class="media-overlay-stage" @dblclick="sendAction('fullscreen')">
+      <span v-if="seekFeedback" class="video-seek-feedback" role="status">{{ seekFeedback.delta > 0 ? '+' : '' }}{{ Math.round(seekFeedback.delta) }} s</span>
       <div v-if="state.error" class="alert alert-danger media-overlay-error" role="alert">
         {{ state.error.message || state.error }}
       </div>
@@ -227,7 +247,7 @@ onBeforeUnmount(() => {
           class="media-overlay-navigation is-previous"
           :class="{ 'is-hidden': !controlsVisible }"
           type="button"
-          title="Previous item (Left arrow)"
+          title="Previous item"
           aria-label="Previous item"
           @click.stop="sendAction('previous')"
         >
@@ -237,7 +257,7 @@ onBeforeUnmount(() => {
           class="media-overlay-navigation is-next"
           :class="{ 'is-hidden': !controlsVisible }"
           type="button"
-          title="Next item (Right arrow)"
+          title="Next item"
           aria-label="Next item"
           @click.stop="sendAction('next')"
         >
@@ -306,7 +326,7 @@ onBeforeUnmount(() => {
             <i class="mdi" :class="context.fullscreen ? 'mdi-fullscreen-exit' : 'mdi-fullscreen'" aria-hidden="true" />
           </button>
         </div>
-        <input class="form-range media-overlay-seek" type="range" min="0" :max="state.duration || 0" step="0.1" :value="state.currentTime" aria-label="Playback position" @input="player?.seek($event.target.value)">
+        <VideoProgressRange ref="progressRange" :current-time="seekFeedback?.target ?? state.currentTime" :duration="state.duration" :path="context.path || ''" :provider-id="context.providerId || 'local'" :source-hdr="state.diagnostics?.sourceHdr || false" @seek="seekTo" @drag="seekController.reset()" />
       </div>
     </section>
   </main>

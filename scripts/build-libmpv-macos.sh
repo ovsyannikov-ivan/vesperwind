@@ -19,6 +19,12 @@ prefix="$work_root/prefix"
 venv="$work_root/venv"
 bundle="$project_root/src-tauri/vendor/libmpv/macos"
 deployment_target="12.0"
+presentation="${VESPERWIND_LIBMPV_MACOS_PRESENTATION:-macvk}"
+dovi="${VESPERWIND_LIBMPV_DOVI:-disabled}"
+case "$presentation" in macvk|opengl) ;; *) echo "Expected macvk|opengl" >&2; exit 1;; esac
+case "$dovi" in enabled|disabled) ;; *) echo "Expected enabled|disabled DOVI" >&2; exit 1;; esac
+vulkan=disabled; glslang=disabled; embedded=disabled
+if [[ "$presentation" == macvk ]]; then vulkan=enabled; glslang=enabled; embedded=enabled; fi
 
 developer_dir="${DEVELOPER_DIR:-$(xcode-select -p)}"
 if [[ ! -x "$developer_dir/usr/bin/xcodebuild" ]]; then
@@ -115,6 +121,9 @@ perl -0pi -e "s!'audio/out/ao_coreaudio_properties.c'\)!'audio/out/ao_coreaudio_
 patch --directory="$source_root/mpv" -p1 \
   < "$project_root/scripts/patches/mpv-macos27-coreaudio.patch"
 
+patch --directory="$source_root/mpv" -p1 \
+  < "$project_root/scripts/patches/mpv-macos-embedded-context.patch"
+
 rm -rf "$source_root/libplacebo"
 git clone --quiet --filter=blob:none --recurse-submodules \
   --branch v7.351.0 --single-branch \
@@ -124,6 +133,11 @@ if [[ "$(git -C "$source_root/libplacebo" rev-parse HEAD)" != "$libplacebo_commi
   exit 1
 fi
 
+# Static glslang lookup doesn't use pkg-config or Clang's LIBRARY_PATH.
+# Keep this lookup inside the reviewed build prefix.
+patch --directory="$source_root/libplacebo" -p1 \
+  < "$project_root/scripts/patches/libplacebo-macos-private-glslang.patch"
+
 python3 -m venv "$venv"
 "$venv/bin/python" -m pip install --disable-pip-version-check \
   "meson==1.9.1" "ninja==1.13.0"
@@ -131,9 +145,14 @@ export PATH="$venv/bin:$build_tools_bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export PKG_CONFIG_PATH="$prefix/lib/pkgconfig"
 export PKG_CONFIG_LIBDIR="$prefix/lib/pkgconfig"
 export CMAKE_PREFIX_PATH="$prefix"
+export LIBRARY_PATH="$prefix/lib"
 export MACOSX_DEPLOYMENT_TARGET="$deployment_target"
-common_cflags="-O2 -mmacosx-version-min=$deployment_target -isysroot $sdk_root"
-common_link_args="-mmacosx-version-min=$deployment_target -isysroot $sdk_root"
+common_cflags="-O2 -I$prefix/include -mmacosx-version-min=$deployment_target -isysroot $sdk_root"
+common_link_args="-L$prefix/lib -mmacosx-version-min=$deployment_target -isysroot $sdk_root"
+
+if [[ "$presentation" == macvk ]]; then
+  "$project_root/scripts/build-libmpv-macos-gpu.sh" "$work_root" "$prefix" "$sdk_root" "$deployment_target"
+fi
 
 cmake -S "$source_root/freetype" -B "$build_root/freetype" \
   -DCMAKE_BUILD_TYPE=Release \
@@ -245,9 +264,9 @@ meson setup --wipe "$build_root/libplacebo" "$source_root/libplacebo" \
   -Dcpp_args="$common_cflags" \
   -Dc_link_args="$common_link_args" \
   -Dcpp_link_args="$common_link_args" \
-  -Dvulkan=disabled -Dopengl=enabled -Dgl-proc-addr=enabled \
-  -Dd3d11=disabled -Dglslang=disabled -Dshaderc=disabled -Dlcms=disabled \
-  -Ddovi=disabled -Dlibdovi=disabled -Ddemos=false -Dtests=false \
+  -Dvulkan="$vulkan" -Dvk-proc-addr="$vulkan" -Dopengl=enabled -Dgl-proc-addr=enabled \
+  -Dd3d11=disabled -Dglslang="$glslang" -Dshaderc=disabled -Dlcms=disabled \
+  -Ddovi="$dovi" -Dlibdovi=disabled -Ddemos=false -Dtests=false \
   -Dbench=false -Dfuzz=false -Dunwind=disabled -Dxxhash=disabled
 meson compile -C "$build_root/libplacebo"
 meson install -C "$build_root/libplacebo"
@@ -265,8 +284,8 @@ meson setup --wipe "$build_root/mpv" "$source_root/mpv" \
   -Duchardet=disabled -Dvapoursynth=disabled -Dzimg=disabled -Dzlib=disabled \
   -Diconv=enabled -Dcoreaudio=enabled -Daudiounit=disabled \
   -Davfoundation=enabled -Dopenal=disabled -Dcocoa=disabled -Dgl=enabled \
-  -Dplain-gl=enabled -Dgl-cocoa=disabled -Dvulkan=disabled \
-  -Dvideotoolbox-gl=disabled -Dvideotoolbox-pl=disabled \
+  -Dplain-gl=enabled -Dgl-cocoa=disabled -Dvulkan="$vulkan" -Dmacvk-embedded="$embedded" \
+  -Dvideotoolbox-gl=disabled -Dvideotoolbox-pl="$vulkan" \
   -Dswift-build=disabled -Dmacos-cocoa-cb=disabled \
   -Dmacos-media-player=disabled -Dmacos-touchbar=disabled \
   -Dmanpage-build=disabled
@@ -279,6 +298,7 @@ libraries=(
   libswresample.6.dylib libswscale.9.dylib libfreetype.6.dylib
   libfribidi.0.dylib libharfbuzz.0.dylib
 )
+if [[ "$presentation" == macvk ]]; then libraries+=(libMoltenVK.dylib); fi
 rm -f "$bundle"/*.dylib
 for library in "${libraries[@]}"; do
   cp "$prefix/lib/$library" "$bundle/$library"
@@ -307,6 +327,10 @@ cp "$source_root/harfbuzz/COPYING" "$bundle/LICENSES/HarfBuzz-COPYING.txt"
 cp "$source_root/libass/COPYING" "$bundle/LICENSES/libass-ISC.txt"
 cp "$source_root/libplacebo/LICENSE" "$bundle/LICENSES/libplacebo-LGPL-2.1.txt"
 
+if [[ "$presentation" == macvk ]]; then
+  cp "$prefix/share/vesperwind-gpu/licenses/"* "$bundle/LICENSES/"
+fi
+
 cat > "$bundle/BUILD-INFO.txt" <<EOF
 Vesperwind bundled macOS libmpv build
 Xcode: $xcode_version
@@ -318,10 +342,21 @@ FFmpeg config: CONFIG_H264_VIDEOTOOLBOX_HWACCEL=1
 FFmpeg config: CONFIG_HEVC_VIDEOTOOLBOX_HWACCEL=1
 $(cat "$build_root/videotoolbox-probe.txt")
 mpv hwdec policy: auto-copy-safe (software fallback retained)
-mpv video output: vo=libmpv (OpenGL Render API)
+mpv video output: $presentation; vo=libmpv OpenGL Render API fallback retained
+mpv macvk-embedded: $embedded
+mpv videotoolbox-pl: $vulkan
+libplacebo Vulkan: $vulkan; vk-proc-addr: $vulkan
+libplacebo dovi: $dovi; libdovi: disabled
+mpv embedded context patch: scripts/patches/mpv-macos-embedded-context.patch
+libplacebo private glslang patch: scripts/patches/libplacebo-macos-private-glslang.patch
 mpv audio output: CoreAudio, AVFoundation fallback
 mpv macOS 27 CoreAudio patch: scripts/patches/mpv-macos27-coreaudio.patch
 EOF
+
+if [[ "$presentation" == macvk ]]; then
+  cat "$prefix/share/vesperwind-gpu/BUILD-INFO.txt" >> "$bundle/BUILD-INFO.txt"
+  echo 'mpv owned hwdec policy: auto-safe; actual hwdec-current must be checked at runtime' >> "$bundle/BUILD-INFO.txt"
+fi
 
 cat > "$bundle/SOURCE-OFFER.txt" <<EOF
 Vesperwind libmpv runtime source and relinking information
@@ -344,8 +379,28 @@ EOF
 
 (
   cd "$bundle"
-  shasum -a 256 *.dylib BUILD-INFO.txt LICENSES/* > SHA256SUMS
+  shasum -a 256 *.dylib BUILD-INFO.txt SOURCE-OFFER.txt LICENSES/* > SHA256SUMS
 )
+
+# Build-time metadata must describe the selected artifact, including opt-in DOVI.
+# Preserve the independently verified Windows entry and its formatting.
+python3 - "$project_root/src-tauri/vendor/libmpv/manifest.json" "$presentation" "$dovi" <<'PYMANIFEST'
+from pathlib import Path
+import json, re, sys
+p = Path(sys.argv[1]); raw = p.read_text(); data = json.loads(raw)
+m = data['macos']; metal = sys.argv[2] == 'macvk'; dovi = sys.argv[3]
+feature = 'enabled' if metal else 'disabled'
+m['hardwareDecodePolicy'] = ('auto-safe for gpu-next/macvk-embedded (direct VideoToolbox texture import); ' if metal else '') + 'auto-copy-safe for OpenGL; software fallback'
+m['presentation'] = ('experimental mpv-owned gpu-next / Vulkan / pinned MoltenVK / Metal over CAMetalLayer wid; ' if metal else '') + 'FP16 EDR OpenGL Render API fallback'
+m['requiredMesonOptions'] = [f'-Dmacvk-embedded={feature}', f'-Dvulkan={feature}', f'-Dvideotoolbox-pl={feature}', '-Dcocoa=disabled', '-Dswift-build=disabled']
+m['requiredLibplaceboOptions'] = [f'-Dvulkan={feature}', f'-Dvk-proc-addr={feature}', '-Dopengl=enabled', f'-Dglslang={feature}', f'-Ddovi={dovi}', '-Dlibdovi=disabled']
+m['optionalDoviProcessing'] = f'VESPERWIND_LIBMPV_DOVI=enabled (built-in only; no libdovi); current artifact: {dovi}'
+m['runtimeValidation'] = 'Not validated after this source rebuild; run the native probe and application/display acceptance in docs/macos-video-backend-research.md'
+m['gpuDependencies'] = {'MoltenVK': '1.3.0 (49b97f26ae013b9e5bfb3098ee5dea5e4f58e9e8), dynamic direct link', 'Vulkan-Headers': '1.4.313 (e2e53a724677f6eba8ff0ce1ccb64ee321785cbd)', 'glslang': '15.1.0, static, optimizer disabled', 'transitiveSourcePins': 'macos/BUILD-INFO.txt (MoltenVK ExternalRevisions)'} if metal else {}
+m['backendOverride'] = 'VESPERWIND_MPV_MACOS_BACKEND=auto|macvk|opengl'
+replacement = '  "macos": ' + json.dumps(m, indent=2).replace('\n', '\n  ') + ',\n  "windows":'
+p.write_text(re.sub(r'  "macos": \{.*?\n  \},\n  "windows":', lambda _: replacement, raw, count=1, flags=re.S))
+PYMANIFEST
 
 node "$project_root/scripts/verify-libmpv-bundle.js" macos
 echo "Created $bundle"

@@ -113,6 +113,13 @@ pub struct PlaybackDiagnostics {
     pub decoder: Option<String>,
     pub hardware_decoder: Option<String>,
     pub renderer: String,
+    pub current_vo: Option<String>,
+    pub current_gpu_context: Option<String>,
+    pub target_transfer: Option<String>,
+    pub target_primaries: Option<String>,
+    pub dolby_vision_rpu: Option<bool>,
+    pub dolby_vision_processing: Option<String>,
+    pub system_dolby_vision_output: bool,
     pub display: DisplayCapabilities,
     pub windows_output: Option<WindowsOutputDiagnostics>,
     pub dropped_frames: Option<i64>,
@@ -300,8 +307,22 @@ fn requested_backends() -> Result<Vec<Backend>, String> {
     return windows_backends(
         &std::env::var("VESPERWIND_MPV_WINDOWS_BACKEND").unwrap_or_else(|_| "auto".into()),
     );
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    return macos_backends(
+        &std::env::var("VESPERWIND_MPV_MACOS_BACKEND").unwrap_or_else(|_| "auto".into()),
+    );
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     Ok(vec![Backend::RenderApi])
+}
+
+#[cfg(target_os = "macos")]
+fn macos_backends(mode: &str) -> Result<Vec<Backend>, String> {
+    match mode {
+        "auto" => Ok(vec![Backend::MacVk, Backend::RenderApi]),
+        "macvk" => Ok(vec![Backend::MacVk]),
+        "opengl" => Ok(vec![Backend::RenderApi]),
+        _ => Err("VESPERWIND_MPV_MACOS_BACKEND must be auto, macvk or opengl".into()),
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -355,11 +376,15 @@ impl MpvPlayerManager {
             Backend::RenderApi => NativeSurface::create(window)?,
             #[cfg(target_os = "windows")]
             Backend::D3d11 => NativeSurface::create_video_host(window)?,
+            #[cfg(target_os = "macos")]
+            Backend::MacVk => NativeSurface::create_video_host(window)?,
         };
         let host = match backend {
             Backend::RenderApi => None,
             #[cfg(target_os = "windows")]
             Backend::D3d11 => Some(surface.host_address()),
+            #[cfg(target_os = "macos")]
+            Backend::MacVk => Some(surface.host_address()),
         };
         let registry = Arc::as_ptr(&self.registry).cast_mut().cast();
         let handle = match host {
@@ -454,7 +479,7 @@ impl MpvPlayerManager {
                 if !can_fallback {
                     return Err(error);
                 }
-                eprintln!("[player={session_id}] presentation startup failed; trying WGL: {error}");
+                eprintln!("[player={session_id}] presentation startup failed; trying OpenGL Render API: {error}");
                 fallback_reason = Some(error);
                 continue;
             }
@@ -477,14 +502,16 @@ impl MpvPlayerManager {
                 eprintln!("[player={session_id}] open failed: {error}");
                 self.registry.remove(&uri);
                 self.close(session_id);
-                if can_fallback && error.starts_with("D3D11 presentation initialization failed:") {
+                if can_fallback
+                    && error.starts_with("Owned video presentation initialization failed")
+                {
                     fallback_reason = Some(error.clone());
                     continue;
                 }
             }
             return result;
         }
-        Err("No Windows presentation backend could start".into())
+        Err("No native presentation backend could start".into())
     }
 
     pub fn set_geometry(&self, session_id: &str, geometry: PlayerGeometry) -> Result<(), String> {
@@ -870,8 +897,7 @@ fn control_loop(
                     if backend == Backend::D3d11 {
                         update_windows_output_policy(&api, handle, &display, &mut output_policy);
                     }
-                    #[cfg(target_os = "windows")]
-                    if backend == Backend::D3d11
+                    if backend.owned()
                         && api.get_i64(handle, "current-tracks/video/id").is_some()
                         && api.get_flag(handle, "vo-configured") != Some(true)
                     {
@@ -880,6 +906,30 @@ fn control_loop(
                         // this does not gate fullscreen transitions.
                         waiting_for_vo = Some(Instant::now());
                         continue;
+                    }
+                    #[cfg(target_os = "macos")]
+                    if backend == Backend::MacVk
+                        && api.get_i64(handle, "current-tracks/video/id").is_some()
+                        && (api.get_string(handle, "current-vo").as_deref() != Some("gpu-next")
+                            || api.get_string(handle, "current-gpu-context").as_deref()
+                                != Some("macvk-embedded"))
+                    {
+                        let message = backend.startup_error(
+                            "configured VO/context differs from gpu-next/macvk-embedded",
+                        );
+                        if let Some((reply, _, uri)) = pending_load.take() {
+                            registry.remove(&uri);
+                            let _ = reply.send(Err(message.clone()));
+                        }
+                        state.error = Some(message);
+                        state.status = "error".into();
+                        *lifecycle.lock().unwrap_or_else(|v| v.into_inner()) =
+                            PlayerLifecycle::Error;
+                        continue;
+                    }
+                    #[cfg(target_os = "macos")]
+                    if backend == Backend::MacVk {
+                        let _ = configure_display_output(&api, handle, &display);
                     }
                     state.error = None;
                     state = read_snapshot(&api, handle, &state, &display);
@@ -922,9 +972,8 @@ fn control_loop(
                             "libmpv could not play this file: {}",
                             api.error_string(error)
                         );
-                        #[cfg(target_os = "windows")]
-                        let message = if backend == Backend::D3d11 && error == -15 {
-                            format!("D3D11 presentation initialization failed: {message}")
+                        let message = if backend.owned() && error == -15 {
+                            backend.startup_error(&message)
                         } else {
                             message
                         };
@@ -946,7 +995,7 @@ fn control_loop(
         }
         if waiting_for_vo.is_some_and(|started| started.elapsed() >= Duration::from_secs(10)) {
             waiting_for_vo = None;
-            let message = "D3D11 presentation initialization failed: video output did not configure within 10 seconds".to_string();
+            let message = backend.startup_error("video output did not configure within 10 seconds");
             if let Some((reply, _, uri)) = pending_load.take() {
                 registry.remove(&uri);
                 let _ = reply.send(Err(message.clone()));
@@ -996,6 +1045,12 @@ fn control_loop(
                 #[cfg(target_os = "windows")]
                 if backend == Backend::D3d11 {
                     update_windows_output_policy(&api, handle, &display, &mut output_policy);
+                }
+                #[cfg(target_os = "macos")]
+                if backend == Backend::MacVk {
+                    if let Err(error) = configure_display_output(&api, handle, &display) {
+                        eprintln!("[player={session_id}] Metal output policy failed: {error}");
+                    }
                 }
                 last_metadata_refresh = Instant::now();
                 read_snapshot(&api, handle, &state, &display)
@@ -1127,6 +1182,27 @@ fn configure_display_output(
 ) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
+        if display.surface_format.starts_with("mpv-owned Metal") {
+            let (source_hdr, _) = classify_hdr_source(
+                api.get_string(handle, "video-params/gamma").as_deref(),
+                api.get_string(handle, "video-params/primaries").as_deref(),
+                api.get_i64(handle, "current-tracks/video/dolby-vision-profile"),
+            );
+            let (trc, prim, peak) = super::macos_output::target(source_hdr, display);
+            // Avoid unnecessary swapchain changes during periodic diagnostics.
+            for (name, value) in [("target-trc", trc), ("target-prim", prim)] {
+                if api.get_string(handle, name).as_deref() != Some(value) {
+                    api.set_property(handle, name, value)?;
+                }
+            }
+            if api
+                .get_double(handle, "target-peak")
+                .is_none_or(|p| (p - peak).abs() > 0.5)
+            {
+                api.set_property(handle, "target-peak", &peak.to_string())?;
+            }
+            return Ok(());
+        }
         let edr = display.output_supported && display.hdr_capable;
         api.set_property(
             handle,
@@ -1240,8 +1316,12 @@ fn read_diagnostics(
         dolby_vision_profile,
     );
     let mut output_hdr_active = is_hdr_output_active(source_hdr, display);
-    let target_peak_nits =
-        (display.platform == "macos").then_some(203.0 * display.current_headroom.max(1.0));
+    let current_vo = api.get_string(handle, "current-vo");
+    let current_gpu_context = api.get_string(handle, "current-gpu-context");
+    let target_transfer = api.get_string(handle, "video-target-params/gamma");
+    let target_primaries = api.get_string(handle, "video-target-params/primaries");
+    // Negotiated target metadata, not the requested target-peak option.
+    let target_peak_nits = api.get_double(handle, "video-target-params/max-luma");
     let mut tone_mapping = if !source_hdr {
         "none".to_string()
     } else if output_hdr_active {
@@ -1352,6 +1432,51 @@ fn read_diagnostics(
     } else {
         None
     };
+    if display.surface_format.starts_with("mpv-owned Metal") {
+        output_hdr_active = super::macos_output::hdr_verified(
+            source_hdr,
+            display,
+            current_vo.as_deref(),
+            current_gpu_context.as_deref(),
+            target_transfer.as_deref(),
+            target_primaries.as_deref(),
+        );
+        let sdr_verified = super::macos_output::sdr_verified(
+            display,
+            target_transfer.as_deref(),
+            target_primaries.as_deref(),
+        );
+        output_mode = if output_hdr_active {
+            "HDR (Metal EDR / PQ target verified)"
+        } else if sdr_verified && source_hdr {
+            "SDR fallback"
+        } else if sdr_verified {
+            "SDR"
+        } else {
+            "Not verified (output changing or unavailable)"
+        }
+        .into();
+        output_color_space = if output_hdr_active {
+            "PQ / BT.2020"
+        } else if sdr_verified {
+            "BT.709"
+        } else {
+            "not verified"
+        }
+        .into();
+        tone_mapping = if !source_hdr {
+            "none"
+        } else if output_hdr_active {
+            "HDR display mapping (libplacebo)"
+        } else if sdr_verified {
+            "HDR-to-SDR fallback"
+        } else {
+            "not verified"
+        }
+        .into();
+        fallback_reason = (source_hdr && !output_hdr_active).then(||
+            "Metal HDR target, layer colorspace, EDR state and current display headroom are not all verified".into());
+    }
     let container = api.get_string(handle, "file-format");
     let matrix = api.get_string(handle, "video-params/colormatrix");
     PlaybackDiagnostics {
@@ -1386,7 +1511,7 @@ fn read_diagnostics(
             bitrate: track_average_bitrate(api, handle, "current-tracks/video"),
             chroma: source_chroma,
             friendly_matrix: matrix.as_deref().map(friendly_color_name),
-            matrix,
+            matrix: matrix.clone(),
         },
         audio: AudioDiagnostics {
             friendly_codec: audio_codec.as_deref().map(friendly_codec_name),
@@ -1440,6 +1565,13 @@ fn read_diagnostics(
         dolby_vision_profile,
         dolby_vision_level,
         dolby_vision_support: dolby_vision_profile.map(dolby_vision_support),
+        // mpv exposes processed DOVI representation, not raw per-frame RPU.
+        // Absence of this evidence is unknown, never "RPU absent".
+        dolby_vision_rpu: (matrix.as_deref() == Some("dolbyvision")).then_some(true),
+        dolby_vision_processing: dolby_vision_profile.map(|_| if matrix.as_deref() == Some("dolbyvision") && current_vo.as_deref() == Some("gpu-next") {
+            "DOVI frame representation active; libplacebo processing path (not system DV output)".into()
+        } else { "Not observed; base-layer fallback (profile 5 color correctness is not guaranteed)".into() }),
+        system_dolby_vision_output: false,
         output_hdr_active,
         output_mode,
         output_color_space,
@@ -1450,11 +1582,16 @@ fn read_diagnostics(
         hardware_decoder: api
             .get_string(handle, "hwdec-current")
             .filter(|decoder| decoder != "no"),
-        renderer: if display.surface_format.starts_with("mpv-owned D3D11") {
+        renderer: if display.surface_format.starts_with("mpv-owned Metal") {
+            if current_vo.as_deref() == Some("gpu-next") && current_gpu_context.as_deref() == Some("macvk-embedded") {
+                "gpu-next / Vulkan / MoltenVK / Metal (runtime VO/context verified)".into()
+            } else { format!("Not configured (vo={current_vo:?}, context={current_gpu_context:?})") }
+        } else if display.surface_format.starts_with("mpv-owned D3D11") {
             "libmpv-owned gpu-next / D3D11 / DXGI".to_string()
         } else {
             Backend::RenderApi.name().to_string()
         },
+        current_vo, current_gpu_context, target_transfer, target_primaries,
         display: display.clone(),
         windows_output,
         dropped_frames: api.get_i64(handle, "frame-drop-count"),
@@ -1649,13 +1786,13 @@ fn detect_bit_depth(pixel_format: Option<&str>, codec_profile: Option<&str>) -> 
 
 fn dolby_vision_support(profile: i64) -> String {
     match profile {
-        5 => "profile 5 metadata detected; this bundle has libplacebo Dolby Vision processing disabled, so correct RPU reshaping is unavailable"
+        5 => "profile 5 metadata detected; RPU reshaping requires the optional libplacebo dovi build; inspect processing evidence"
             .to_string(),
         7 => "dual-layer profile detected; the HDR10 base layer may be used, but RPU and MEL/FEL enhancement-layer reconstruction are not claimed"
             .to_string(),
-        8 => "base-layer-compatible profile detected; the base layer may be used, but RPU processing is disabled in this bundle"
+        8 => "base-layer-compatible profile detected; the base layer may be used, but RPU processing must be verified separately"
             .to_string(),
-        _ => "profile detected; Dolby Vision RPU processing is disabled in this bundle".to_string(),
+        _ => "profile detected; Dolby Vision RPU processing must be verified separately".to_string(),
     }
 }
 
@@ -1766,6 +1903,18 @@ mod tests {
         assert!(is_target_session(Some("player-a"), "player-a"));
         assert!(!is_target_session(Some("player-b"), "player-a"));
         assert!(!is_target_session(None, "player-a"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn strict_macvk_never_silently_falls_back() {
+        assert_eq!(
+            macos_backends("auto").unwrap(),
+            vec![Backend::MacVk, Backend::RenderApi]
+        );
+        assert_eq!(macos_backends("macvk").unwrap(), vec![Backend::MacVk]);
+        assert_eq!(macos_backends("opengl").unwrap(), vec![Backend::RenderApi]);
+        assert!(macos_backends("typo").is_err());
     }
 
     #[test]

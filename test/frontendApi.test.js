@@ -34,7 +34,7 @@ const sourceFilesIn = async (directory) => {
 }
 
 test('keeps Vue components and composables behind the frontend API boundary', async () => {
-  const directories = ['components', 'composables'].map((directory) =>
+  const directories = ['components', 'composables', 'media-overlay'].map((directory) =>
     path.join(projectRoot, 'src', directory),
   )
   const files = (await Promise.all(directories.map(sourceFilesIn))).flat()
@@ -45,7 +45,7 @@ test('keeps Vue components and composables behind the frontend API boundary', as
     /\b(?:invoke|listen)\s*\(/,
     /["'`]\/api\/media/,
     /vesperwind-media:/,
-    /(?:filesystem|settings|terminal):[a-z-]+/,
+    /(?:filesystem|settings|terminal|video):[a-z-]+/,
   ]
 
   for (const file of files) {

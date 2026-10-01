@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -56,7 +57,29 @@ if (platformName === 'macos') {
   ]) {
     if (!buildInfo.includes(evidence)) throw new Error(`Missing build evidence: ${evidence}`)
   }
-  run('shasum', ['-a', '256', '-c', 'SHA256SUMS'], { cwd: directory })
+  const metal = files.includes('libMoltenVK.dylib')
+  if (metal) {
+    for (const evidence of ['mpv macvk-embedded: enabled', 'mpv videotoolbox-pl: enabled', 'libplacebo Vulkan: enabled; vk-proc-addr: enabled', 'MoltenVK: 1.3.0 (49b97f26ae013b9e5bfb3098ee5dea5e4f58e9e8)', 'glslang: 15.1.0']) {
+      if (!buildInfo.includes(evidence)) throw new Error(`Missing Metal build evidence: ${evidence}`)
+    }
+    for (const name of ['MoltenVK-Apache-2.0.txt', 'glslang-LICENSE.txt', 'SPIRV-Cross-LICENSE.txt', 'SPIRV-Headers-LICENSE.txt', 'SPIRV-Tools-LICENSE.txt', 'Vulkan-Headers-LICENSE.txt', 'Vulkan-Tools-LICENSE.txt', 'cereal-LICENSE.txt', 'Volk-LICENSE.txt']) {
+      await fs.access(path.join(directory, 'LICENSES', name))
+    }
+  }
+  const checksumText = await fs.readFile(path.join(directory, 'SHA256SUMS'), 'utf8')
+  const checksums = new Map(checksumText.trim().split('\n').map((line) => {
+    const match = line.match(/^([a-f0-9]{64})  (.+)$/)
+    if (!match || match[2].includes('..') || path.isAbsolute(match[2])) throw new Error('Invalid bundle checksum entry')
+    return [match[2], match[1]]
+  }))
+  const requiredHashes = [...files.filter((name) => name.endsWith('.dylib')), 'BUILD-INFO.txt', ...(metal ? ['SOURCE-OFFER.txt'] : []), ...(await fs.readdir(path.join(directory, 'LICENSES'))).map((name) => `LICENSES/${name}`)]
+  for (const name of requiredHashes) {
+    if (!checksums.has(name)) throw new Error(`Missing checksum: ${name}`)
+  }
+  for (const [name, hash] of checksums) {
+    const actual = createHash('sha256').update(await fs.readFile(path.join(directory, name))).digest('hex')
+    if (actual !== hash) throw new Error(`Checksum mismatch: ${name}`)
+  }
   const dylibs = files.filter((name) => name.endsWith('.dylib'))
   for (const name of dylibs) {
     const library = path.join(directory, name)
@@ -75,7 +98,10 @@ if (platformName === 'macos') {
         throw new Error(`${name} has a non-bundled dependency: ${dependency}`)
       }
       if (dependency.startsWith('@loader_path/')) {
+        if (path.basename(dependency) !== dependency.slice('@loader_path/'.length)) throw new Error(`${name} has an escaping loader dependency: ${dependency}`)
         await fs.access(path.join(directory, path.basename(dependency)))
+      } else if (!dependency.startsWith('/System/Library/Frameworks/') && !dependency.startsWith('/usr/lib/')) {
+        throw new Error(`${name} has an unresolved/non-system dependency: ${dependency}`)
       }
     }
     const buildVersion = run('otool', ['-l', library])

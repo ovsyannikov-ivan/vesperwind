@@ -10,6 +10,9 @@ import 'media-chrome/dist/media-time-display.js'
 import 'media-chrome/dist/media-time-range.js'
 import 'media-chrome/dist/media-volume-range.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import ThumbnailPreview from './ThumbnailPreview.vue'
+import { useThumbnailPreview } from '../composables/useThumbnailPreview.js'
+import { createSeekController, canHandleSeekKey } from '../player/seekController.js'
 import { mediaOverlay } from '../api/mediaOverlay.js'
 import { createLayoutQueue } from '../player/layoutQueue.js'
 import {
@@ -51,6 +54,26 @@ const state = reactive({
   diagnostics: null,
   error: null,
 })
+const seekFeedback = ref(null)
+const seekController = createSeekController({
+  getTime: () => state.currentTime, getDuration: () => state.duration,
+  seek: (target) => player?.seek(target), onChange: (value) => { seekFeedback.value = value },
+  onError: (error) => console.warn('Video seek failed', error),
+})
+const sourceLocation = () => ({ providerId: props.providerId || 'local', path: props.path })
+const thumbnail = useThumbnailPreview(() => ({ ...sourceLocation(), sourceHdr: state.diagnostics?.sourceHdr }))
+const handleVideoKeydown = (event) => {
+  if (isAudio.value || isNative.value || nativeTransitioning || !canHandleSeekKey(event)) return
+  if (![PlayerStatus.READY, PlayerStatus.PLAYING, PlayerStatus.PAUSED].includes(state.status)) return
+  if (seekController.add(event.key === 'ArrowRight' ? 10 : -10)) {
+    event.preventDefault()
+    event.stopPropagation()
+  }
+}
+const handlePreview = (event) => {
+  if (isAudio.value || event.detail == null) { thumbnail.hide(); return }
+  thumbnail.show(event.detail, state.duration > 0 ? event.detail / state.duration : 0)
+}
 const isAudio = computed(() => props.kind === 'audio')
 const isNative = computed(() => backendMode.value === 'mpv')
 let player = null
@@ -128,6 +151,7 @@ const overlayGeometry = () => {
 const overlayContext = () => ({
   sessionId: player?.sessionId || null,
   title: props.title,
+  ...sourceLocation(),
   position: props.position,
   total: props.total,
   fullscreen: props.fullscreen,
@@ -164,10 +188,10 @@ const attachNativeGeometry = () => {
 
 const applyState = (snapshot) => {
   Object.assign(state, snapshot)
+  if ([PlayerStatus.ERROR, PlayerStatus.CLOSED, PlayerStatus.LOADING, PlayerStatus.ENDED].includes(snapshot.status)) seekController.reset()
   if (snapshot.error) emit('error', snapshot.error)
 }
 
-const sourceLocation = () => ({ providerId: props.providerId || 'local', path: props.path })
 
 const createPlayer = async () => {
   const currentGeneration = ++generation
@@ -192,12 +216,14 @@ const createPlayer = async () => {
   }
 }
 
-const pause = () => player?.pause()
+const pause = () => { seekController.reset(); thumbnail.hide(); return player?.pause() }
 const play = () => player?.play()
-const seek = (seconds) => player?.seek(seconds)
-const stop = () => player?.stop()
+const seek = (seconds) => { seekController.reset(); return player?.seek(seconds) }
+const stop = () => { seekController.reset(); thumbnail.hide(); return player?.stop() }
 const coverNativeTransition = async () => {
   const current = ++nativeTransitionGeneration
+  seekController.reset()
+  thumbnail.hide()
   nativeTransitioning = true
   cancelAnimationFrame(geometryFrame)
   layoutQueue.cancel()
@@ -298,11 +324,16 @@ const settleNativePresentation = async () => {
   // Keep video hidden throughout the fixed 500 ms hold. Reveal applies final
   // bounds and restores visibility under the opaque cover before fading in.
 }
-onMounted(() => void createPlayer().catch((error) => emit('error', error)))
+onMounted(() => {
+  document.addEventListener('keydown', handleVideoKeydown, true)
+  void createPlayer().catch((error) => emit('error', error))
+})
 
 watch(
   () => [props.src, props.providerId, props.path],
   () => {
+    seekController.reset()
+    thumbnail.hide()
     if (!player) return
     nativeReady = false
     const request = isNative.value
@@ -330,6 +361,8 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  seekController.reset()
+  document.removeEventListener('keydown', handleVideoKeydown, true)
   generation += 1
   nativeTransitionGeneration += 1
   if (nativeCover) void uncoverNative()
@@ -360,15 +393,20 @@ defineExpose({ mediaElement, pause, play, seek, stop, coverNativeTransition, rev
     class="custom-media-player"
     :class="isAudio ? 'is-audio' : 'is-video'"
     :audio="isAudio || undefined"
+    :hotkeys="!isAudio ? 'noarrowleft noarrowright' : undefined"
   >
     <audio v-if="isAudio" ref="mediaElement" slot="media" :autoplay="autoplay" preload="metadata" @error="emit('error')" />
     <video v-else ref="mediaElement" slot="media" :autoplay="autoplay" playsinline preload="metadata" @error="emit('error')" />
+    <span v-if="seekFeedback" slot="centered-chrome" class="video-seek-feedback" role="status">{{ seekFeedback.delta > 0 ? '+' : '' }}{{ Math.round(seekFeedback.delta) }} s</span>
     <media-loading-indicator v-if="!isAudio" slot="centered-chrome" noautohide />
     <media-play-button v-if="!isAudio" slot="centered-chrome" class="custom-media-player-centered-play" aria-label="Play or pause video" />
     <media-control-bar class="custom-media-player-controls">
       <media-play-button aria-label="Play or pause" />
       <media-time-display showduration />
-      <media-time-range aria-label="Playback position" />
+      <div class="video-preview-track">
+        <ThumbnailPreview v-if="!isAudio" :preview="thumbnail.preview" />
+        <media-time-range aria-label="Playback position" :style="!isAudio ? { '--media-preview-box-display': 'none' } : undefined" @mediapreviewrequest="handlePreview" @pointerdown="seekController.reset()" @mediaseekrequest="seekController.reset()" />
+      </div>
       <media-mute-button aria-label="Mute or unmute" />
       <media-volume-range aria-label="Volume" />
       <media-playback-rate-button v-if="!isAudio" />

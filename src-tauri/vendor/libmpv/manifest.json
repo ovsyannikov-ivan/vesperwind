@@ -10,9 +10,34 @@
     "buildToolchain": "Xcode 27.0 (27A266a), macOS SDK 27.0",
     "audioOutput": "CoreAudio with AVFoundation fallback",
     "hardwareDecode": true,
-    "hardwareDecodePolicy": "auto-copy-safe; VideoToolbox copy-back with software fallback",
+    "hardwareDecodePolicy": "auto-safe for gpu-next/macvk-embedded (direct VideoToolbox texture import); auto-copy-safe for OpenGL; software fallback",
     "buildEvidence": "macos/BUILD-INFO.txt",
-    "entry": "macos/libmpv.2.dylib"
+    "entry": "macos/libmpv.2.dylib",
+    "presentation": "experimental mpv-owned gpu-next / Vulkan / pinned MoltenVK / Metal over CAMetalLayer wid; FP16 EDR OpenGL Render API fallback",
+    "runtimeValidation": "Apple M4: native client probe passed H.264, HEVC 8-bit, Main10 SDR, PQ and HLG synthetic clips with hwdec-current=videotoolbox, paused resize, play/pause/seek, source switching and three lifetimes. PQ layer RGB10A2, ITU2100PQ, wantsEDR and CAEDRMetadata observed. OpenGL Render API H.264 rendering passed three lifetimes with videotoolbox-copy. Tauri composition/fullscreen, physical HDR/color accuracy, display moves/hotplug/sleep/wake, SFTP and Dolby Vision assets remain unverified.",
+    "requiredMesonOptions": [
+      "-Dmacvk-embedded=enabled",
+      "-Dvulkan=enabled",
+      "-Dvideotoolbox-pl=enabled",
+      "-Dcocoa=disabled",
+      "-Dswift-build=disabled"
+    ],
+    "requiredLibplaceboOptions": [
+      "-Dvulkan=enabled",
+      "-Dvk-proc-addr=enabled",
+      "-Dopengl=enabled",
+      "-Dglslang=enabled",
+      "-Ddovi=disabled",
+      "-Dlibdovi=disabled"
+    ],
+    "optionalDoviProcessing": "VESPERWIND_LIBMPV_DOVI=enabled (built-in processing only, no libdovi; not enabled in current artifact)",
+    "gpuDependencies": {
+      "MoltenVK": "1.3.0 (49b97f26ae013b9e5bfb3098ee5dea5e4f58e9e8), dynamic direct link",
+      "Vulkan-Headers": "1.4.313 (e2e53a724677f6eba8ff0ce1ccb64ee321785cbd)",
+      "glslang": "15.1.0, static, optimizer disabled",
+      "transitiveSourcePins": "macos/BUILD-INFO.txt (MoltenVK ExternalRevisions)"
+    },
+    "backendOverride": "VESPERWIND_MPV_MACOS_BACKEND=auto|macvk|opengl"
   },
   "windows": {
     "artifactStatus": "built-from-pinned-source",

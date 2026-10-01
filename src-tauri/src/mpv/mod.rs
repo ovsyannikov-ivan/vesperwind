@@ -1,5 +1,6 @@
 mod dynamic_library;
 mod hdr_policy;
+mod macos_output;
 mod player;
 mod presentation;
 mod render;
@@ -230,19 +231,37 @@ impl MpvApi {
             if let Some(host) = host {
                 self.set_option(handle, "wid", &host.to_string())?;
                 self.set_option(handle, "vo", "gpu-next")?;
-                self.set_option(handle, "gpu-api", "d3d11")?;
-                self.set_option(handle, "gpu-context", "d3d11")?;
                 self.set_option(handle, "fullscreen", "no")?;
-                self.set_option(handle, "d3d11-exclusive-fs", "no")?;
-                // RGBA8 is a best-effort SDR preference for gpu-next. HDR hints
-                // let libplacebo upgrade its own swapchain to RGB10A2 / PQ.
-                // Start in SDR until source and Windows HDR state are known.
-                self.set_option(handle, "d3d11-output-format", "rgba8")?;
-                self.set_option(handle, "d3d11-output-csp", "srgb")?;
+                #[cfg(target_os = "macos")]
+                {
+                    self.set_option(handle, "gpu-api", "vulkan")?;
+                    self.set_option(handle, "gpu-context", "macvk-embedded")?;
+                    self.set_option(handle, "vulkan-swap-mode", "fifo")?;
+                }
+                #[cfg(target_os = "windows")]
+                {
+                    self.set_option(handle, "gpu-api", "d3d11")?;
+                    self.set_option(handle, "gpu-context", "d3d11")?;
+                    self.set_option(handle, "fullscreen", "no")?;
+                    self.set_option(handle, "d3d11-exclusive-fs", "no")?;
+                    // RGBA8 is a best-effort SDR preference for gpu-next. HDR hints
+                    // let libplacebo upgrade its own swapchain to RGB10A2 / PQ.
+                    // Start in SDR until source and Windows HDR state are known.
+                    self.set_option(handle, "d3d11-output-format", "rgba8")?;
+                    self.set_option(handle, "d3d11-output-csp", "srgb")?;
+                }
                 self.set_option(handle, "target-colorspace-hint", "yes")?;
                 self.set_option(handle, "target-colorspace-hint-mode", "target")?;
                 self.set_option(handle, "target-colorspace-hint-strict", "yes")?;
-                self.set_option(handle, "target-trc", "gamma2.2")?;
+                self.set_option(
+                    handle,
+                    "target-trc",
+                    if cfg!(target_os = "macos") {
+                        "srgb"
+                    } else {
+                        "gamma2.2"
+                    },
+                )?;
                 self.set_option(handle, "target-prim", "bt.709")?;
                 self.set_option(handle, "target-peak", "203")?;
                 // The SDR viewer must also sustain 4K on integrated GPUs.
@@ -278,7 +297,7 @@ impl MpvApi {
                 self.set_option(handle, "msg-level", "all=v")?;
             }
             #[cfg(target_os = "macos")]
-            {
+            if host.is_none() {
                 // Keep intermediate video processing in floating point. The final
                 // target transfer/peak is updated from the active NSScreen.
                 self.set_option(handle, "fbo-format", "rgba16f")?;

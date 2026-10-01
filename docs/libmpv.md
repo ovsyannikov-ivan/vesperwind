@@ -9,7 +9,23 @@ by the Vue media viewer. libmpv receives an opaque
 layer. Local and SFTP sources therefore follow the same path, and SSH credentials
 never enter the URL, WebView, or mpv configuration.
 
-On macOS, Vesperwind creates an `NSOpenGLView` above the main Wry webview, owns its OpenGL
+macOS now has an **experimental** owned renderer: an application-owned NSView /
+CAMetalLayer is passed through `wid` to the downstream `macvk-embedded` Vulkan
+context. `vo=gpu-next` delegates rendering to libplacebo / pinned MoltenVK / Metal.
+The existing controls WKWebView remains above video. The common player commands,
+provider streams, fullscreen sequencing and Vue API are unchanged.
+
+`VESPERWIND_MPV_MACOS_BACKEND=auto|macvk|opengl` selects automatic startup/VO
+fallback, strict Metal diagnostics, or the established OpenGL renderer. `auto`
+is the default. Strict `macvk` returns presentation errors without falling back;
+source/decoder failures do not trigger renderer retry. Actual `current-vo` and
+`current-gpu-context` must match before video startup succeeds.
+
+See [the dated research and alternatives](macos-video-backend-research.md) for
+embedding, VideoToolbox texture import, HDR limitations, Dolby Vision and public
+AVFoundation findings. No AVFoundation player or custom video renderer was added.
+
+For the retained OpenGL fallback, Vesperwind creates an `NSOpenGLView` above the main Wry webview, owns its OpenGL
 context, and renders through libmpv's Render API on a dedicated thread. A second,
 transparent child WKWebView sits above the OpenGL view and owns all native-player
 chrome. The resulting order is media-controls WebView → NSOpenGLView → main WebView;
@@ -29,7 +45,7 @@ The main Vue viewer synchronizes both native layers only during viewer open/clos
 window resize, actual viewport changes, fullscreen transitions, and display scale
 changes. AppKit geometry mutation and OpenGL render/swap operations share one lock;
 the renderer is joined before its context and surface are destroyed.
-Closing or switching a source tears down the previous stream, render context, and
+Closing or switching a source tears down the previous stream, presentation, and
 mpv handle.
 
 Native fullscreen transitions fade the controls WebView to black, hide the
@@ -67,7 +83,16 @@ from a filename. Diagnostics report transfer function, primaries, pixel format,
 estimated bit depth, HDR10 mastering/CLL values when present, Dolby Vision profile,
 decoder/hardware-decoder state, render surface format, and actual output mode.
 
-On macOS, the EDR path is:
+The experimental Metal backend requests a PQ/BT.2020 target for HDR sources when
+the current display has EDR headroom, and resets SDR sources/displays to
+BT.709/sRGB. HLG is mapped to PQ by libplacebo. HDR is reported active only
+with a verified mpv target, actual high-depth Metal format, actual PQ layer
+colorspace, wantsExtendedDynamicRangeContent and current display headroom.
+CAEDRMetadata presence is reported independently. Requested options are not proof
+of presented light levels. Physical display moves, brightness changes, hotplug,
+sleep/wake and HDR color accuracy still need application/display acceptance.
+
+For the OpenGL fallback, the EDR path is:
 
 1. decode HDR10/PQ or HLG through the normal libmpv video pipeline;
 2. ask mpv's OpenGL renderer for a linear Display-P3 target and a floating-point
@@ -80,7 +105,7 @@ On macOS, the EDR path is:
    fullscreen transitions, power/brightness changes, and EDR-headroom changes
    update the output decision.
 
-An HDR source is labelled **HDR output active** only when the source metadata is
+In the OpenGL fallback, an HDR source is labelled **HDR output active** only when the source metadata is
 HDR, the FP16 EDR surface exists, and the current screen reports headroom above
 1.0. Otherwise the UI says **SDR fallback** and reports the reason. `target-peak`
 uses mpv's 203-nit reference white multiplied by current EDR headroom; HDR content
@@ -88,7 +113,7 @@ is mapped to that currently available range rather than blindly clipped.
 
 The pinned mpv 0.41 public Render API uses `vo=libmpv` with its OpenGL `vo_gpu`
 backend. It is not `vo=gpu-next`, and Vesperwind does not claim that gpu-next
-swapchain color-space signalling is active. The EDR implementation deliberately
+swapchain color-space signalling is active. The OpenGL fallback EDR implementation
 uses the supported OpenGL Render API and AppKit's documented FP16 EDR surface
 instead of setting gpu-next-only options.
 
@@ -364,3 +389,44 @@ diagnostics. Dolby Vision profiles 5/7/8 must be checked separately and must not
 reported as fully supported. Observe memory while seeking in a
 several-hundred-megabyte remote file; it must not grow with total file size. Repeat
 the SDR playback matrix on Windows independently of the future DXGI HDR work.
+
+
+## Experimental macOS Metal build and checks
+
+Run `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer bash scripts/build-libmpv-macos.sh`.
+The default recipe builds Vulkan/MoltenVK with the embedded context and retains
+OpenGL. `VESPERWIND_LIBMPV_MACOS_PRESENTATION=opengl` builds the earlier minimal
+closure. MoltenVK 1.3.0 and glslang 15.1.0 are pinned and checksum verified; the
+MoltenVK dependency refs, notices and build feature evidence accompany the dylibs.
+The private Vulkan pkg-config entry links libMoltenVK directly. No system loader,
+ICD JSON, Cocoa/Swift mpv application UI or external mpv process is required.
+
+`VESPERWIND_LIBMPV_DOVI=enabled` enables libplacebo's built-in processing for a
+separate experiment; default is disabled and libdovi remains disabled in both
+cases. It does not enable native Dolby Vision output or Profile 7 FEL decoding.
+The profile/level, processed-RPU evidence and base-layer fallback are independent
+from HDR output diagnostics. Unknown raw RPU state is not reported absent.
+
+`node scripts/verify-libmpv-bundle.js macos` checks checksums, the complete dylib
+closure, architectures, deployment targets, signatures and Metal build notices.
+Release builds still need Developer ID signing, hardened-runtime and notarization
+acceptance; development ad-hoc signatures do not establish that.
+
+A small public-client embedding probe is included in `scripts/probe-libmpv-macvk.m`:
+
+```sh
+xcrun clang -isysroot "$(xcrun --sdk macosx --show-sdk-path)" \
+  -I/private/tmp/vesperwind-libmpv-build/prefix/include \
+  -Lsrc-tauri/vendor/libmpv/macos -lmpv.2 \
+  -Wl,-rpath,"$PWD/src-tauri/vendor/libmpv/macos" \
+  -framework AppKit -framework QuartzCore scripts/probe-libmpv-macvk.m \
+  -o /private/tmp/vesperwind-macvk-probe
+install_name_tool -change @loader_path/libmpv.2.dylib @rpath/libmpv.2.dylib /private/tmp/vesperwind-macvk-probe
+codesign --force --sign - /private/tmp/vesperwind-macvk-probe
+/private/tmp/vesperwind-macvk-probe /absolute/path/video.mkv /absolute/path/another.mp4
+```
+
+It checks actual VO/context, paused resize, play/pause/seek, source switching and
+three complete lifetimes; its HDR hint inspection is not a physical HDR test.
+It does not validate Tauri z-order, controls or native fullscreen. Run those in
+the real application with both strict overrides and automatic fallback.

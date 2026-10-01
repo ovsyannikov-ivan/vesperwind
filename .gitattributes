@@ -41,3 +41,10 @@
 /src-tauri/vendor/libmpv/windows/** -text
 # Upstream license texts retain their original whitespace as well as their hashes.
 /src-tauri/vendor/libmpv/windows/LICENSES/** whitespace=-blank-at-eol,-blank-at-eof
+
+# Keep the pinned macOS dylib closure and license notices byte-identical to SHA256SUMS.
+/src-tauri/vendor/libmpv/macos/** -text
+/src-tauri/vendor/libmpv/macos/LICENSES/** whitespace=-blank-at-eol,-blank-at-eof
+
+# Unified diff patches require a space prefix on empty context lines.
+/scripts/patches/*.patch whitespace=-blank-at-eol,-blank-at-eof

@@ -75,6 +75,13 @@ const friendlyDecoder = (value, fallback) => {
   return value || fallback || 'FFmpeg software'
 }
 
+const friendlyRenderer = (value = '') => {
+  if (/gpu-next.*D3D11/.test(value)) return 'gpu-next / D3D11 / DXGI'
+  if (/gpu-next.*MoltenVK.*Metal/.test(value)) return 'gpu-next / Vulkan / MoltenVK / Metal'
+  if (/OpenGL/.test(value)) return 'OpenGL Render API'
+  return value || 'Not configured'
+}
+
 const decodedPixelFormat = (value) => value ? String(value).toUpperCase() : ''
 
 const row = (label, value, title = '') => ({ label, value, title })
@@ -122,6 +129,7 @@ export const buildMediaInfoSections = (diagnostics = {}, fallbackDuration = 0) =
           formatMediaBitrate(video.bitrate),
         ])),
         row('Color', colorSummary, colorDetails),
+        diagnostics.dolbyVisionProfile != null ? row('Dolby Vision metadata', join([`Profile ${diagnostics.dolbyVisionProfile}`, diagnostics.dolbyVisionLevel != null ? `Level ${diagnostics.dolbyVisionLevel}` : ''])) : null,
       ],
     },
     {
@@ -164,13 +172,15 @@ export const buildMediaInfoSections = (diagnostics = {}, fallbackDuration = 0) =
   }, {
     title: 'Processing',
     rows: [
-      diagnostics.dolbyVisionProfile != null ? row('Dolby Vision', isWindows ? 'Disabled' : diagnostics.dolbyVisionSupport) : null,
+      diagnostics.dolbyVisionProfile != null ? row('Dolby Vision', diagnostics.dolbyVisionProcessing || (isWindows ? 'Disabled' : diagnostics.dolbyVisionSupport)) : null,
+      diagnostics.dolbyVisionProfile != null ? row('RPU', diagnostics.dolbyVisionRpu === true ? 'Detected in mpv frame representation' : 'Not verified') : null,
+      diagnostics.dolbyVisionProfile != null ? row('System Dolby Vision output', diagnostics.systemDolbyVisionOutput === true ? 'Verified' : 'Not used') : null,
       row('Tone mapping', diagnostics.toneMapping === 'none' ? 'None' : diagnostics.toneMapping),
     ].filter(Boolean),
   }, {
     title: 'Presentation',
     rows: [
-      row('Renderer', /gpu-next.*D3D11/.test(diagnostics.renderer || '') ? 'gpu-next / D3D11 / DXGI' : 'OpenGL Render API', diagnostics.renderer || ''),
+      row('Renderer', friendlyRenderer(diagnostics.renderer), diagnostics.renderer || ''),
       diagnostics.presentationFallbackReason ? row('Renderer fallback', diagnostics.presentationFallbackReason) : null,
     ].filter(Boolean),
   }, {
@@ -178,6 +188,12 @@ export const buildMediaInfoSections = (diagnostics = {}, fallbackDuration = 0) =
     rows: [
       row('Output', output),
       windowsOutput ? row('Surface', windowsOutput.targetVerified ? windowsOutput.targetPixelFormat?.toUpperCase() : 'not verified', windowsOutput.formatEvidence) : null,
+      display.metalPixelFormat != null ? row('Metal surface', display.surfaceFormat) : null,
+      display.metalPixelFormat != null ? row('Layer colorspace', display.metalColorSpace || 'Not configured') : null,
+      display.metalPixelFormat != null ? row('Layer EDR', display.metalEdrEnabled === true ? 'Enabled' : 'Disabled') : null,
+      display.metalPixelFormat != null ? row('EDR metadata', display.metalEdrMetadataPresent === true ? 'Present' : 'Not present') : null,
+      display.metalPixelFormat != null ? row('Display headroom', join([Number.isFinite(display.currentHeadroom) ? `${display.currentHeadroom.toFixed(2)}× current` : '', Number.isFinite(display.potentialHeadroom) ? `${display.potentialHeadroom.toFixed(2)}× potential` : ''])) : null,
+      display.metalPixelFormat != null ? row('mpv target', join([diagnostics.targetTransfer, diagnostics.targetPrimaries])) : null,
       isWindows ? row('Windows HDR enabled', display.hdrStateVerified ? (display.hdrEnabled ? 'Yes' : 'No') : 'not verified') : null,
       diagnostics.fallbackReason ? row('Fallback reason', diagnostics.fallbackReason) : null,
     ].filter(Boolean),

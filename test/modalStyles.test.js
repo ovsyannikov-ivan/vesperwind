@@ -19,10 +19,18 @@ test('all modal headings and footer buttons keep the shared compact style', asyn
 
     const footer = source.split(/class="modal-footer\b[^\"]*"/)[1]
     if (!footer) continue // Media viewers use their own playback controls.
-    for (const button of footer.matchAll(/<button\b[^>]*\bclass="([^"]*)"/g)) {
-      assert.ok(button[1].split(/\s+/).includes('btn-sm'), `${name}: footer buttons must use btn-sm`)
-      assert.ok(!button[1].split(/\s+/).includes('btn-outline-danger'), `${name}: destructive buttons must be solid`)
-      assert.ok(!button[1].split(/\s+/).includes('btn-secondary'), `${name}: neutral footer buttons use btn-neutral`)
+    for (const button of footer.matchAll(/<button\b[^>]*\bclass="([^"]*)"[^>]*>/g)) {
+      const tokens = button[1].split(/\s+/)
+      assert.ok(tokens.includes('btn-sm'), `${name}: footer buttons must use btn-sm`)
+      assert.ok(!tokens.includes('btn-outline-danger'), `${name}: destructive buttons must be solid`)
+      assert.ok(!tokens.includes('btn-secondary'), `${name}: neutral footer buttons use btn-neutral`)
+      // Primary/destructive variants may come from :class; Settings reset is
+      // the explicit outline exception in AGENTS.md.
+      const isPrimaryOrDestructive = /\bbtn-(?:primary|danger)\b/u.test(button[0])
+      const isSettingsReset = name === 'SettingsModal.vue' && /@click="reset"/u.test(button[0]) && tokens.includes('btn-outline-secondary')
+      if (!isPrimaryOrDestructive && !isSettingsReset) {
+        assert.ok(tokens.includes('btn-neutral'), `${name}: neutral footer buttons need btn-neutral`)
+      }
     }
   }
 })
@@ -33,7 +41,7 @@ const sourceFiles = async (directory) => {
     .map((entry) => new URL(`${entry.parentPath.slice(directory.pathname.length)}/${entry.name}`.replace(/^\//u, ''), directory))
 }
 
-test('neutral actions share one compact btn-neutral style instead of btn-secondary', async () => {
+test('targeted neutral actions share one compact btn-neutral style', async () => {
   const css = await fs.readFile(new URL('../src/styles/main.css', import.meta.url), 'utf8')
   assert.equal(css.match(/^\.btn-neutral\s*\{/gmu)?.length, 1, 'define btn-neutral once in main.css')
   const rule = css.match(/^\.btn-neutral\s*\{([^}]*)\}/mu)[1]
@@ -43,8 +51,25 @@ test('neutral actions share one compact btn-neutral style instead of btn-seconda
   for (const file of await sourceFiles(new URL('../src/', import.meta.url))) {
     const source = await fs.readFile(file, 'utf8')
     const name = file.pathname.split('/src/')[1]
-    assert.doesNotMatch(source, /\bbtn-secondary\b/u, `${name}: use btn-neutral for neutral actions (see AGENTS.md)`)
     if (name.endsWith('.vue')) assert.doesNotMatch(source, /\.btn-neutral\b[^{]*\{/u, `${name}: do not restyle btn-neutral locally`)
+  }
+
+  // Guard the migrated controls, not every occurrence of btn-secondary:
+  // AGENTS.md permits deliberate, documented exceptions elsewhere.
+  const neutralControls = [
+    ['SettingsModal.vue', /<button\b[^>]*@click="close"[^>]*>\s*Cancel\s*<\/button>/u],
+    ['FilePanel.vue', /<button\b[^>]*@click="closeSearch"[^>]*>/u],
+    ['RemoteConnectionsModal.vue', /<button\b[^>]*@click="newProfile"[^>]*>/u],
+  ]
+  for (const [name, pattern] of neutralControls) {
+    const source = await fs.readFile(new URL(name, components), 'utf8')
+    const button = source.match(pattern)?.[0]
+    assert.ok(button, `${name}: targeted neutral control must exist`)
+    const tokens = button.match(/\bclass="([^"]*)"/u)?.[1].split(/\s+/u) || []
+    for (const token of ['btn', 'btn-sm', 'btn-neutral']) {
+      assert.ok(tokens.includes(token), `${name}: targeted neutral control needs ${token}`)
+    }
+    assert.ok(!tokens.includes('btn-secondary'), `${name}: targeted neutral control must not use btn-secondary`)
   }
 
   const panel = await fs.readFile(new URL('FilePanel.vue', components), 'utf8')

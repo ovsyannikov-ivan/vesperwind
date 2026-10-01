@@ -21,3 +21,25 @@ pub fn media_source(state: State<'_, AppState>, payload: MediaSourcePayload) -> 
         ),
     )
 }
+
+#[tauri::command]
+pub async fn video_thumbnail(
+    app: tauri::AppHandle,
+    payload: crate::media::thumbnail::ThumbnailRequest,
+) -> Value {
+    use tauri::Manager;
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        match state.thumbnails.generate(&state.filesystem, payload) {
+            Ok(thumbnail) => success("thumbnail", thumbnail),
+            Err(error) => super::failure(error),
+        }
+    })
+    .await
+    .unwrap_or_else(|_| {
+        super::failure(crate::error::NativeError::new(
+            "ETHUMBNAIL",
+            "Thumbnail worker failed",
+        ))
+    })
+}
