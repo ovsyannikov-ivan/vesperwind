@@ -2,7 +2,8 @@
 param(
     [string]$MsysRoot = 'C:\msys64',
     [string]$BuildRoot = (Join-Path $env:TEMP 'vesperwind-libmpv-windows'),
-    [int]$Jobs = [Math]::Min(8, [Environment]::ProcessorCount)
+    [int]$Jobs = [Math]::Min(8, [Environment]::ProcessorCount),
+    [switch]$PresentationOnly
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
@@ -14,7 +15,7 @@ $bash = Join-Path $MsysRoot 'usr\bin\bash.exe'
 if (!(Test-Path -LiteralPath $bash)) { throw "Install MSYS2 UCRT64 first; missing $bash" }
 if ($Jobs -lt 1) { throw 'Jobs must be positive.' }
 $saved = @{}
-foreach ($name in @('MSYSTEM', 'CHERE_INVOKING', 'VESPERWIND_NODE', 'VESPERWIND_LIBMPV_BUILD_DIR', 'VESPERWIND_LIBMPV_PROJECT', 'VESPERWIND_LIBMPV_JOBS')) {
+foreach ($name in @('MSYSTEM', 'CHERE_INVOKING', 'VESPERWIND_NODE', 'VESPERWIND_LIBMPV_BUILD_DIR', 'VESPERWIND_LIBMPV_PROJECT', 'VESPERWIND_LIBMPV_JOBS', 'VESPERWIND_LIBMPV_PRESENTATION_ONLY')) {
     $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
 }
 try {
@@ -28,6 +29,7 @@ try {
     $env:VESPERWIND_LIBMPV_BUILD_DIR = $resolvedBuild
     $env:VESPERWIND_LIBMPV_PROJECT = $projectRoot
     $env:VESPERWIND_LIBMPV_JOBS = "$Jobs"
+    $env:VESPERWIND_LIBMPV_PRESENTATION_ONLY = if ($PresentationOnly) { '1' } else { '0' }
     & $bash -lc 'exec bash "$(cygpath -u "$VESPERWIND_LIBMPV_BUILD_DIR")/build-libmpv-windows.sh"'
     if ($LASTEXITCODE -ne 0) { throw "libmpv build failed ($LASTEXITCODE)" }
     & node (Join-Path $PSScriptRoot 'verify-libmpv-bundle.js') windows

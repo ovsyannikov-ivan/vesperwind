@@ -157,11 +157,12 @@ export const buildMediaInfoSections = (diagnostics = {}, fallbackDuration = 0) =
       row('Decoder', friendlyDecoder(hardwareDecoder, diagnostics.decoder), hardwareDecoder || diagnostics.decoder || ''),
       row('Hardware decode', hardwareDecoder ? 'Active' : 'Off'),
       row('Decoded pixel format', decodedPixelFormat(diagnostics.pixelFormat), diagnostics.pixelFormat || ''),
-      row('Render surface', 'libmpv OpenGL Render API', diagnostics.renderer || ''),
+      row('Render surface', diagnostics.renderer || 'libmpv OpenGL Render API'),
       row('Output', output),
       row('Tone mapping', diagnostics.toneMapping === 'none' ? 'None' : diagnostics.toneMapping),
       row('Display', join([displayHeadroom, display.surfaceFormat])),
       diagnostics.fallbackReason ? row('Fallback reason', diagnostics.fallbackReason) : null,
+      diagnostics.presentationFallbackReason ? row('Renderer fallback', diagnostics.presentationFallbackReason) : null,
     ].filter(Boolean),
   })
 

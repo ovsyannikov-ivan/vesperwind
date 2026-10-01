@@ -1,4 +1,5 @@
 import { backend } from './backend.js'
+import { isComputerPath } from '../../shared/localFilesystem.js'
 import { normalizeFilesystemPath } from '../utils/filesystemPath.js'
 
 // One backend subscription per visible local directory, regardless of the number
@@ -47,6 +48,27 @@ export const createDirectoryWatchRegistry = (transport, delay = 100) => {
 
   const subscribe = (providerId, path, callback) => {
     if (providerId !== 'local' || !path) return () => {}
+    // Logical drives are not an OS directory. Poll their small inventory so
+    // removable disks appear while This Computer is open, without fs.watch.
+    if (isComputerPath(path)) {
+      let stopped = false
+      let previous = null
+      let busy = false
+      const poll = async () => {
+        if (busy || stopped) return
+        busy = true
+        try {
+          const response = await transport.request('filesystem:list', { filesystemId: providerId, path })
+          if (stopped || !response?.ok) return
+          const signature = response.entries.map((entry) => entry.path).join('\0')
+          if (previous !== null && signature !== previous) callback({ providerId, directoryPath: path })
+          previous = signature
+        } finally { busy = false }
+      }
+      const timer = setInterval(() => { void poll().catch(() => {}) }, 3000)
+      void poll().catch(() => {})
+      return () => { stopped = true; clearInterval(timer) }
+    }
     ensureListeners()
     const key = keyOf(providerId, path)
     let record = directories.get(key)

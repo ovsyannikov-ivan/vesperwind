@@ -13,6 +13,10 @@ const destination = path.join(project, 'src-tauri/vendor/libmpv/windows')
 const manifest = JSON.parse(await fs.readFile(path.join(project, 'src-tauri/vendor/libmpv/manifest.json'), 'utf8'))
 const prefixBin = path.join(work, 'prefix/bin')
 const runtimeNames = new Set(['libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll', 'libiconv-2.dll'])
+const shaderLibraries = new Map([
+  ['libshaderc_shared.dll', 'shaderc'],
+  ['libspirv-cross-c-shared.dll', 'spirv-cross'],
+])
 const built = new Map((await fs.readdir(prefixBin)).map((name) => [name.toLowerCase(), path.join(prefixBin, name)]))
 // MinGW Meson adds the lib prefix; the application uses one stable entry name.
 const entrySource = built.get('mpv-2.dll') ?? built.get('libmpv-2.dll')
@@ -25,7 +29,7 @@ while (queue.length) {
   const name = queue.shift().toLowerCase()
   if (copied.has(name) || isSystemDll(name)) continue
   let source = built.get(name)
-  if (!source && runtimeNames.has(name)) {
+  if (!source && (runtimeNames.has(name) || shaderLibraries.has(name))) {
     source = path.join(toolchain, 'bin', name)
     runtime.add(name)
   }
@@ -48,12 +52,18 @@ for (const [source, name] of [
 ]) await fs.copyFile(path.join(work, 'src', source), path.join(stage, 'LICENSES', name))
 const licenseDirs = await fs.readdir(path.join(toolchain, 'share/licenses'))
 for (const name of runtime) {
-  const pattern = name.startsWith('libgcc') || name.startsWith('libstdc++') ? /^(gcc|libgcc|libstdc\+\+)$/ :
+  const shaderLicense = shaderLibraries.get(name)
+  const pattern = shaderLicense ? new RegExp(`^${shaderLicense}$`) : name.startsWith('libgcc') || name.startsWith('libstdc++') ? /^(gcc|libgcc|libstdc\+\+)$/ :
     name.startsWith('libwinpthread') ? /^(winpthreads|libwinpthread)$/ : /^libiconv$/
   const matches = licenseDirs.filter((directory) => pattern.test(directory))
   if (!matches.length) throw new Error(`Missing toolchain license for ${name}`)
   for (const directory of matches) await fs.cp(path.join(toolchain, 'share/licenses', directory),
     path.join(stage, 'LICENSES', directory), { recursive: true })
+}
+// shaderc's shared library incorporates these permissively licensed projects.
+for (const dependency of ['glslang', 'spirv-tools']) {
+  await fs.cp(path.join(toolchain, 'share/licenses', dependency),
+    path.join(stage, 'LICENSES', dependency), { recursive: true })
 }
 const readBuild = async (name) => (await fs.readFile(path.join(work, 'build', name), 'utf8')).trim()
 const info = {
@@ -66,7 +76,10 @@ const info = {
   mpvFlags: (await readBuild('mpv-flags.txt')).split(/\r?\n/),
   d3d11va: JSON.parse(await readBuild('d3d11va-probe.json')),
   hardwareDecodePolicy: 'auto-copy-safe; runtime hwdec-current must be checked separately',
-  presentation: 'public OpenGL Render API; WGL RGBA8 SDR',
+  presentation: 'mpv-owned gpu-next D3D11 RGBA8 SDR; OpenGL Render API WGL fallback',
+  libplaceboOptions: JSON.parse(await fs.readFile(path.join(work, 'build/libplacebo/meson-info/intro-buildoptions.json'), 'utf8'))
+    .filter(({ name }) => ['d3d11', 'opengl', 'shaderc', 'dovi', 'libdovi'].includes(name))
+    .map(({ name, value }) => `-D${name}=${value}`),
   runtimeDlls: [...copied].sort(), toolchainPackages: (await readBuild('toolchain-packages.txt')).split(/\r?\n/),
 }
 await fs.writeFile(path.join(stage, 'BUILD-INFO.txt'), JSON.stringify(info, null, 2) + '\n')

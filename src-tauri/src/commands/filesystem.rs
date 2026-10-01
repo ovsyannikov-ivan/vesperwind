@@ -86,6 +86,7 @@ pub fn filesystem_root(state: State<'_, AppState>, payload: FilesystemRootPayloa
         Ok::<_, NativeError>(json!({
             "ok": true,
             "root": state.filesystem.root_entry()?,
+            "initial": state.filesystem.initial_entry()?,
             "homePath": state.filesystem.home().to_string_lossy(),
         }))
     })();

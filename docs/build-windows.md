@@ -89,8 +89,8 @@ If Tauri cannot start its webview, install or repair the
 [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/).
 
 The Windows native surface uses the common libmpv player API with a Win32 child
-window, WGL/OpenGL and an RGBA8 SDR backbuffer. Advanced Color/DXGI queries are
-diagnostics only; this renderer does not present HDR. The Node SEA packaging path
+window, mpv-owned gpu-next/D3D11 SDR and a WGL/OpenGL fallback. Advanced Color/DXGI
+queries are diagnostics only; neither backend currently presents HDR. The Node SEA packaging path
 is currently macOS-only; use Tauri for a Windows native build.
 
 ## Rebuilding the Windows libmpv runtime
@@ -106,7 +106,8 @@ shell and repeat after a core-runtime update), then install these build tools:
 pacman -S --needed make git diffutils patch mingw-w64-ucrt-x86_64-gcc \
   mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-meson \
   mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-pkgconf \
-  mingw-w64-ucrt-x86_64-nasm
+  mingw-w64-ucrt-x86_64-nasm mingw-w64-ucrt-x86_64-shaderc \
+  mingw-w64-ucrt-x86_64-spirv-cross
 ```
 
 From PowerShell at the project root:
@@ -118,7 +119,11 @@ node scripts/verify-libmpv-bundle.js windows
 
 Use a short ASCII build path outside the repository. The wrapper does not install
 MSYS2 or change the machine PATH. Use a fresh BuildRoot when changing source pins,
-toolchain or build flags; completed stages are reused on an interrupted build.
+toolchain or general build flags; completed stages are reused on an interrupted build.
+For the same source/toolchain pins, `-PresentationOnly` explicitly reconfigures
+mpv/libplacebo and reuses the completed codec/font prefix. It fails if that prefix
+is absent. The shader toolchain package pins are recorded in `manifest.json`;
+the verifier rejects a bundle built with different revisions.
 The source archive hashes are in `scripts/libmpv-windows-sources.json`; libplacebo
 and its submodules are verified by Git revisions. The macOS source patches are
 not applied. `BUILD-INFO.txt` records the exact installed toolchain package set,
@@ -127,7 +132,7 @@ This is a reproducible source procedure, not a claim of bit-identical output
 across different compiler/package versions.
 
 Packaging follows normal and delay-load PE imports recursively. Only libraries
-built in the private prefix and explicitly permitted compiler support DLLs can
+built in the private prefix and explicitly permitted compiler/shader support DLLs can
 be copied; other dependencies must belong to the Windows system allowlist.
 `mpv.exe` is never built or packaged. The verifier checks x86_64 PE32+, closure,
 build evidence, source pins, absence of local build paths, license/source-offer
@@ -140,6 +145,14 @@ System32, excluding PATH/current-directory fallbacks. The explicit development
 override `VESPERWIND_LIBMPV_PATH` must identify the entry DLL.
 
 ## Playback validation
+
+Windows defaults to mpv-owned `wid + gpu-next + D3D11` with an RGBA8 BT.709
+swapchain. WGL Render API is retained as automatic startup fallback. For separate
+application checks set `VESPERWIND_MPV_WINDOWS_BACKEND=d3d11` or `wgl`; `auto`
+is the default. Strict `d3d11` mode must not silently pass via WGL. Check renderer
+and fallback diagnostics as well as the mpv log when proving the selected path.
+The executable embeds Windows 10/11 compatibility so mpv's VersionHelpers can
+select the correct DXGI behavior.
 
 The native surface is always SDR, including when Windows Advanced Color is on.
 HDR input must display **SDR fallback**. D3D11VA availability at build time does
@@ -155,11 +168,11 @@ cargo test --manifest-path src-tauri/Cargo.toml bundled_libmpv_decodes_a_real_pr
 ```
 
 This test uses `vo=null`: it checks decoding, the opaque provider stream, audio
-state, pause/resume and forward/backward seek, not WGL presentation. Set
+state, pause/resume and forward/backward seek, not D3D11/WGL presentation. Set
 `VESPERWIND_MPV_SMOKE_EOF=1` to check automatic rewind and replay, including mpv's
 keep-open behavior. Set
 `VESPERWIND_MPV_EXPECT_HWDEC=d3d11va-copy` only when testing known supported media
-on a capable GPU. The actual WGL/overlay, subtitles, fullscreen, source switching,
+on a capable GPU. The actual D3D11/WGL overlay, subtitles, fullscreen, source switching,
 close/reopen, audible audio and end-of-file behavior require the application smoke
 pass. Repeat Local/SFTP playback in the installed application with a minimal PATH,
 and confirm loaded DLL paths belong to its own bundle. Do not put credentials in

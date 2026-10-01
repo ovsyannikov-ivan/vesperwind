@@ -86,7 +86,7 @@ test('native video chrome lives in a transparent child WebView with stable geome
   assert.doesNotMatch(tauri, /overlay\.hide\(\)/)
   assert.doesNotMatch(commands, /overlay\.(?:hide|show)\(\)/)
   assert.match(commands, /contentLayoutRect\(\)/)
-  assert.match(commands, /geometry\.height \+ titlebar_offset - border_inset/)
+  assert.match(commands, /geometry\.height \* geometry\.scale_factor/)
   assert.match(commands, /geometry\.y\.max\(0\.0\)/)
   assert.match(player, /class="native-mpv-surface"/)
   assert.match(player, /borderRadius:\s*modalBorderRadius\(\)/)

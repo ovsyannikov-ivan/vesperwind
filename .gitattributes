@@ -2,3 +2,42 @@
 /src-tauri/vendor/libmpv/windows/** -text
 # Upstream license texts retain their original whitespace as well as their hashes.
 /src-tauri/vendor/libmpv/windows/LICENSES/** whitespace=-blank-at-eol,-blank-at-eof
+
+# Keep repository text files consistently LF on every platform.
+* text=auto eol=lf
+
+# Windows command scripts traditionally use CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Explicitly keep cross-platform scripts/source as LF.
+*.sh text eol=lf
+*.ps1 text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.ts text eol=lf
+*.vue text eol=lf
+*.rs text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Binary files must never undergo newline conversion.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.icns binary
+*.dll binary
+*.exe binary
+*.msi binary
+*.zip binary
+*.gz binary
+*.woff binary
+*.woff2 binary
+*.pdf binary

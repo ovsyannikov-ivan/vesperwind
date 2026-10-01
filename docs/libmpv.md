@@ -32,21 +32,16 @@ the renderer is joined before its context and surface are destroyed.
 Closing or switching a source tears down the previous stream, render context, and
 mpv handle.
 
-Native fullscreen transitions fade the controls WebView to black, expand it to
-cover the whole window, and acknowledge its resized presentation before changing
-fullscreen. The cover follows native parent-window resizing automatically while
-ordinary video-geometry updates are suspended. After layout settles, the viewer
-waits for the cover at the new size and a newly rendered video frame before
-restoring the overlay bounds and fading in. The same coordination is used on
-Windows and macOS; reduced motion still waits for presentation without animating.
-After fading out, the native video surface is hidden before either sibling is
-resized. Once the cover has reached the final viewport, video is shown beneath
-it without raising its Windows HWND above the cover; the viewer waits for a new
-frame before fading in. Native visibility changes acknowledge completion on the
-window thread, followed by a 150 ms hold under the opaque cover before resizing
-so the compositor can retire the previous video frame. This avoids relying on
-WebView paint timing to fence composition
-of an independently rendered native video surface.
+Native fullscreen transitions fade the controls WebView to black, hide the
+native video, and hold the opaque cover for 150 ms before resizing either sibling.
+The cover expands to the viewport and follows native parent-window resizing
+while ordinary geometry updates are suspended. Video remains hidden for a fixed
+500 ms after the fullscreen change. The viewer then applies the final geometry
+once, restores video beneath the opaque cover without raising its Windows HWND
+above it, and fades back in. Neither
+video-frame counters nor repeated size/readiness polling control this timing.
+Windows and macOS share this sequence; reduced motion skips fades but retains
+the fixed holds. The updated macOS transition still needs visual validation.
 Transition steps have bounded waits, and the overlay has its own watchdog to
 remove an abandoned cover and restore controls. On Windows, HWND layout never
 waits for the render mutex: the graphics driver may synchronously message the
@@ -60,7 +55,7 @@ planned work.
 
 Browser and Node SEA modes continue to use HTML/media-chrome. Audio also remains on
 the established persistent web player for now. Windows has the common player and
-stream implementation, a WGL RGBA8 SDR child HWND, and a pinned source-built x64
+stream implementation, an mpv-owned D3D11 SDR child HWND with WGL fallback, and a pinned source-built x64
 DLL closure. See [Windows build and media checks](build-windows.md) for the
 decoder/audio/application verification procedure. Windows presentation is SDR;
 hardware decoding depends on the media, GPU and driver.
@@ -101,8 +96,8 @@ instead of setting gpu-next-only options.
 
 | Format | macOS EDR status | Windows status |
 | --- | --- | --- |
-| HDR10 / HEVC Main10, BT.2020 PQ | Implemented in the FP16 EDR path; manual XDR playback validation still required | Source detection works; native HDR output blocked on the DXGI renderer described below |
-| HLG | Implemented through the same linear EDR target; manual XDR playback validation still required | Source detection works; native HDR output blocked on the DXGI renderer |
+| HDR10 / HEVC Main10, BT.2020 PQ | Implemented in the FP16 EDR path; manual XDR playback validation still required | Source detection works; D3D11 currently outputs SDR, with PQ/BT.2020 output planned next |
+| HLG | Implemented through the same linear EDR target; manual XDR playback validation still required | Source detection works; native HLG output planned after HDR10 validation |
 | Dolby Vision profile 5 | Profile metadata is detected, but the bundled libplacebo build has `dovi`/`libdovi` disabled; correct RPU reshaping is not claimed | Not supported |
 | Dolby Vision profile 7 | Profile metadata is detected; an HDR10 base layer may be usable, but RPU, MEL, FEL, and enhancement-layer reconstruction are not claimed | Not supported |
 | Dolby Vision profile 8 | Profile metadata is detected; a compatible base layer may be usable, but RPU processing is not claimed | Compatible base-layer playback may work with SDR tone mapping; no Dolby Vision RPU processing or native HDR output |
@@ -113,26 +108,33 @@ come from the compatible base layer rather than Dolby Vision processing. The
 profile number alone does not establish base-layer compatibility; see Dolby's
 [profile compatibility reference](https://ott.dolby.com/browser_test_kit/help_files/topics/r_resources.html).
 
-### Windows Advanced Color blocker
+### Windows D3D11 SDR prototype and HDR roadmap
 
 The Windows surface now queries the monitor containing the player through
 `DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO`, `DISPLAYCONFIG_SDR_WHITE_LEVEL`, and
 `IDXGIOutput6::GetDesc1`. This reports whether Advanced Color is supported and
 enabled, bits per color, display luminance, and the OS SDR reference-white level.
-It is capability/diagnostic work only: the current surface is still WGL RGBA8 and
-therefore always reports native HDR output as unavailable.
+It is capability/diagnostic work only: both Windows presentation backends are
+currently restricted to SDR and report native HDR output as unavailable.
 
-This cannot be completed by calling `SetColorSpace1` on the current surface.
-Windows HDR composition requires a DXGI flip-model swapchain such as
-`R16G16B16A16_FLOAT` scRGB (plus SDR-white scaling) or an HDR10 10-bit swapchain.
-mpv 0.41's public caller-owned Render API exposes OpenGL and software targets, not
-a caller-owned D3D11 texture. mpv's own `gpu-next + D3D11` path can own such a
-swapchain, but that is a different window/presentation owner and cannot be embedded
-in the existing Tauri geometry contract through the public Render API. Completing
-Windows HDR therefore requires a dedicated D3D11/libplacebo presentation backend
-(or a reviewed downstream libmpv external-target API), plus D3D11VA interop and
-multi-monitor swapchain recreation. Until then, HDR sources are deliberately
-tone-mapped to SDR and never labelled as HDR output.
+The new backend passes a child HWND through `wid` and lets mpv's `gpu-next`
+own the D3D11 device and swapchain. It does not use the caller-owned Render API.
+`d3d11-output-format=rgba8`, `d3d11-output-csp=srgb`, BT.709/gamma 2.2 and a
+203-nit target keep this first stage SDR. Automatic startup/VO initialization
+failure retries through the existing WGL Render API; source/decoder errors do
+not trigger that retry. `VESPERWIND_MPV_WINDOWS_BACKEND=auto|d3d11|wgl` selects
+automatic or strict diagnostic modes. The Info diagnostics retain any startup
+fallback reason. Owned VO has no public per-Present callback, so its Render API
+frame counters remain zero rather than fabricating presentation evidence.
+
+After SDR lifecycle/overlay/fullscreen and Local/SFTP validation, the order is:
+HDR10 through PQ/BT.2020 with measured HDR output; HLG; then a reviewed FP16 scRGB
+path. Windows defines scRGB 1.0 as 80 nits while the pinned libplacebo path uses
+a 203-nit reference, requiring a backport or coordinated library update first.
+Dolby Vision reshaping follows separately with `dovi=enabled`, Profile 8 before
+Profile 5 and initially without `libdovi`. Profile 7/FEL and vendor Dolby Vision
+HDMI signalling are outside this roadmap. The current bundle still disables both
+`dovi` and `libdovi`; compatible base-layer playback is not Dolby Vision output.
 
 ## Bundled macOS runtime
 
@@ -192,26 +194,37 @@ Developer ID signature and notarization remain release blockers for macOS.
 versions listed above, built with MSYS2 UCRT64 GCC 16.2.0 (Rev4). The application
 uses `x86_64-pc-windows-msvc`; the media boundary is the public C ABI. The upstream
 `libmpv-2.dll` is packaged under the existing `mpv-2.dll` entry name. No prebuilt
-mpv DLL or `mpv.exe` is used. libass uses DirectWrite; mpv enables WASAPI, OpenGL,
+mpv DLL or `mpv.exe` is used. libass uses DirectWrite; mpv enables WASAPI, OpenGL, D3D11,
 Win32 threads and D3D hardware decode. FFmpeg enables H.264/HEVC D3D11VA and DXVA2
 while disabling GPL, non-free and version-3-only features. See `BUILD-INFO.txt`
 for all source hashes, submodule revisions, compiler packages and build flags.
 
-The 16-DLL closure includes avcodec, avformat, avfilter, avutil, swresample,
+The 18-DLL closure includes avcodec, avformat, avfilter, avutil, swresample,
 swscale, libplacebo, libass, FreeType, FriBidi, HarfBuzz, GNU libiconv and GCC
-runtime support. All non-system dependencies are colocated. The PE verifier
+runtime support, shaderc and SPIRV-Cross. shaderc incorporates glslang and
+SPIRV-Tools; package revisions and their license texts are recorded. All non-system
+dependencies are colocated. The PE verifier
 checks normal and delay-load imports, x64 PE32+ DLL headers, an explicit Windows
 system-library allowlist, absence of local build paths, feature evidence,
 license/source-offer files and exhaustive SHA-256 checksums. Runtime loading uses
 an absolute entry path with `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR` and
 `LOAD_LIBRARY_SEARCH_SYSTEM32`, so codec dependencies cannot come from PATH.
 
-Windows retains the public libmpv OpenGL Render API with an RGBA8 SDR backbuffer.
-Its native layer order is controls WebView2 → WGL child → main WebView2. Native
-window ordering is explicit; CSS z-index cannot order separate HWNDs. D3D11VA
-copy-back accelerates decoding and does not imply a D3D11 presentation surface
-or HDR output. The runtime probes reported `d3d11va-copy` for H.264 and HEVC on
-Intel UHD Graphics 630. HDR input still uses SDR fallback.
+Windows defaults to the mpv-owned D3D11 SDR backend and retains the public libmpv
+OpenGL Render API with an RGBA8 SDR backbuffer as fallback.
+Its native layer order is controls WebView2 → video child → main WebView2. Native
+window ordering is explicit; CSS z-index cannot order separate HWNDs. The owned
+backend uses `hwdec=auto-safe` and can import D3D11VA surfaces directly; the
+OpenGL fallback retains `auto-copy-safe`. A 4K HEVC GUI check reported `d3d11va`
+on Intel UHD Graphics 630. Hardware decoding does not imply HDR output: HDR input
+still uses SDR fallback. This SDR path uses bilinear downscaling without the
+antialiasing correction pass and disables per-frame HDR peak analysis; tone
+mapping still uses source metadata and output dithering remains enabled.
+
+Blocking media operations run on workers, while native WebView callbacks remain
+on the window thread. Playback time updates every 100 ms; tracks and diagnostics
+refresh once per second. Geometry updates coalesce to the newest pending bounds,
+and overlay coverage compares physical pixels across independently zoomed WebViews.
 
 Rebuild instructions are in [Windows build prerequisites](build-windows.md).
 The source build root and MSYS2 installation must remain outside the repository.

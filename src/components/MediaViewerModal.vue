@@ -63,7 +63,11 @@ const changeFullscreen = (active) => {
     change,
     settle: () => videoPlayer.value?.settleNativePresentation(),
     reveal: () => videoPlayer.value?.revealNativeTransition(),
-  }).catch(handlePlaybackError).finally(() => { modeTransition = null })
+  }).catch((error) => {
+    // The transition restores the cover/visibility in finally. A recovered
+    // layout failure is diagnostic information, not a failed media source.
+    console.warn('Fullscreen transition failed', error)
+  }).finally(() => { modeTransition = null })
   return modeTransition
 }
 const enterFullscreen = () => changeFullscreen(true)

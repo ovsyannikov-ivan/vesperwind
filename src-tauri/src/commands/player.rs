@@ -78,6 +78,12 @@ pub struct OverlayGeometry {
     y: f64,
     width: f64,
     height: f64,
+    #[serde(default = "default_overlay_scale")]
+    scale_factor: f64,
+}
+
+fn default_overlay_scale() -> f64 {
+    1.0
 }
 
 #[derive(Debug, Deserialize)]
@@ -97,6 +103,15 @@ pub struct VisibilityPayload {
     visible: bool,
 }
 
+// libmpv and native child-window APIs may wait on the window message pump.
+// Keep every such wait off the pump and off the async executor threads.
+async fn player_task(task: impl FnOnce() -> Value + Send + 'static) -> Value {
+    tauri::async_runtime::spawn_blocking(task).await.unwrap_or_else(|error| {
+        eprintln!("[player] command worker failed: {error}");
+        json!({"ok":false,"error":{"code":"EMPV","message":"The media command could not complete"}})
+    })
+}
+
 fn response(session_id: &str, result: Result<crate::mpv::PlayerSnapshot, String>) -> Value {
     match result {
         Ok(state) => json!({"ok":true,"sessionId":session_id,"state":state}),
@@ -105,232 +120,292 @@ fn response(session_id: &str, result: Result<crate::mpv::PlayerSnapshot, String>
 }
 
 #[tauri::command]
-pub fn player_capabilities() -> Value {
-    let capabilities = crate::mpv::MpvApi::capabilities();
-    eprintln!("[player] capabilities requested: {capabilities:?}");
-    success("capabilities", capabilities)
+pub async fn player_capabilities() -> Value {
+    player_task(move || {
+        let capabilities = crate::mpv::MpvApi::capabilities();
+        eprintln!("[player] capabilities requested: {capabilities:?}");
+        success("capabilities", capabilities)
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn player_open(app: AppHandle, state: State<'_, AppState>, payload: OpenPayload) -> Value {
-    let Some(window) = app.get_window("main") else {
-        return json!({"ok":false,"error":{"code":"EMPV_WINDOW","message":"The main native window is unavailable"}});
-    };
-    eprintln!(
-        "[player={}] command open received provider={} path={:?} geometry={}x{}@{}",
-        payload.session_id,
-        payload.filesystem_id.as_deref().unwrap_or("local"),
-        payload.path,
-        payload.geometry.width,
-        payload.geometry.height,
-        payload.geometry.scale_factor,
-    );
-    response(
-        &payload.session_id,
-        state.player.open(
-            &state.filesystem,
-            &window,
-            &app,
-            &payload.session_id,
-            payload.filesystem_id.as_deref(),
-            &payload.path,
-            payload.autoplay,
-            payload.geometry,
-        ),
-    )
-}
-
-#[tauri::command]
-pub fn player_play(state: State<'_, AppState>, payload: SessionPayload) -> Value {
-    response(&payload.session_id, state.player.play(&payload.session_id))
-}
-
-#[tauri::command]
-pub fn player_pause(state: State<'_, AppState>, payload: SessionPayload) -> Value {
-    response(&payload.session_id, state.player.pause(&payload.session_id))
-}
-
-#[tauri::command]
-pub fn player_seek(state: State<'_, AppState>, payload: SeekPayload) -> Value {
-    response(
-        &payload.session_id,
-        state.player.seek(&payload.session_id, payload.seconds),
-    )
-}
-
-#[tauri::command]
-pub fn player_set_volume(state: State<'_, AppState>, payload: VolumePayload) -> Value {
-    response(
-        &payload.session_id,
-        state.player.set_volume(&payload.session_id, payload.volume),
-    )
-}
-
-#[tauri::command]
-pub fn player_set_muted(state: State<'_, AppState>, payload: MutedPayload) -> Value {
-    response(
-        &payload.session_id,
-        state.player.set_muted(&payload.session_id, payload.muted),
-    )
-}
-
-#[tauri::command]
-pub fn player_select_track(state: State<'_, AppState>, payload: TrackPayload) -> Value {
-    response(
-        &payload.session_id,
-        state
-            .player
-            .select_track(&payload.session_id, payload.kind, payload.id),
-    )
-}
-
-#[tauri::command]
-pub fn player_set_subtitle_delay(
-    state: State<'_, AppState>,
-    payload: SubtitleDelayPayload,
-) -> Value {
-    response(
-        &payload.session_id,
-        state
-            .player
-            .set_subtitle_delay(&payload.session_id, payload.seconds),
-    )
-}
-
-#[tauri::command]
-pub fn player_set_geometry(state: State<'_, AppState>, payload: GeometryPayload) -> Value {
-    match state
-        .player
-        .set_geometry(&payload.session_id, payload.geometry)
-    {
-        Ok(()) => json!({"ok":true}),
-        Err(message) => json!({"ok":false,"error":{"code":"EMPV","message":message}}),
-    }
-}
-
-#[tauri::command]
-pub fn player_set_visible(state: State<'_, AppState>, payload: VisibilityPayload) -> Value {
-    match state
-        .player
-        .set_visible(&payload.session_id, payload.visible)
-    {
-        Ok(()) => json!({"ok":true}),
-        Err(message) => json!({"ok":false,"error":{"code":"EMPV","message":message}}),
-    }
-}
-
-#[tauri::command]
-pub fn player_set_overlay(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    payload: OverlayPayload,
-) -> Value {
-    if let Err(message) = state.player.assert_session(&payload.session_id) {
-        return json!({"ok":false,"error":{"code":"EMPV","message":message}});
-    }
-    let Some(overlay) = app.get_webview("media-overlay") else {
-        return json!({"ok":false,"error":{"code":"EMPV_OVERLAY","message":"Media overlay WebView is unavailable"}});
-    };
-
-    #[cfg(target_os = "macos")]
-    if let Err(message) = configure_macos_overlay(&overlay) {
-        return json!({"ok":false,"error":{"code":"EMPV_OVERLAY","message":message}});
-    }
-
-    let developer_hidden = std::env::var_os("VESPERWIND_MPV_DEBUG_HIDE_OVERLAY").is_some();
-    let visible = payload.visible && !developer_hidden;
-    if payload.visible && developer_hidden {
+pub async fn player_open(app: AppHandle, payload: OpenPayload) -> Value {
+    player_task(move || {
+        let state = app.state::<AppState>();
+        let Some(window) = app.get_window("main") else {
+            return json!({"ok":false,"error":{"code":"EMPV_WINDOW","message":"The main native window is unavailable"}});
+        };
         eprintln!(
-            "[player={}] developer overlay toggle: child WKWebView parked offscreen",
-            payload.session_id
+            "[player={}] command open received provider={} path={:?} geometry={}x{}@{}",
+            payload.session_id,
+            payload.filesystem_id.as_deref().unwrap_or("local"),
+            payload.path,
+            payload.geometry.width,
+            payload.geometry.height,
+            payload.geometry.scale_factor,
         );
-    }
-    let geometry = if visible {
-        payload.geometry.unwrap_or(OverlayGeometry {
-            x: 0.0,
-            y: 0.0,
-            width: 1.0,
-            height: 1.0,
-        })
-    } else {
-        OverlayGeometry {
-            x: -10_000.0,
-            y: -10_000.0,
-            width: 1.0,
-            height: 1.0,
+        response(
+            &payload.session_id,
+            state.player.open(
+                &state.filesystem,
+                &window,
+                &app,
+                &payload.session_id,
+                payload.filesystem_id.as_deref(),
+                &payload.path,
+                payload.autoplay,
+                payload.geometry,
+            ),
+        )
+
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn player_play(app: AppHandle, payload: SessionPayload) -> Value {
+    player_task(move || {
+        let state = app.state::<AppState>();
+        response(&payload.session_id, state.player.play(&payload.session_id))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn player_pause(app: AppHandle, payload: SessionPayload) -> Value {
+    player_task(move || {
+        let state = app.state::<AppState>();
+        response(&payload.session_id, state.player.pause(&payload.session_id))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn player_seek(app: AppHandle, payload: SeekPayload) -> Value {
+    player_task(move || {
+        let state = app.state::<AppState>();
+        response(
+            &payload.session_id,
+            state.player.seek(&payload.session_id, payload.seconds),
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn player_set_volume(app: AppHandle, payload: VolumePayload) -> Value {
+    player_task(move || {
+        let state = app.state::<AppState>();
+        response(
+            &payload.session_id,
+            state.player.set_volume(&payload.session_id, payload.volume),
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn player_set_muted(app: AppHandle, payload: MutedPayload) -> Value {
+    player_task(move || {
+        let state = app.state::<AppState>();
+        response(
+            &payload.session_id,
+            state.player.set_muted(&payload.session_id, payload.muted),
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn player_select_track(app: AppHandle, payload: TrackPayload) -> Value {
+    player_task(move || {
+        let state = app.state::<AppState>();
+        response(
+            &payload.session_id,
+            state
+                .player
+                .select_track(&payload.session_id, payload.kind, payload.id),
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn player_set_subtitle_delay(app: AppHandle, payload: SubtitleDelayPayload) -> Value {
+    player_task(move || {
+        let state = app.state::<AppState>();
+        response(
+            &payload.session_id,
+            state
+                .player
+                .set_subtitle_delay(&payload.session_id, payload.seconds),
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn player_set_geometry(app: AppHandle, payload: GeometryPayload) -> Value {
+    player_task(move || {
+        let state = app.state::<AppState>();
+        match state
+            .player
+            .set_geometry(&payload.session_id, payload.geometry)
+        {
+            Ok(()) => json!({"ok":true}),
+            Err(message) => json!({"ok":false,"error":{"code":"EMPV","message":message}}),
         }
-    };
-    let titlebar_offset = overlay_titlebar_offset(&app);
-    let transitioning = visible
-        && payload
-            .context
-            .get("transitioning")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-    let border_inset = if visible
-        && !transitioning
-        && !payload
-            .context
-            .get("fullscreen")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-    {
-        1.0
-    } else {
-        0.0
-    };
-    if let Err(error) =
-        overlay.set_position(tauri::LogicalPosition::new(geometry.x, geometry.y.max(0.0)))
-    {
-        return json!({"ok":false,"error":{"code":"EMPV_OVERLAY","message":error.to_string()}});
-    }
-    if let Err(error) = overlay.set_size(tauri::LogicalSize::new(
-        geometry.width.max(1.0),
-        (geometry.height + titlebar_offset - border_inset).max(1.0),
-    )) {
-        return json!({"ok":false,"error":{"code":"EMPV_OVERLAY","message":error.to_string()}});
-    }
+    })
+    .await
+}
 
-    // During fullscreen changes the opaque cover fills the parent before the
-    // video grows. Follow native resize events rather than waiting for JS IPC.
-    if let Err(error) = overlay.set_auto_resize(transitioning) {
-        return json!({"ok":false,"error":{"code":"EMPV_OVERLAY","message":error.to_string()}});
-    }
+#[tauri::command]
+pub async fn player_set_visible(app: AppHandle, payload: VisibilityPayload) -> Value {
+    player_task(move || {
+        let state = app.state::<AppState>();
+        match state
+            .player
+            .set_visible(&payload.session_id, payload.visible)
+        {
+            Ok(()) => json!({"ok":true}),
+            Err(message) => json!({"ok":false,"error":{"code":"EMPV","message":message}}),
+        }
+    })
+    .await
+}
 
-    #[cfg(target_os = "windows")]
-    if visible {
-        let radius = payload
-            .context
-            .get("borderRadius")
-            .and_then(Value::as_f64)
-            .unwrap_or(0.0);
-        if let Err(message) = raise_windows_overlay(&overlay, radius) {
+#[tauri::command]
+pub async fn player_set_overlay(app: AppHandle, payload: OverlayPayload) -> Value {
+    player_task(move || {
+        let state = app.state::<AppState>();
+        if let Err(message) = state.player.assert_session(&payload.session_id) {
+            return json!({"ok":false,"error":{"code":"EMPV","message":message}});
+        }
+        let Some(overlay) = app.get_webview("media-overlay") else {
+            return json!({"ok":false,"error":{"code":"EMPV_OVERLAY","message":"Media overlay WebView is unavailable"}});
+        };
+
+        #[cfg(target_os = "macos")]
+        if let Err(message) = configure_macos_overlay(&overlay) {
             return json!({"ok":false,"error":{"code":"EMPV_OVERLAY","message":message}});
         }
-    }
 
-    state
-        .player
-        .set_overlay_context(&payload.session_id, payload.context.clone());
-    if visible {
-        let _ = app.emit_to("media-overlay", "media-overlay:context", payload.context);
-    }
-    json!({"ok":true})
+        let developer_hidden = std::env::var_os("VESPERWIND_MPV_DEBUG_HIDE_OVERLAY").is_some();
+        let visible = payload.visible && !developer_hidden;
+        if payload.visible && developer_hidden {
+            eprintln!(
+                "[player={}] developer overlay toggle: child WKWebView parked offscreen",
+                payload.session_id
+            );
+        }
+        let geometry = if visible {
+            payload.geometry.unwrap_or(OverlayGeometry {
+                x: 0.0,
+                y: 0.0,
+                width: 1.0,
+                height: 1.0,
+                scale_factor: 1.0,
+            })
+        } else {
+            OverlayGeometry {
+                x: -10_000.0,
+                y: -10_000.0,
+                width: 1.0,
+                height: 1.0,
+                scale_factor: 1.0,
+            }
+        };
+        let titlebar_offset = overlay_titlebar_offset(&app);
+        let transitioning = visible
+            && payload
+                .context
+                .get("transitioning")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+        let border_inset = if visible
+            && !transitioning
+            && !payload
+                .context
+                .get("fullscreen")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        {
+            1.0
+        } else {
+            0.0
+        };
+        if let Err(error) =
+            overlay.set_position(tauri::PhysicalPosition::new(
+                geometry.x * geometry.scale_factor, geometry.y.max(0.0) * geometry.scale_factor))
+        {
+            return json!({"ok":false,"error":{"code":"EMPV_OVERLAY","message":error.to_string()}});
+        }
+        let window_scale = overlay.window().scale_factor().unwrap_or(1.0);
+        if let Err(error) = overlay.set_size(tauri::PhysicalSize::new(
+            (geometry.width * geometry.scale_factor).max(1.0),
+            (geometry.height * geometry.scale_factor + (titlebar_offset - border_inset) * window_scale).max(1.0),
+        )) {
+            return json!({"ok":false,"error":{"code":"EMPV_OVERLAY","message":error.to_string()}});
+        }
+
+        // During fullscreen changes the opaque cover fills the parent before the
+        // video grows. Follow native resize events rather than waiting for JS IPC.
+        if let Err(error) = overlay.set_auto_resize(transitioning) {
+            return json!({"ok":false,"error":{"code":"EMPV_OVERLAY","message":error.to_string()}});
+        }
+
+        #[cfg(target_os = "windows")]
+        if visible {
+            let radius = payload
+                .context
+                .get("borderRadius")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
+            if let Err(message) = raise_windows_overlay(&overlay, radius) {
+                return json!({"ok":false,"error":{"code":"EMPV_OVERLAY","message":message}});
+            }
+        }
+
+        state
+            .player
+            .set_overlay_context(&payload.session_id, payload.context.clone());
+        if visible {
+            let _ = app.emit_to("media-overlay", "media-overlay:context", payload.context);
+        }
+        json!({"ok":true})
+
+    })
+    .await
 }
 
 #[cfg(target_os = "macos")]
 fn overlay_titlebar_offset(app: &AppHandle) -> f64 {
-    app.get_window("main")
-        .and_then(|window| {
-            let pointer = window.ns_window().ok()?;
-            if pointer.is_null() {
-                return None;
-            }
-            let window = unsafe { &*(pointer as *const NSWindow) };
-            let frame_height = window.frame().size.height;
-            let content_height = window.contentLayoutRect().size.height;
-            Some((frame_height - content_height).max(0.0))
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    let main_app = app.clone();
+    if app
+        .run_on_main_thread(move || {
+            let offset = main_app
+                .get_window("main")
+                .and_then(|window| {
+                    let pointer = window.ns_window().ok()?;
+                    if pointer.is_null() {
+                        return None;
+                    }
+                    let window = unsafe { &*(pointer as *const NSWindow) };
+                    let frame_height = window.frame().size.height;
+                    let content_height = window.contentLayoutRect().size.height;
+                    Some((frame_height - content_height).max(0.0))
+                })
+                .unwrap_or(0.0);
+            let _ = sender.send(offset);
         })
+        .is_err()
+    {
+        return 0.0;
+    }
+    receiver
+        .recv_timeout(std::time::Duration::from_secs(5))
         .unwrap_or(0.0)
 }
 
@@ -421,22 +496,30 @@ pub fn player_overlay_snapshot(state: State<'_, AppState>) -> Value {
 }
 
 #[tauri::command]
-pub fn player_snapshot(state: State<'_, AppState>, payload: SessionPayload) -> Value {
-    response(
-        &payload.session_id,
-        state.player.snapshot(&payload.session_id),
-    )
+pub async fn player_snapshot(app: AppHandle, payload: SessionPayload) -> Value {
+    player_task(move || {
+        let state = app.state::<AppState>();
+        response(
+            &payload.session_id,
+            state.player.snapshot(&payload.session_id),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn player_close(app: AppHandle, state: State<'_, AppState>, payload: SessionPayload) -> Value {
-    let closed = state.player.close(&payload.session_id);
-    if closed {
-        if let Some(overlay) = app.get_webview("media-overlay") {
-            let _ = overlay.set_auto_resize(false);
-            let _ = overlay.set_position(tauri::LogicalPosition::new(-10_000.0, -10_000.0));
-            let _ = overlay.set_size(tauri::LogicalSize::new(1.0, 1.0));
+pub async fn player_close(app: AppHandle, payload: SessionPayload) -> Value {
+    player_task(move || {
+        let state = app.state::<AppState>();
+        let closed = state.player.close(&payload.session_id);
+        if closed {
+            if let Some(overlay) = app.get_webview("media-overlay") {
+                let _ = overlay.set_auto_resize(false);
+                let _ = overlay.set_position(tauri::LogicalPosition::new(-10_000.0, -10_000.0));
+                let _ = overlay.set_size(tauri::LogicalSize::new(1.0, 1.0));
+            }
         }
-    }
-    json!({"ok":true,"sessionId":payload.session_id,"closed":closed})
+        json!({"ok":true,"sessionId":payload.session_id,"closed":closed})
+    })
+    .await
 }

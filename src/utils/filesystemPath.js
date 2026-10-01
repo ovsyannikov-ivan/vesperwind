@@ -1,7 +1,10 @@
+import { COMPUTER_PATH, isComputerPath } from '../../shared/localFilesystem.js'
+
 const windowsDrivePattern = /^[A-Za-z]:[\\/]/
+const windowsSharePattern = /^\\\\[^\\]+\\[^\\]+(?:\\|$)/
 
 const pathFlavor = (value) =>
-  windowsDrivePattern.test(value) ? 'windows' : 'posix'
+  windowsDrivePattern.test(value) || windowsSharePattern.test(value) ? 'windows' : 'posix'
 
 const separatorFor = (flavor) => (flavor === 'windows' ? '\\' : '/')
 
@@ -10,7 +13,7 @@ const normalizeSeparators = (value, flavor) =>
 
 const rootLength = (value, flavor) => {
   if (flavor === 'windows') {
-    return windowsDrivePattern.test(value) ? 3 : 0
+    return windowsDrivePattern.test(value) ? 3 : (value.match(/^\\\\[^\\]+\\[^\\]+/)?.[0].length || 0)
   }
 
   return value.startsWith('/') ? 1 : 0
@@ -20,6 +23,8 @@ export const normalizeFilesystemPath = (value, flavor = pathFlavor(value || ''))
   if (typeof value !== 'string' || value.length === 0) {
     return ''
   }
+
+  if (isComputerPath(value)) return COMPUTER_PATH
 
   const normalized = normalizeSeparators(value, flavor)
   const minimumLength = rootLength(normalized, flavor)
@@ -39,6 +44,8 @@ export const isSameOrDescendantPath = (parentPath, targetPath) => {
   if (typeof parentPath !== 'string' || typeof targetPath !== 'string') {
     return false
   }
+
+  if (isComputerPath(parentPath)) return isComputerPath(targetPath) || pathFlavor(targetPath) === 'windows'
 
   const flavor = pathFlavor(parentPath)
   if (pathFlavor(targetPath) !== flavor) {
@@ -62,6 +69,7 @@ export const isSameOrDescendantPath = (parentPath, targetPath) => {
 }
 
 export const getFilesystemPathName = (value) => {
+  if (isComputerPath(value)) return 'This Computer'
   if (typeof value !== 'string' || value.length === 0) {
     return ''
   }
@@ -79,6 +87,13 @@ export const getFilesystemPathName = (value) => {
 export const buildFilesystemPathLevels = (rootPath, targetPath) => {
   if (typeof rootPath !== 'string' || rootPath.length === 0) {
     return []
+  }
+
+  if (isComputerPath(rootPath)) {
+    if (!targetPath || isComputerPath(targetPath) || pathFlavor(targetPath) !== 'windows') return [COMPUTER_PATH]
+    const target = normalizeFilesystemPath(targetPath)
+    const volume = target.slice(0, rootLength(target, 'windows'))
+    return [COMPUTER_PATH, ...buildFilesystemPathLevels(volume, target)]
   }
 
   const flavor = pathFlavor(rootPath)
@@ -109,6 +124,7 @@ export const buildFilesystemPathLevels = (rootPath, targetPath) => {
 }
 
 export const getFilesystemParentPath = (value) => {
+  if (isComputerPath(value)) return COMPUTER_PATH
   const flavor = pathFlavor(value || '')
   const normalized = normalizeFilesystemPath(value, flavor)
   const separator = separatorFor(flavor)

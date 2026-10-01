@@ -1,4 +1,5 @@
 import { getFileExtension, getMediaKind } from '../../shared/mediaTypes.js'
+import { isComputerPath, isWindowsVolumeRoot } from '../../shared/localFilesystem.js'
 
 const iconMap = {
   js: ['mdi-language-javascript', 'icon-javascript'],
@@ -46,6 +47,8 @@ const getExtension = (filename) => {
 }
 
 export const getFileIcon = (node, expanded = false) => {
+  if (isComputerPath(node.path)) return { icon: 'mdi-desktop-tower-monitor', className: 'icon-folder' }
+  if (node.isDirectory && isWindowsVolumeRoot(node.path)) return { icon: 'mdi-harddisk', className: 'icon-folder' }
   if (node.isDirectory) {
     return {
       icon: expanded ? 'mdi-folder-open' : 'mdi-folder',

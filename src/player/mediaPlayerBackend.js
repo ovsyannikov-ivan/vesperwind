@@ -163,13 +163,13 @@ export class NativeMpvPlayerBackend extends MediaPlayerBackend {
     })
   }
 
-  async request(eventName, payload = {}) {
+  async request(eventName, payload = {}, { fatal = true } = {}) {
     if (!this.sessionId) throw new Error('Native player session is not attached')
     console.info(`[player=${this.sessionId}] command sent: ${eventName}`)
     const response = await this.transport.request(eventName, { ...payload, sessionId: this.sessionId })
     if (!response?.ok) {
       const error = response?.error || { message: 'Native media playback failed' }
-      this.update({ status: PlayerStatus.ERROR, error })
+      if (fatal) this.update({ status: PlayerStatus.ERROR, error })
       throw Object.assign(new Error(error.message), error)
     }
     if (response.state) this.update(response.state)
@@ -215,10 +215,10 @@ export class NativeMpvPlayerBackend extends MediaPlayerBackend {
   setMuted(muted) { return this.command('player:set-muted', { muted: Boolean(muted) }) }
   selectTrack(kind, id) { return this.command('player:select-track', { kind, id }) }
   setSubtitleDelay(seconds) { return this.command('player:set-subtitle-delay', { seconds: Number(seconds) || 0 }) }
-  setGeometry(geometry) { return this.request('player:set-geometry', { geometry }) }
-  setVisible(visible) { return this.request('player:set-visible', { visible: Boolean(visible) }) }
+  setGeometry(geometry) { return this.request('player:set-geometry', { geometry }, { fatal: false }) }
+  setVisible(visible) { return this.request('player:set-visible', { visible: Boolean(visible) }, { fatal: false }) }
   setOverlay(visible, geometry, context = {}) {
-    return this.request('player:set-overlay', { visible: Boolean(visible), geometry, context })
+    return this.request('player:set-overlay', { visible: Boolean(visible), geometry, context }, { fatal: false })
   }
   refresh() { return this.request('player:snapshot') }
   overlaySnapshot() { return this.request('player:overlay-snapshot') }

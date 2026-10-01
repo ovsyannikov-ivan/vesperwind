@@ -230,3 +230,26 @@ test('native playback commands are not sent while the session is opening', async
   assert.deepEqual(requests.map(({ eventName }) => eventName), ['player:open', 'player:play'])
   player.close()
 })
+
+test('recoverable layout errors never poison playback state or block pause', async () => {
+  const requests = []
+  const player = new NativeMpvPlayerBackend({ transport: {
+    subscribe() { return () => {} },
+    async request(eventName, payload) {
+      requests.push(eventName)
+      if (eventName === 'player:open') return { ok: true, sessionId: payload.sessionId,
+        state: { status: PlayerStatus.PLAYING } }
+      if (eventName === 'player:set-overlay') return { ok: false,
+        error: { code: 'EMPV_OVERLAY', message: 'Overlay resize failed' } }
+      return { ok: true, state: { status: PlayerStatus.PAUSED } }
+    },
+  } })
+  await player.setSource({ providerId: 'local', path: '/test.mp4' }, {})
+  await assert.rejects(player.setOverlay(true, {}), /Overlay resize failed/)
+  assert.equal(player.snapshot().status, PlayerStatus.PLAYING)
+  assert.equal(player.snapshot().error, null)
+  await player.pause()
+  assert.equal(requests.at(-1), 'player:pause')
+  assert.equal(player.snapshot().status, PlayerStatus.PAUSED)
+  player.dispose()
+})

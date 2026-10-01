@@ -4,6 +4,7 @@ import process from 'node:process'
 import { entryNameError } from '../shared/entryName.js'
 import {
   fileManagerRoot,
+  desktopFilesystem,
   resolveInsideRoot,
   verifyRealPathInsideRoot,
 } from './filesystem.js'
@@ -145,7 +146,7 @@ export const performFileOperation = async ({
 
   const resolvedSource = resolveInsideRoot(sourcePath)
 
-  if (resolvedSource === fileManagerRoot) {
+  if ((!desktopFilesystem && resolvedSource === fileManagerRoot) || path.dirname(resolvedSource) === resolvedSource) {
     throw createOperationError(
       'EROOT_OPERATION',
       'The configured filesystem root cannot be changed',

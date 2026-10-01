@@ -57,7 +57,9 @@ test('build-path checks distinguish upstream runtime templates from machine path
   for (const text of ['C:/Temp/build/source.c', 'D:\\work\\mpv\\file.c', '/home/builder/file.c', '/tmp/build/file.c', '/ucrt64/include/file.h']) {
     assert.equal(hasAbsoluteBuildPath(text), true)
   }
-  for (const text of ['EXT:/PDR/default/ES.', '/tmp/%sXXXXXX', 'relative/source.c']) {
+  for (const text of ['EXT:/PDR/default/ES.', '/tmp/%sXXXXXX', 'relative/source.c',
+    'D:/W/B/src/mingw-w64/mingw-w64-crt/crt/tls_atexit.c']) {
     assert.equal(hasAbsoluteBuildPath(text), false)
   }
+  assert.equal(hasAbsoluteBuildPath('D:/W/B/src/private-project/file.c'), true)
 })

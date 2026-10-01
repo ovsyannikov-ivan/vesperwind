@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { runFullscreenTransition } from '../src/player/fullscreenTransition.js'
 
-test('fullscreen resize stays covered until presentation is ready', async () => {
+test('fullscreen resize and layout run under the cover', async () => {
   const calls = []
   let ready
   const pending = new Promise((resolve) => { ready = resolve })
@@ -17,6 +17,25 @@ test('fullscreen resize stays covered until presentation is ready', async () => 
   ready()
   await transition
   assert.deepEqual(calls, ['cover', 'resize', 'wait', 'reveal'])
+})
+
+test('fullscreen holds the opaque cover for 500 ms even when layout finishes immediately', async (context) => {
+  context.mock.timers.enable({ apis: ['setTimeout'] })
+  const calls = []
+  const transition = runFullscreenTransition({
+    cover: async () => calls.push('cover'),
+    change: async () => calls.push('resize'),
+    settle: async () => calls.push('layout'),
+    reveal: async () => calls.push('reveal'),
+  })
+  await new Promise(setImmediate)
+  assert.deepEqual(calls, ['cover', 'resize', 'layout'])
+  context.mock.timers.tick(499)
+  await new Promise(setImmediate)
+  assert.deepEqual(calls, ['cover', 'resize', 'layout'])
+  context.mock.timers.tick(1)
+  await transition
+  assert.deepEqual(calls, ['cover', 'resize', 'layout', 'reveal'])
 })
 
 test('failed native fullscreen operation always removes the cover', async () => {

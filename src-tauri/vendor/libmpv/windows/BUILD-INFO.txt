@@ -77,6 +77,9 @@
     "-Dwasapi=enabled",
     "-Dwin32-threads=enabled",
     "-Dd3d-hwaccel=enabled",
+    "-Dd3d11=enabled",
+    "-Dshaderc=enabled",
+    "-Dspirv-cross=enabled",
     "-Diconv=disabled",
     "-Dmanpage-build=disabled"
   ],
@@ -85,7 +88,14 @@
     "hevc": true
   },
   "hardwareDecodePolicy": "auto-copy-safe; runtime hwdec-current must be checked separately",
-  "presentation": "public OpenGL Render API; WGL RGBA8 SDR",
+  "presentation": "mpv-owned gpu-next D3D11 RGBA8 SDR; OpenGL Render API WGL fallback",
+  "libplaceboOptions": [
+    "-Dopengl=enabled",
+    "-Dd3d11=enabled",
+    "-Dshaderc=enabled",
+    "-Ddovi=disabled",
+    "-Dlibdovi=disabled"
+  ],
   "runtimeDlls": [
     "avcodec-62.dll",
     "avfilter-11.dll",
@@ -98,6 +108,8 @@
     "libharfbuzz-0.dll",
     "libiconv-2.dll",
     "libplacebo-351.dll",
+    "libshaderc_shared.dll",
+    "libspirv-cross-c-shared.dll",
     "libstdc++-6.dll",
     "libwinpthread-1.dll",
     "mpv-2.dll",
@@ -190,6 +202,7 @@
     "mingw-w64-ucrt-x86_64-expat 2.8.5-1",
     "mingw-w64-ucrt-x86_64-gcc 16.2.0-4",
     "mingw-w64-ucrt-x86_64-gettext-runtime 1.0-1",
+    "mingw-w64-ucrt-x86_64-glslang 16.3.0-1",
     "mingw-w64-ucrt-x86_64-gmp 6.3.0-2",
     "mingw-w64-ucrt-x86_64-gnutls 3.8.13-3",
     "mingw-w64-ucrt-x86_64-headers 14.0.0.r426.g4564ee4b5-1",
@@ -230,6 +243,9 @@
     "mingw-w64-ucrt-x86_64-pkgconf 1~3.0.7-1",
     "mingw-w64-ucrt-x86_64-python 3.14.7-1",
     "mingw-w64-ucrt-x86_64-rhash 1.4.6-1",
+    "mingw-w64-ucrt-x86_64-shaderc 2026.3-1",
+    "mingw-w64-ucrt-x86_64-spirv-cross 1~1.4.357.0-1",
+    "mingw-w64-ucrt-x86_64-spirv-tools 3~1.4.357.0-1",
     "mingw-w64-ucrt-x86_64-sqlite3 3.53.4-1",
     "mingw-w64-ucrt-x86_64-tcl 8.6.18-1",
     "mingw-w64-ucrt-x86_64-tk 8.6.18-1",

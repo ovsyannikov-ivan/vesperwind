@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { isFilesystemRootEntry } from '../../shared/localFilesystem.js'
 import { navigateDropdown } from '../utils/dropdownNavigation.js'
 
 const props = defineProps({
@@ -130,7 +131,7 @@ onBeforeUnmount(() => {
         class="dropdown-item"
         type="button"
         role="menuitem"
-        :disabled="busy"
+        :disabled="busy || isFilesystemRootEntry(request.node)"
         @click="$emit('rename')"
       >
         <i class="mdi mdi-rename-outline" aria-hidden="true" />
@@ -140,7 +141,7 @@ onBeforeUnmount(() => {
         class="dropdown-item text-danger"
         type="button"
         role="menuitem"
-        :disabled="busy"
+        :disabled="busy || isFilesystemRootEntry(request.node)"
         @click="$emit('delete')"
       >
         <i class="mdi mdi-trash-can-outline" aria-hidden="true" />

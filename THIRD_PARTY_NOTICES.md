@@ -33,7 +33,12 @@ winpthreads (MIT/BSD) and GNU libiconv (LGPL); their notices are in
 `windows/LICENSES`. The libplacebo generated OpenGL loader and fast_float notices
 are retained there as well. `windows/BUILD-INFO.txt` records compiler packages,
 archive hashes, recursive source revisions and feature flags; `SHA256SUMS`
-covers the complete Windows runtime and accompanying texts.
+covers the complete Windows runtime and accompanying texts. The D3D11 presentation
+backend additionally bundles MSYS2 UCRT64 shaderc and SPIRV-Cross shared libraries.
+shaderc and its incorporated SPIRV-Tools code use Apache-2.0; SPIRV-Cross uses
+Apache-2.0, and glslang includes BSD/MIT/Apache-2.0 notices. Complete upstream
+texts are retained under `windows/LICENSES/{shaderc,spirv-cross,spirv-tools,glslang}`;
+the exact package revisions are recorded in the manifest and build evidence.
 
 Vesperwind's MIT license does not relicense these libraries. The build excludes
 mpv's GPL source set and FFmpeg GPL/non-free/version-3-only components. Final

@@ -42,3 +42,13 @@ test('a failed overlay resize cannot acknowledge a complete cover', async () => 
     timeout: 250,
   }), /did not present/)
 })
+
+test('independent WebView zoom uses physical pixels for cover acknowledgement', async () => {
+  let frames = 0
+  await waitForOverlayPresentation({
+    viewport: { width: 1000, height: 700, scaleFactor: 1.25 },
+    measure: () => ({ width: 1250, height: 874 }),
+    frame: async () => { frames += 1 }, now: () => frames * 16,
+  })
+  assert.equal(frames, 2)
+})

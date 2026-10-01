@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { isComputerPath, isFilesystemRootEntry } from '../../shared/localFilesystem.js'
 import { entryNameError } from '../../shared/entryName.js'
 import { useFileOperations } from '../composables/useFileOperations.js'
 import { entryChange } from '../composables/useEntryChanges.js'
@@ -127,7 +128,7 @@ const cancelRename = () => {
   renameError.value = ''
 }
 const beginRename = async () => {
-  if (!selected.value || props.depth === 0 || renameBusy.value) return
+  if (!selected.value || props.depth === 0 || isFilesystemRootEntry(props.node) || renameBusy.value) return
   renaming.value = true
   renameName.value = props.node.name
   renameError.value = ''
@@ -236,6 +237,7 @@ const toggle = async () => {
   emit('expanded-change', { path: props.node.path, expanded: expanded.value })
 
   if (expanded.value) {
+    if (isComputerPath(props.node.path)) loaded.value = false
     startDirectoryWatch()
     await loadChildren()
   } else {
@@ -318,7 +320,7 @@ const handleKeydown = (event) => {
 
 const handleDragStart = (event) => {
   cancelRenameTimer()
-  if (!event.dataTransfer || !terminalPath.value) {
+  if (!event.dataTransfer || !terminalPath.value || isComputerPath(props.node.path)) {
     event.preventDefault()
     return
   }
@@ -327,7 +329,7 @@ const handleDragStart = (event) => {
   dragging.value = true
   event.dataTransfer.effectAllowed = 'all'
 
-  if (props.depth > 0) {
+  if (props.depth > 0 && !isFilesystemRootEntry(props.node)) {
     event.dataTransfer.setData(
       FILE_ENTRY_MIME,
       createFileDragPayload(
@@ -351,7 +353,7 @@ const carriesFileEntry = (event) =>
   Array.from(event.dataTransfer?.types || []).includes(FILE_ENTRY_MIME)
 
 const handleDragOver = (event) => {
-  if (!props.node.isDirectory || !carriesFileEntry(event)) {
+  if (!props.node.isDirectory || isComputerPath(props.node.path) || !carriesFileEntry(event)) {
     return
   }
 
@@ -372,7 +374,7 @@ const handleDragLeave = (event) => {
 const handleDrop = (event) => {
   dropTarget.value = false
 
-  if (!props.node.isDirectory || !carriesFileEntry(event)) {
+  if (!props.node.isDirectory || isComputerPath(props.node.path) || !carriesFileEntry(event)) {
     return
   }
 

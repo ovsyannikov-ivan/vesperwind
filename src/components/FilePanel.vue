@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { isComputerPath, isFilesystemRootEntry } from '../../shared/localFilesystem.js'
 import { useFilesystem } from '../composables/useFilesystem.js'
 import { useSettings } from '../composables/useSettings.js'
 import { buildPathBreadcrumbs } from '../utils/pathBreadcrumbs.js'
@@ -128,7 +129,8 @@ const panelState = computed(() => ({
     ? { ...selectedNode.value, providerId: props.providerId }
     : null,
   selectedEntries: search.open ? [] : selectedEntries.value.map((entry) => ({ ...entry, providerId: props.providerId })),
-  canOperateSelected: Boolean(!search.open && selectedEntries.value.length > 0),
+  canOperateSelected: Boolean(!search.open && selectedEntries.value.length > 0 &&
+    !selectedEntries.value.some(isFilesystemRootEntry)),
   viewState: {
     providerId: props.providerId,
     root: root.value,
@@ -351,7 +353,7 @@ const clearRootDropTarget = () => {
 }
 
 const handlePanelDragOver = (event) => {
-  if (!root.value?.isDirectory || !carriesFileEntry(event)) {
+  if (!root.value?.isDirectory || isComputerPath(root.value.path) || !carriesFileEntry(event)) {
     clearRootDropTarget()
     return
   }
@@ -377,7 +379,7 @@ const handlePanelDragLeave = (event) => {
 const handlePanelDrop = (event) => {
   clearRootDropTarget()
 
-  if (!root.value?.isDirectory || isDirectoryDropTarget(event) || !carriesFileEntry(event)) {
+  if (!root.value?.isDirectory || isComputerPath(root.value.path) || isDirectoryDropTarget(event) || !carriesFileEntry(event)) {
     return
   }
 

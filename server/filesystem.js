@@ -1,58 +1,23 @@
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { isSea } from 'node:sea'
+import { createFilesystemAccess, listWindowsDrives } from './filesystemAccess.js'
+import { COMPUTER_PATH, isComputerPath, localNavigation } from '../shared/localFilesystem.js'
 
 const configuredRoot = process.env.FILE_MANAGER_ROOT?.trim()
 const metadataConcurrency = 32
 
-export const fileManagerRoot = path.resolve(configuredRoot || os.homedir())
+export const desktopFilesystem = isSea()
+export const fileManagerRoot = path.resolve(desktopFilesystem
+  ? (process.platform === 'linux' ? '/' : os.homedir()) : configuredRoot || os.homedir())
 export const homeDirectory = path.resolve(os.homedir())
-
-const isInside = (rootPath, targetPath) => {
-  const relativePath = path.relative(rootPath, targetPath)
-
-  return (
-    relativePath === '' ||
-    (relativePath !== '..' &&
-      !relativePath.startsWith(`..${path.sep}`) &&
-      !path.isAbsolute(relativePath))
-  )
-}
-
-const createOutsideRootError = () => {
-  const error = new Error('The requested path is outside FILE_MANAGER_ROOT')
-  error.code = 'EOUTSIDE_ROOT'
-  return error
-}
-
-export const resolveInsideRoot = (requestedPath) => {
-  if (typeof requestedPath !== 'string' || requestedPath.length === 0) {
-    const error = new TypeError('A directory path is required')
-    error.code = 'EINVAL'
-    throw error
-  }
-
-  const resolvedPath = path.resolve(requestedPath)
-
-  if (!isInside(fileManagerRoot, resolvedPath)) {
-    throw createOutsideRootError()
-  }
-
-  return resolvedPath
-}
-
-export const verifyRealPathInsideRoot = async (resolvedPath) => {
-  const [realRoot, realTarget] = await Promise.all([
-    fs.realpath(fileManagerRoot),
-    fs.realpath(resolvedPath),
-  ])
-
-  if (!isInside(realRoot, realTarget)) {
-    throw createOutsideRootError()
-  }
-
-  return realTarget
-}
+const access = createFilesystemAccess({ root: fileManagerRoot, desktop: desktopFilesystem })
+export const resolveInsideRoot = access.resolve
+export const verifyRealPathInsideRoot = access.verify
+const navigation = localNavigation({ desktop: desktopFilesystem, platform: process.platform,
+  home: homeDirectory, browserRoot: fileManagerRoot })
+export const isComputerRoot = (value) => desktopFilesystem && process.platform === 'win32' && isComputerPath(value)
 
 const compareEntries = (left, right) => {
   if (left.isDirectory() !== right.isDirectory()) {
@@ -105,7 +70,10 @@ const readEntryMetadata = async (entryPath, isDirectory) => {
 
 const toEntry = async (parentPath, entry) => {
   const entryPath = path.join(parentPath, entry.name)
-  const isDirectory = entry.isDirectory()
+  let isDirectory = entry.isDirectory()
+  if (desktopFilesystem && entry.isSymbolicLink()) {
+    try { isDirectory = (await fs.stat(entryPath)).isDirectory() } catch {}
+  }
   const metadata = await readEntryMetadata(entryPath, isDirectory)
 
   return {
@@ -118,8 +86,11 @@ const toEntry = async (parentPath, entry) => {
   }
 }
 
-export const getRootEntry = async () => {
-  const stats = await fs.stat(fileManagerRoot)
+const directoryEntry = async (directory) => {
+  if (directory === COMPUTER_PATH) return { name: 'This Computer', path: COMPUTER_PATH,
+    type: 'computer', isDirectory: true, isSymbolicLink: false, size: null,
+    modifiedAt: null, metadataError: null }
+  const stats = await fs.stat(directory)
 
   if (!stats.isDirectory()) {
     const error = new Error('FILE_MANAGER_ROOT must point to a directory')
@@ -127,11 +98,11 @@ export const getRootEntry = async () => {
     throw error
   }
 
-  const parsedRoot = path.parse(fileManagerRoot).root
+  const parsedRoot = path.parse(directory).root
 
   return {
-    name: fileManagerRoot === parsedRoot ? parsedRoot : path.basename(fileManagerRoot),
-    path: fileManagerRoot,
+    name: directory === parsedRoot ? parsedRoot : path.basename(directory),
+    path: directory,
     type: 'directory',
     isDirectory: true,
     isSymbolicLink: false,
@@ -140,8 +111,11 @@ export const getRootEntry = async () => {
     metadataError: null,
   }
 }
+export const getRootEntry = () => directoryEntry(navigation.root)
+export const getInitialEntry = () => directoryEntry(navigation.initial)
 
 export const listDirectory = async (requestedPath) => {
+  if (isComputerRoot(requestedPath)) return listWindowsDrives()
   const resolvedPath = resolveInsideRoot(requestedPath)
   await verifyRealPathInsideRoot(resolvedPath)
 
@@ -180,7 +154,7 @@ export const registerFilesystemHandlers = (socket, { ssh } = {}) => {
         return
       }
       const root = await getRootEntry()
-      acknowledge?.({ ok: true, root, homePath: homeDirectory })
+      acknowledge?.({ ok: true, root, initial: await getInitialEntry(), homePath: homeDirectory })
     } catch (error) {
       acknowledge?.({
         ok: false,

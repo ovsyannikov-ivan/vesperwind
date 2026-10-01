@@ -1,5 +1,6 @@
 mod dynamic_library;
 mod player;
+mod presentation;
 mod render;
 mod stream;
 mod surface;
@@ -205,6 +206,14 @@ impl MpvApi {
         &self,
         registry: *mut c_void,
     ) -> Result<*mut MpvHandle, String> {
+        self.initialize_for_host(registry, None)
+    }
+
+    pub(crate) fn initialize_for_host(
+        &self,
+        registry: *mut c_void,
+        host: Option<usize>,
+    ) -> Result<*mut MpvHandle, String> {
         let handle = unsafe { (self.create)() };
         if handle.is_null() {
             return Err("mpv_create returned null".to_string());
@@ -216,7 +225,31 @@ impl MpvApi {
             self.set_option(handle, "input-vo-keyboard", "no")?;
             self.set_option(handle, "keep-open", "yes")?;
             self.set_option(handle, "idle", "yes")?;
-            self.set_option(handle, "vo", "libmpv")?;
+            if let Some(host) = host {
+                self.set_option(handle, "wid", &host.to_string())?;
+                self.set_option(handle, "vo", "gpu-next")?;
+                self.set_option(handle, "gpu-api", "d3d11")?;
+                self.set_option(handle, "gpu-context", "d3d11")?;
+                self.set_option(handle, "fullscreen", "no")?;
+                self.set_option(handle, "d3d11-exclusive-fs", "no")?;
+                // Phase one is deliberately SDR, including on an HDR desktop.
+                // Disable hints so source metadata cannot select PQ or FP16.
+                self.set_option(handle, "d3d11-output-format", "rgba8")?;
+                self.set_option(handle, "d3d11-output-csp", "srgb")?;
+                self.set_option(handle, "target-colorspace-hint", "no")?;
+                self.set_option(handle, "target-trc", "gamma2.2")?;
+                self.set_option(handle, "target-prim", "bt.709")?;
+                self.set_option(handle, "target-peak", "203")?;
+                // The SDR viewer must also sustain 4K on integrated GPUs.
+                // Avoid a full-resolution peak-analysis pass and expensive
+                // antialiased downscaling; source HDR metadata still drives
+                // tone mapping, and output dithering remains enabled.
+                self.set_option(handle, "hdr-compute-peak", "no")?;
+                self.set_option(handle, "dscale", "bilinear")?;
+                self.set_option(handle, "correct-downscaling", "no")?;
+            } else {
+                self.set_option(handle, "vo", "libmpv")?;
+            }
             #[cfg(target_os = "macos")]
             self.set_option(handle, "ao", "coreaudio,avfoundation")?;
             // The caller-owned OpenGL Render API cannot safely import every
@@ -224,7 +257,17 @@ impl MpvApi {
             // copy-back decoders, which retain hardware codec decoding while
             // presenting ordinary frames to the existing cross-platform
             // renderer. mpv falls back to software when no safe hwdec exists.
-            self.set_option(handle, "hwdec", "auto-copy-safe")?;
+            // Owned D3D11 output can import native decoder surfaces directly.
+            // Render API retains the copy-back path for platform compatibility.
+            self.set_option(
+                handle,
+                "hwdec",
+                if host.is_some() {
+                    "auto-safe"
+                } else {
+                    "auto-copy-safe"
+                },
+            )?;
             if let Some(log_path) = std::env::var_os("VESPERWIND_MPV_LOG") {
                 self.set_option(handle, "log-file", &log_path.to_string_lossy())?;
                 self.set_option(handle, "msg-level", "all=v")?;

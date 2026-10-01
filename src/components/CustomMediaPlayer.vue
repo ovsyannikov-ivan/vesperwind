@@ -11,6 +11,7 @@ import 'media-chrome/dist/media-time-range.js'
 import 'media-chrome/dist/media-volume-range.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { mediaOverlay } from '../api/mediaOverlay.js'
+import { createLayoutQueue } from '../player/layoutQueue.js'
 import {
   NativeMpvPlayerBackend,
   PlayerStatus,
@@ -65,7 +66,16 @@ const trackGeometryUpdate = (request) => {
   void request.catch(() => {}).finally(() => pendingGeometryUpdates.delete(request))
   return request
 }
-const viewportGeometry = () => ({ x: 0, y: 0, width: window.innerWidth, height: window.innerHeight })
+const layoutQueue = createLayoutQueue({
+  apply: async ({ sessionId, video, overlay, context }) => {
+    if (!nativeReady || !player || player.sessionId !== sessionId) return
+    await player.setGeometry(video)
+    await player.setOverlay(true, overlay, context)
+  },
+  onError: (error) => console.warn('Media layout update failed', error),
+})
+const viewportGeometry = () => ({ x: 0, y: 0, width: window.innerWidth, height: window.innerHeight,
+  scaleFactor: window.devicePixelRatio || 1 })
 
 const modalBorderRadius = () => {
   if (props.fullscreen) return 0
@@ -107,7 +117,8 @@ const overlayGeometry = () => {
     y: rect.top,
     width: rect.width,
     height: rect.height,
-  } : { x: 0, y: 0, width: 1, height: 1 }
+    scaleFactor: window.devicePixelRatio || 1,
+  } : { x: 0, y: 0, width: 1, height: 1, scaleFactor: window.devicePixelRatio || 1 }
 }
 
 const overlayContext = () => ({
@@ -125,16 +136,14 @@ const syncGeometry = () => {
   cancelAnimationFrame(geometryFrame)
   geometryFrame = requestAnimationFrame(() => {
     if (nativeTransitioning) return
-    trackGeometryUpdate(Promise.all([
-      player?.setGeometry(geometry()),
-      player?.setOverlay(true, overlayGeometry(), overlayContext()),
-    ]))
+    trackGeometryUpdate(layoutQueue.request({ sessionId: player.sessionId,
+      video: geometry(), overlay: overlayGeometry(), context: overlayContext() }))
   })
 }
 
 const syncOverlayContext = () => {
   if (!isNative.value || !player || !nativeReady || nativeTransitioning) return
-  trackGeometryUpdate(player.setOverlay(true, overlayGeometry(), overlayContext()))
+  syncGeometry()
 }
 
 const handleLayoutSettled = () => syncGeometry()
@@ -187,6 +196,7 @@ const coverNativeTransition = async () => {
   const current = ++nativeTransitionGeneration
   nativeTransitioning = true
   cancelAnimationFrame(geometryFrame)
+  layoutQueue.cancel()
   await Promise.allSettled([...pendingGeometryUpdates])
   if (current !== nativeTransitionGeneration) return
   await mediaOverlay.fade(true)
@@ -216,6 +226,10 @@ const revealNativeTransition = async () => {
       if (current !== nativeTransitionGeneration) return
       await mediaOverlay.fade(true, { immediate: true, viewport: bounds })
       if (current !== nativeTransitionGeneration) return
+      // Native fullscreen animation can finish during the fixed hold. Apply
+      // its final bounds once, while the surface is still hidden and covered.
+      await player.setGeometry(geometry())
+      if (current !== nativeTransitionGeneration) return
       await player.setVisible(true)
     }
   } finally {
@@ -228,45 +242,17 @@ const revealNativeTransition = async () => {
 const settleNativePresentation = async () => {
   if (!nativeReady || !player) return
   const current = nativeTransitionGeneration
-  // Both native fullscreen animation and WebView layout can emit several sizes.
-  let previous = ''
-  let stableFrames = 0
-  const deadline = performance.now() + 2000
-  while (stableFrames < 10 && performance.now() < deadline) {
-    await new Promise(requestAnimationFrame)
-    if (current !== nativeTransitionGeneration) return
-    const bounds = geometry()
-    const key = `${bounds.x},${bounds.y},${bounds.width},${bounds.height},${bounds.scaleFactor}`
-    stableFrames = key === previous ? stableFrames + 1 : 0
-    previous = key
-  }
+  await nextTick()
   cancelAnimationFrame(geometryFrame)
-  const bounds = geometry()
-  const before = await player.refresh()
-  if (current !== nativeTransitionGeneration) return
   await player.setOverlay(true, overlayGeometry(), overlayContext())
   if (current !== nativeTransitionGeneration) return
   await mediaOverlay.fade(true, { immediate: true, viewport: overlayGeometry() })
   if (current !== nativeTransitionGeneration) return
-  await player.setGeometry(bounds)
+  await player.setGeometry(geometry())
   if (current !== nativeTransitionGeneration) return
-  await player.setVisible(true)
-  if (current !== nativeTransitionGeneration) return
-  const width = Math.round(bounds.width * bounds.scaleFactor)
-  const height = Math.round(bounds.height * bounds.scaleFactor)
-  while (nativeReady && player && performance.now() < deadline) {
-    const snapshot = await player.refresh()
-    if (current !== nativeTransitionGeneration) return
-    const frame = snapshot?.state?.presentation
-    if (frame?.sequence > (before?.state?.presentation?.sequence || 0)
-      && frame.width === width && frame.height === height) {
-      console.info(`[player=${player.sessionId}] fullscreen presentation ready: ${width}x${height} frame=${frame.sequence}`)
-      return
-    }
-    await new Promise((resolve) => setTimeout(resolve, 16))
-  }
+  // Keep video hidden throughout the fixed 500 ms hold. Reveal applies final
+  // bounds and restores visibility under the opaque cover before fading in.
 }
-
 onMounted(() => void createPlayer().catch((error) => emit('error', error)))
 
 watch(
@@ -302,6 +288,7 @@ onBeforeUnmount(() => {
   generation += 1
   nativeTransitionGeneration += 1
   cancelAnimationFrame(geometryFrame)
+  layoutQueue.cancel()
   resizeObserver?.disconnect()
   window.removeEventListener('resize', syncGeometry)
   document.removeEventListener('shown.bs.modal', handleLayoutSettled)

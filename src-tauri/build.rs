@@ -35,6 +35,13 @@ fn main() {
         )
         .expect("Tauri Windows build resources");
         println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
+        println!("cargo:rerun-if-changed=windows-compatibility.manifest");
+        let compatibility =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("windows-compatibility.manifest");
+        println!(
+            "cargo:rustc-link-arg=/MANIFESTINPUT:{}",
+            compatibility.display()
+        );
         println!("cargo:rustc-link-arg=/MANIFESTDEPENDENCY:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'");
     } else {
         tauri_build::build()

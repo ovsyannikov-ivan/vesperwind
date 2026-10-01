@@ -87,7 +87,7 @@ fn operate_existing(
         .ok_or_else(|| NativeError::new("EINVAL", "A source path is required"))?;
     let source = paths::resolve_inside_root(filesystem, source_text)?;
 
-    if source == filesystem.root() {
+    if filesystem.is_operation_root(&source) {
         return Err(NativeError::new(
             "EROOT_OPERATION",
             "The configured filesystem root cannot be changed",

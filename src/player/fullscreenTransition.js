@@ -16,7 +16,10 @@ export const runFullscreenTransition = async ({ cover, change, settle, reveal, t
   try {
     await step('cover', cover)
     await step('resize', change)
-    await step('presentation', settle)
+    await step('layout', settle)
+    // Native window animation and compositor updates stay hidden for a fixed
+    // interval on every platform. Do not gate the UX on video frame counters.
+    await step('cover-delay', () => new Promise((resolve) => setTimeout(resolve, 500)))
   } finally {
     await step('reveal', reveal)
   }

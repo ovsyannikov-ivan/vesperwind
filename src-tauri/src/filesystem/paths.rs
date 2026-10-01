@@ -23,12 +23,12 @@ pub fn resolve_inside_root(
     filesystem: &Filesystem,
     requested: &str,
 ) -> Result<PathBuf, NativeError> {
-    if requested.is_empty() {
+    if requested.is_empty() || requested == super::COMPUTER_PATH {
         return Err(NativeError::new("EINVAL", "A path is required"));
     }
 
     let resolved = absolute_clean(Path::new(requested))?;
-    if !resolved.starts_with(filesystem.root()) {
+    if !filesystem.is_desktop() && !resolved.starts_with(filesystem.root()) {
         return Err(outside_root());
     }
     Ok(resolved)
@@ -38,6 +38,17 @@ pub fn verify_existing_inside_root(
     filesystem: &Filesystem,
     resolved: &Path,
 ) -> Result<PathBuf, NativeError> {
+    if filesystem.is_desktop() {
+        // Resolve each component so Finder aliases in ancestor directories work
+        // just like ordinary symlinks, including targets outside the home folder.
+        let mut physical = PathBuf::new();
+        for component in resolved.components() {
+            physical.push(component.as_os_str());
+            physical = alias::resolve_finder_alias(&physical)?;
+        }
+        return fs::canonicalize(&physical)
+            .map_err(|error| NativeError::from_io(&error, "The requested path is unavailable"));
+    }
     let relative = resolved
         .strip_prefix(filesystem.root())
         .or_else(|_| resolved.strip_prefix(filesystem.real_root()))

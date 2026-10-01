@@ -6,6 +6,10 @@ import { inspectPe, isSystemDll } from './libmpv-pe.js'
 export function hasAbsoluteBuildPath(text) {
   // FFmpeg's file.c contains a portable runtime tempfile template, not a build path.
   const strings = text.replaceAll('/tmp/%sXXXXXX', '')
+    // Fixed upstream MSYS2 CRT assertion filename in the reviewed shaderc
+    // package. This is not a Vesperwind/user build path. Keep the exception
+    // exact: arbitrary drive paths and other toolchain paths remain forbidden.
+    .replaceAll('D:/W/B/src/mingw-w64/mingw-w64-crt/crt/tls_atexit.c', '')
   // Require a drive-letter boundary: GXF's EXT:/PDR/ is a format identifier.
   return /(?<![a-z])[a-z]:[\\/][a-z0-9_. -]+[\\/]/i.test(strings) ||
     /\/(?:home|tmp|ucrt64)\//.test(strings)
@@ -46,8 +50,22 @@ export async function verifyWindowsBundle(directory, manifest) {
   for (const flag of ['--disable-gpl', '--disable-nonfree', '--disable-version3', '--enable-d3d11va']) {
     if (!info.ffmpegFlags?.includes(flag)) throw new Error(`Missing FFmpeg flag: ${flag}`)
   }
-  for (const flag of [...manifest.requiredMesonOptions, '-Dd3d-hwaccel=enabled', '-Dwasapi=enabled']) {
+  for (const flag of [...manifest.requiredMesonOptions, ...(manifest.windows.requiredMesonOptions ?? []), '-Dd3d-hwaccel=enabled', '-Dwasapi=enabled']) {
     if (!info.mpvFlags?.includes(flag)) throw new Error(`Missing mpv flag: ${flag}`)
+  }
+  for (const flag of manifest.windows.requiredLibplaceboOptions ?? []) {
+    if (!info.libplaceboOptions?.includes(flag)) throw new Error(`Missing libplacebo flag: ${flag}`)
+  }
+  for (const [name, version] of Object.entries(manifest.windows.shaderToolchainPackages ?? {})) {
+    if (!info.toolchainPackages?.includes(`${name} ${version}`)) throw new Error(`Unconfirmed shader package: ${name}`)
+  }
+  if (manifest.windows.requiredMesonOptions?.includes('-Dd3d11=enabled')) {
+    for (const name of ['libshaderc_shared.dll', 'libspirv-cross-c-shared.dll']) {
+      if (!bundled.has(name)) throw new Error(`Missing D3D11 shader dependency: ${name}`)
+    }
+    for (const name of ['shaderc', 'spirv-cross', 'glslang', 'spirv-tools']) {
+      if (!names.some((file) => file.startsWith(`LICENSES/${name}/`))) throw new Error(`Missing shader license: ${name}`)
+    }
   }
   if (info.d3d11va?.h264 !== true || info.d3d11va?.hevc !== true) {
     throw new Error('Missing FFmpeg H.264/HEVC D3D11VA probe evidence')

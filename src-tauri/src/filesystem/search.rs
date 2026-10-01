@@ -94,7 +94,9 @@ where
     if !matches!(kind, "all" | "files" | "folders") || query.trim().is_empty() {
         return Err(NativeError::new("EINVAL", "Invalid search request"));
     }
-    if provider_id == "local" {
+    if provider_id == "local" && filesystem.is_computer_root(base_path) {
+        filesystem.list_directory(base_path)?;
+    } else if provider_id == "local" {
         let resolved = super::paths::resolve_inside_root(filesystem, base_path)?;
         super::paths::verify_existing_inside_root(filesystem, &resolved)?;
     } else {
@@ -139,7 +141,9 @@ where
             {
                 continue;
             }
-            let relative = if provider_id == "local" {
+            let relative = if provider_id == "local" && filesystem.is_computer_root(base_path) {
+                entry.path.clone()
+            } else if provider_id == "local" {
                 Path::new(&entry.path)
                     .strip_prefix(base_path)
                     .unwrap_or(Path::new(&entry.name))

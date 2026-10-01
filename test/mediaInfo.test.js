@@ -111,3 +111,16 @@ test('shows AAC stereo bitrate and sample rate on one current-audio line', () =>
     'AAC · Stereo · 209 kbps · 48 kHz',
   )
 })
+
+test('reports the active D3D11 renderer and preserves a separate presentation fallback reason', () => {
+  const value = structuredClone(diagnostics)
+  value.renderer = 'libmpv-owned gpu-next / D3D11 (SDR)'
+  let playback = section(buildMediaInfoSections(value), 'Playback')
+  assert.equal(playback['Render surface'].value, value.renderer)
+  assert.equal(playback['Renderer fallback'], undefined)
+  value.renderer = diagnostics.renderer
+  value.presentationFallbackReason = 'D3D11 video output could not initialize'
+  playback = section(buildMediaInfoSections(value), 'Playback')
+  assert.equal(playback['Render surface'].value, diagnostics.renderer)
+  assert.equal(playback['Renderer fallback'].value, value.presentationFallbackReason)
+})

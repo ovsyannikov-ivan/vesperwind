@@ -1,5 +1,5 @@
 use super::{
-    render::Renderer,
+    presentation::{Backend, Presentation},
     stream::MpvStreamRegistry,
     surface::{DisplayCapabilities, NativeSurface},
     MpvApi, MpvHandle, MPV_EVENT_END_FILE, MPV_EVENT_FILE_LOADED, MPV_EVENT_NONE,
@@ -79,6 +79,7 @@ pub struct PlayerSnapshot {
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaybackDiagnostics {
+    pub presentation_fallback_reason: Option<String>,
     pub container: Option<String>,
     pub friendly_container: Option<String>,
     pub file_size: Option<i64>,
@@ -237,6 +238,44 @@ struct RunningPlayer {
     lifecycle: Arc<Mutex<PlayerLifecycle>>,
 }
 
+// If spawning the control thread fails, its captured runtime still tears down
+// the renderer and embedded VO in the required order.
+struct PlayerRuntime {
+    api: Arc<MpvApi>,
+    handle_address: usize,
+    presentation: Option<Presentation>,
+    _host: NativeSurface,
+    _registry: Arc<MpvStreamRegistry>,
+}
+
+impl Drop for PlayerRuntime {
+    fn drop(&mut self) {
+        if let Some(presentation) = self.presentation.take() {
+            presentation.stop();
+        }
+        self.api.destroy(self.handle_address as *mut MpvHandle);
+    }
+}
+
+fn requested_backends() -> Result<Vec<Backend>, String> {
+    #[cfg(target_os = "windows")]
+    return windows_backends(
+        &std::env::var("VESPERWIND_MPV_WINDOWS_BACKEND").unwrap_or_else(|_| "auto".into()),
+    );
+    #[cfg(not(target_os = "windows"))]
+    Ok(vec![Backend::RenderApi])
+}
+
+#[cfg(target_os = "windows")]
+fn windows_backends(mode: &str) -> Result<Vec<Backend>, String> {
+    match mode {
+        "auto" => Ok(vec![Backend::D3d11, Backend::RenderApi]),
+        "d3d11" => Ok(vec![Backend::D3d11]),
+        "wgl" => Ok(vec![Backend::RenderApi]),
+        _ => Err("VESPERWIND_MPV_WINDOWS_BACKEND must be auto, d3d11 or wgl".into()),
+    }
+}
+
 pub struct MpvPlayerManager {
     ssh: Arc<SshManager>,
     registry: Arc<MpvStreamRegistry>,
@@ -259,6 +298,8 @@ impl MpvPlayerManager {
         session_id: &str,
         window: &Window,
         app: &AppHandle,
+        backend: Backend,
+        fallback_reason: Option<String>,
     ) -> Result<(), String> {
         let mut running = self
             .running
@@ -272,32 +313,52 @@ impl MpvPlayerManager {
         }
         eprintln!("[player={session_id}] create requested");
         let api = Arc::new(MpvApi::load_bundled()?);
-        let handle = api.initialize_for_streams(Arc::as_ptr(&self.registry).cast_mut().cast())?;
-        eprintln!("[player={session_id}] mpv handle created");
-        let surface = match NativeSurface::create(window) {
-            Ok(surface) => surface,
-            Err(error) => {
-                api.destroy(handle);
-                return Err(error);
-            }
+        let surface = match backend {
+            Backend::RenderApi => NativeSurface::create(window)?,
+            #[cfg(target_os = "windows")]
+            Backend::D3d11 => NativeSurface::create_video_host(window)?,
         };
+        let host = match backend {
+            Backend::RenderApi => None,
+            #[cfg(target_os = "windows")]
+            Backend::D3d11 => Some(surface.host_address()),
+        };
+        let registry = Arc::as_ptr(&self.registry).cast_mut().cast();
+        let handle = match host {
+            Some(host) => api.initialize_for_host(registry, Some(host))?,
+            None => api.initialize_for_streams(registry)?,
+        };
+        eprintln!(
+            "[player={session_id}] mpv handle created backend={}",
+            backend.name()
+        );
         surface.refresh_display_capabilities();
         let display = surface.display_capabilities();
         if let Err(error) = configure_display_output(&api, handle, &display) {
             api.destroy(handle);
             return Err(error);
         }
-        let renderer = match Renderer::start(Arc::clone(&api), handle, surface.clone(), session_id)
-        {
-            Ok(renderer) => renderer,
+        let presentation = match Presentation::start(
+            Arc::clone(&api),
+            handle,
+            surface.clone(),
+            session_id,
+            backend,
+        ) {
+            Ok(presentation) => presentation,
             Err(error) => {
                 api.destroy(handle);
                 return Err(error);
             }
         };
-        eprintln!("[player={session_id}] render context created");
+        let runtime = PlayerRuntime {
+            api,
+            handle_address: handle as usize,
+            presentation: Some(presentation),
+            _host: surface.clone(),
+            _registry: Arc::clone(&self.registry),
+        };
         let (sender, receiver) = mpsc::channel();
-        let handle_address = handle as usize;
         let registry = Arc::clone(&self.registry);
         let control_surface = surface.clone();
         let app = app.clone();
@@ -308,15 +369,15 @@ impl MpvPlayerManager {
             .name("vesperwind-mpv-control".to_string())
             .spawn(move || {
                 control_loop(
-                    api,
-                    handle_address,
-                    renderer,
+                    runtime,
                     registry,
                     control_surface,
                     receiver,
                     app,
                     control_session_id,
                     control_lifecycle,
+                    backend,
+                    fallback_reason,
                 )
             })
             .map_err(|error| error.to_string())?;
@@ -343,30 +404,49 @@ impl MpvPlayerManager {
         geometry: PlayerGeometry,
     ) -> Result<PlayerSnapshot, String> {
         eprintln!("[player={session_id}] open requested source={path}");
-        let source = ContentSource::open(filesystem, &self.ssh, provider_id, path)
-            .map_err(|error| error.message)?;
-        self.ensure_started(session_id, window, app)?;
-        let uri = self.registry.register(source);
-        eprintln!("[player={session_id}] source load requested");
-        let result = self.with_running(session_id, true, |running| {
-            running.surface.set_geometry(geometry)?;
-            running.surface.set_visible(true)?;
-            running
-                .sender
-                .send(Control::SetSubtitlePosition(geometry.subtitle_position))
-                .map_err(|_| "The native player control channel is closed".to_string())?;
-            request(&running.sender, |reply| Control::Load {
-                uri: uri.clone(),
-                autoplay,
-                reply,
-            })
-        });
-        if let Err(error) = &result {
-            eprintln!("[player={session_id}] open failed: {error}");
-            self.registry.remove(&uri);
-            self.close(session_id);
+        let backends = requested_backends()?;
+        let mut fallback_reason = None;
+        for (index, backend) in backends.iter().copied().enumerate() {
+            let can_fallback = index + 1 < backends.len();
+            let source = ContentSource::open(filesystem, &self.ssh, provider_id, path)
+                .map_err(|error| error.message)?;
+            if let Err(error) =
+                self.ensure_started(session_id, window, app, backend, fallback_reason.clone())
+            {
+                if !can_fallback {
+                    return Err(error);
+                }
+                eprintln!("[player={session_id}] presentation startup failed; trying WGL: {error}");
+                fallback_reason = Some(error);
+                continue;
+            }
+            let uri = self.registry.register(source);
+            eprintln!("[player={session_id}] source load requested");
+            let result = self.with_running(session_id, true, |running| {
+                running.surface.set_geometry(geometry)?;
+                running.surface.set_visible(true)?;
+                running
+                    .sender
+                    .send(Control::SetSubtitlePosition(geometry.subtitle_position))
+                    .map_err(|_| "The native player control channel is closed".to_string())?;
+                request(&running.sender, |reply| Control::Load {
+                    uri: uri.clone(),
+                    autoplay,
+                    reply,
+                })
+            });
+            if let Err(error) = &result {
+                eprintln!("[player={session_id}] open failed: {error}");
+                self.registry.remove(&uri);
+                self.close(session_id);
+                if can_fallback && error.starts_with("D3D11 presentation initialization failed:") {
+                    fallback_reason = Some(error.clone());
+                    continue;
+                }
+            }
+            return result;
         }
-        result
+        Err("No Windows presentation backend could start".into())
     }
 
     pub fn set_geometry(&self, session_id: &str, geometry: PlayerGeometry) -> Result<(), String> {
@@ -407,11 +487,23 @@ impl MpvPlayerManager {
 
     pub fn play(&self, session_id: &str) -> Result<PlayerSnapshot, String> {
         eprintln!("[player={session_id}] play");
-        self.with_request(session_id, Control::Play)
+        let started = Instant::now();
+        let result = self.with_request(session_id, Control::Play);
+        eprintln!(
+            "[player={session_id}] play completed_ms={}",
+            started.elapsed().as_millis()
+        );
+        result
     }
     pub fn pause(&self, session_id: &str) -> Result<PlayerSnapshot, String> {
         eprintln!("[player={session_id}] pause");
-        self.with_request(session_id, Control::Pause)
+        let started = Instant::now();
+        let result = self.with_request(session_id, Control::Pause);
+        eprintln!(
+            "[player={session_id}] pause completed_ms={}",
+            started.elapsed().as_millis()
+        );
+        result
     }
     pub fn snapshot(&self, session_id: &str) -> Result<PlayerSnapshot, String> {
         self.with_request(session_id, Control::Snapshot)
@@ -588,24 +680,31 @@ fn request(
 }
 
 fn control_loop(
-    api: Arc<MpvApi>,
-    handle_address: usize,
-    renderer: Renderer,
+    runtime: PlayerRuntime,
     registry: Arc<MpvStreamRegistry>,
     surface: NativeSurface,
     receiver: mpsc::Receiver<Control>,
     app: AppHandle,
     session_id: String,
     lifecycle: Arc<Mutex<PlayerLifecycle>>,
+    backend: Backend,
+    fallback_reason: Option<String>,
 ) {
-    let handle = handle_address as *mut MpvHandle;
+    #[cfg(not(target_os = "windows"))]
+    let _ = backend;
+    let api = Arc::clone(&runtime.api);
+    let handle = runtime.handle_address as *mut MpvHandle;
     let mut current_uri: Option<String> = None;
     let mut state = PlayerSnapshot::default();
+    state.diagnostics.presentation_fallback_reason = fallback_reason;
     let mut last_emit = Instant::now() - Duration::from_secs(1);
     let mut last_display_refresh = Instant::now() - Duration::from_secs(1);
+    let mut last_metadata_refresh = Instant::now() - Duration::from_secs(1);
+    let mut last_performance_log = Instant::now();
     let mut display = surface.display_capabilities();
     let mut shutdown_reply = None;
     let mut eof_handled = false;
+    let mut waiting_for_vo: Option<Instant> = None;
     let mut pending_load: Option<(
         mpsc::SyncSender<Result<PlayerSnapshot, String>>,
         bool,
@@ -697,7 +796,7 @@ fn control_loop(
             }
             Ok(Control::Snapshot(reply)) => {
                 state = read_snapshot(&api, handle, &state, &display);
-                state.presentation = renderer.presentation();
+                state.presentation = runtime.presentation.as_ref().unwrap().presentation();
                 let _ = reply.send(Ok(state.clone()));
             }
             Ok(Control::Shutdown(reply)) => {
@@ -710,10 +809,34 @@ fn control_loop(
 
         let mut event_changed = false;
         loop {
-            let event = api.wait_event_details(handle, 0.0);
+            let event = if waiting_for_vo.is_some()
+                && api.get_flag(handle, "vo-configured") == Some(true)
+            {
+                waiting_for_vo = None;
+                // Complete deferred startup without consuming a queued event,
+                // especially END_FILE or SHUTDOWN.
+                super::MpvEventDetails {
+                    event_id: MPV_EVENT_FILE_LOADED,
+                    error: 0,
+                    end_file_error: 0,
+                }
+            } else {
+                api.wait_event_details(handle, 0.0)
+            };
             match event.event_id {
                 MPV_EVENT_NONE => break,
                 MPV_EVENT_FILE_LOADED => {
+                    #[cfg(target_os = "windows")]
+                    if backend == Backend::D3d11
+                        && api.get_i64(handle, "current-tracks/video/id").is_some()
+                        && api.get_flag(handle, "vo-configured") != Some(true)
+                    {
+                        // FILE_LOADED precedes first-frame VO configuration.
+                        // Keep opening until VO startup completes or fails;
+                        // this does not gate fullscreen transitions.
+                        waiting_for_vo = Some(Instant::now());
+                        continue;
+                    }
                     state.error = None;
                     state = read_snapshot(&api, handle, &state, &display);
                     state.status = "ready".into();
@@ -743,6 +866,7 @@ fn control_loop(
                     event_changed = true;
                 }
                 MPV_EVENT_END_FILE => {
+                    waiting_for_vo = None;
                     let error = if event.end_file_error < 0 {
                         event.end_file_error
                     } else {
@@ -750,10 +874,15 @@ fn control_loop(
                     };
                     if error < 0 {
                         state.status = "error".into();
-                        let message = format!(
+                        let mut message = format!(
                             "libmpv could not play this file: {}",
                             api.error_string(error)
                         );
+                        #[cfg(target_os = "windows")]
+                        if backend == Backend::D3d11 && error == -15 {
+                            message =
+                                format!("D3D11 presentation initialization failed: {message}");
+                        }
                         state.error = Some(message.clone());
                         *lifecycle.lock().unwrap_or_else(|value| value.into_inner()) =
                             PlayerLifecycle::Error;
@@ -769,6 +898,17 @@ fn control_loop(
                 MPV_EVENT_SHUTDOWN => break 'running,
                 _ => {}
             }
+        }
+        if waiting_for_vo.is_some_and(|started| started.elapsed() >= Duration::from_secs(10)) {
+            waiting_for_vo = None;
+            let message = "D3D11 presentation initialization failed: video output did not configure within 10 seconds".to_string();
+            if let Some((reply, _, uri)) = pending_load.take() {
+                registry.remove(&uri);
+                let _ = reply.send(Err(message.clone()));
+            }
+            state.error = Some(message);
+            state.status = "error".into();
+            *lifecycle.lock().unwrap_or_else(|value| value.into_inner()) = PlayerLifecycle::Error;
         }
         if last_emit.elapsed() >= Duration::from_millis(100) {
             // keep-open retains the file and last frame at EOF, so no END_FILE
@@ -793,7 +933,7 @@ fn control_loop(
             } else if !at_eof {
                 eof_handled = false;
             }
-            if last_display_refresh.elapsed() >= Duration::from_millis(500) {
+            if last_display_refresh.elapsed() >= Duration::from_secs(2) {
                 surface.refresh_display_capabilities();
                 let next_display = surface.display_capabilities();
                 if next_display != display {
@@ -803,21 +943,44 @@ fn control_loop(
                 }
                 last_display_refresh = Instant::now();
             }
-            let next = read_snapshot(&api, handle, &state, &display);
+            state.presentation = runtime.presentation.as_ref().unwrap().presentation();
+            // Time/volume update frequently; codec/HDR metadata and track lists
+            // require many synchronous mpv property queries and change rarely.
+            let next = if event_changed || last_metadata_refresh.elapsed() >= Duration::from_secs(1)
+            {
+                last_metadata_refresh = Instant::now();
+                read_snapshot(&api, handle, &state, &display)
+            } else {
+                read_playback_state(&api, handle, &state)
+            };
             if next != state || event_changed {
                 state = next;
                 emit_state(&app, &session_id, &state);
             }
             last_emit = Instant::now();
+            if std::env::var_os("VESPERWIND_MPV_LOG").is_some()
+                && last_performance_log.elapsed() >= Duration::from_secs(5)
+            {
+                eprintln!("[player={session_id}] performance time={:.2} hwdec={:?} dropped={:?} decoder_dropped={:?}",
+                    state.current_time, state.diagnostics.hardware_decoder,
+                    api.get_i64(handle, "frame-drop-count"), api.get_i64(handle, "decoder-frame-drop-count"));
+                last_performance_log = Instant::now();
+            }
         }
     }
 
     let _ = api.command(handle, &["stop"]);
+    if let Some((reply, _, uri)) = pending_load {
+        registry.remove(&uri);
+        let _ = reply.send(Err(
+            "The native player closed while opening the source".into()
+        ));
+    }
     if let Some(uri) = current_uri {
         registry.remove(&uri);
     }
-    renderer.stop();
-    api.destroy(handle);
+    // Destroy the VO while both its host and callback registry are still alive.
+    drop(runtime);
     *lifecycle.lock().unwrap_or_else(|value| value.into_inner()) = PlayerLifecycle::Closed;
     let _ = app.emit(
         "player:state",
@@ -856,6 +1019,19 @@ fn read_snapshot(
     previous: &PlayerSnapshot,
     display: &DisplayCapabilities,
 ) -> PlayerSnapshot {
+    let mut state = read_playback_state(api, handle, previous);
+    state.tracks = read_tracks(api, handle);
+    state.diagnostics = read_diagnostics(api, handle, display);
+    state.diagnostics.presentation_fallback_reason =
+        previous.diagnostics.presentation_fallback_reason.clone();
+    state
+}
+
+fn read_playback_state(
+    api: &MpvApi,
+    handle: *mut MpvHandle,
+    previous: &PlayerSnapshot,
+) -> PlayerSnapshot {
     let paused = api
         .get_flag(handle, "pause")
         .unwrap_or(previous.status == "paused");
@@ -887,8 +1063,8 @@ fn read_snapshot(
         subtitle_delay: api
             .get_double(handle, "sub-delay")
             .unwrap_or(previous.subtitle_delay),
-        tracks: read_tracks(api, handle),
-        diagnostics: read_diagnostics(api, handle, display),
+        tracks: previous.tracks.clone(),
+        diagnostics: previous.diagnostics.clone(),
         error: previous.error.clone(),
     }
 }
@@ -989,6 +1165,7 @@ fn read_diagnostics(
     let container = api.get_string(handle, "file-format");
     let matrix = api.get_string(handle, "video-params/colormatrix");
     PlaybackDiagnostics {
+        presentation_fallback_reason: None,
         friendly_container: container.as_deref().map(friendly_container_name),
         container,
         file_size,
@@ -1083,7 +1260,11 @@ fn read_diagnostics(
         hardware_decoder: api
             .get_string(handle, "hwdec-current")
             .filter(|decoder| decoder != "no"),
-        renderer: "libmpv OpenGL Render API (vo=libmpv/vo_gpu)".to_string(),
+        renderer: if display.surface_format.starts_with("mpv-owned D3D11") {
+            "libmpv-owned gpu-next / D3D11 (SDR)".to_string()
+        } else {
+            Backend::RenderApi.name().to_string()
+        },
         display: display.clone(),
     }
 }
@@ -1337,6 +1518,18 @@ fn emit_state(app: &AppHandle, session_id: &str, state: &PlayerSnapshot) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_backend_modes_keep_strict_d3d11_and_explicit_wgl_separate() {
+        assert_eq!(
+            windows_backends("auto").unwrap(),
+            vec![Backend::D3d11, Backend::RenderApi]
+        );
+        assert_eq!(windows_backends("d3d11").unwrap(), vec![Backend::D3d11]);
+        assert_eq!(windows_backends("wgl").unwrap(), vec![Backend::RenderApi]);
+        assert!(windows_backends("vulkan").is_err());
+    }
 
     #[test]
     fn player_snapshot_defaults_are_stable() {

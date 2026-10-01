@@ -26,9 +26,17 @@
     "hardwareDecode": true,
     "hardwareDecodePolicy": "auto-copy-safe; D3D11VA copy-back with software fallback",
     "hardwareDecodeBuildEvidence": {"h264D3d11va": true, "hevcD3d11va": true},
-    "presentation": "public OpenGL Render API; WGL RGBA8 SDR",
+    "presentation": "mpv-owned gpu-next D3D11 RGBA8 SDR; OpenGL Render API WGL fallback",
+    "requiredMesonOptions": ["-Dd3d11=enabled", "-Dshaderc=enabled", "-Dspirv-cross=enabled"],
+    "requiredLibplaceboOptions": ["-Dd3d11=enabled", "-Dopengl=enabled", "-Dshaderc=enabled", "-Ddovi=disabled", "-Dlibdovi=disabled"],
+    "shaderToolchainPackages": {
+      "mingw-w64-ucrt-x86_64-shaderc": "2026.3-1",
+      "mingw-w64-ucrt-x86_64-spirv-cross": "1~1.4.357.0-1",
+      "mingw-w64-ucrt-x86_64-glslang": "16.3.0-1",
+      "mingw-w64-ucrt-x86_64-spirv-tools": "3~1.4.357.0-1"
+    },
     "buildEvidence": "windows/BUILD-INFO.txt",
-    "runtimeValidation": "Windows Intel UHD 630: Local H.264/HEVC D3D11VA copy-back and WASAPI API smoke passed; WGL/ASS/fullscreen/EOF replay application smoke passed; SFTP and audible listening unverified",
+    "runtimeValidation": "Windows Intel UHD 630: Local H.264/HEVC D3D11VA copy-back and WASAPI API smoke passed; gpu-next/D3D11 SDR video, source switching, seek, fullscreen and EOF rewind/replay application smoke passed; automatic WGL fallback tested with the prior runtime; WGL/ASS baseline smoke passed; SFTP, audible listening and updated macOS fullscreen visuals unverified",
     "validationInstructions": "../../../docs/build-windows.md"
   },
   "dependencies": {

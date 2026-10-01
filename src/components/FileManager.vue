@@ -1,5 +1,6 @@
 <script setup>
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { isComputerPath } from '../../shared/localFilesystem.js'
 import { connection } from '../api/connection.js'
 import { useEditorWorkspace } from '../composables/useEditorWorkspace.js'
 import { useFileOperations } from '../composables/useFileOperations.js'
@@ -177,11 +178,13 @@ const commandAvailability = computed(() => {
   const canTransfer = Boolean(
     canUseSource &&
       targetPanelVisible &&
-      panelStates[targetSide]?.currentDirectory?.isDirectory,
+      panelStates[targetSide]?.currentDirectory?.isDirectory &&
+      !isComputerPath(panelStates[targetSide].currentDirectory.path),
   )
 
   return {
-    create: Boolean(activePanelVisible && source?.currentDirectory?.isDirectory && !interactionBlocked),
+    create: Boolean(activePanelVisible && source?.currentDirectory?.isDirectory &&
+      !isComputerPath(source.currentDirectory.path) && !interactionBlocked),
     copy: canTransfer && !interactionBlocked,
     move: canTransfer && !interactionBlocked,
     delete: canUseSource && !interactionBlocked,

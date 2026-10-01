@@ -1,7 +1,7 @@
 import { wildcardMatch } from '../shared/wildcard.js'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { resolveInsideRoot, verifyRealPathInsideRoot, serializeFilesystemError } from './filesystem.js'
+import { resolveInsideRoot, verifyRealPathInsideRoot, serializeFilesystemError, isComputerRoot, listDirectory } from './filesystem.js'
 
 export const MAX_SEARCH_RESULTS = 10_000
 const BATCH_SIZE = 25
@@ -23,9 +23,10 @@ const metadataFor = async (entryPath, isDirectory) => {
 }
 
 export const searchLocal = async ({ basePath, query, type = 'all', maxResults = MAX_SEARCH_RESULTS, hiddenNameSuffixes = [], signal, onBatch }) => {
-  const base = resolveInsideRoot(basePath)
-  await verifyRealPathInsideRoot(base)
-  const pending = [base]
+  const computer = isComputerRoot(basePath)
+  const base = computer ? basePath : resolveInsideRoot(basePath)
+  if (!computer) await verifyRealPathInsideRoot(base)
+  const pending = computer ? (await listDirectory(base)).map((entry) => entry.path) : [base]
   let batch = []
   let count = 0
   let limited = false
@@ -39,7 +40,7 @@ export const searchLocal = async ({ basePath, query, type = 'all', maxResults = 
       for await (const item of reader) {
         if (signal?.aborted) break
         const entryPath = path.join(directory, item.name)
-        const relativePath = path.relative(base, entryPath)
+        const relativePath = computer ? entryPath : path.relative(base, entryPath)
         const isDirectory = item.isDirectory()
         // Never follow symlinks, including symlinked directories outside the configured root.
         if (isDirectory && !item.isSymbolicLink()) pending.push(entryPath)

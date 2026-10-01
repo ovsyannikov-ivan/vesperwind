@@ -35,13 +35,14 @@ and an editor.
 
 The browser and Node SEA modes use the HTML/media-chrome player. Tauri contains an
 **experimental** native libmpv video backend with a custom local/SFTP stream and
-native OpenGL surfaces on macOS and Windows. On macOS it has an
+native OpenGL on macOS and D3D11/WGL surfaces on Windows. On macOS it has an
 experimental FP16 Extended Dynamic Range path for HDR10 and HLG, with live EDR
 headroom and fallback diagnostics. Dolby Vision metadata is reported, but full RPU
 or enhancement-layer processing is not bundled. Its arm64 development bundle is
 not yet a signed or notarized release. Windows includes a source-built x64 LGPL
-DLL closure, WASAPI audio and D3D11VA copy-back decoding, with a WGL RGBA8 SDR
-surface. The Windows runtime is built and bundled, rather than a planned build;
+DLL closure, WASAPI audio and D3D11VA copy-back decoding, with an mpv-owned
+gpu-next/D3D11 RGBA8 SDR surface and an automatic WGL fallback.
+The Windows runtime is built and bundled, rather than a planned build;
 native playback and MSI/NSIS packaging have passed local smoke checks. Windows
 HDR presentation is not implemented. See [Native libmpv integration](docs/libmpv.md)
 for the exact build, HDR matrix, and licensing status.
@@ -60,8 +61,8 @@ without processing Dolby Vision metadata. The bundled libplacebo builds disable
 `dovi` and `libdovi`. See Dolby's [profile compatibility reference](https://ott.dolby.com/browser_test_kit/help_files/topics/r_resources.html).
 
 An HDR-capable OLED does not change the current Windows output path: it remains
-WGL RGBA8 SDR. Native Windows HDR requires Advanced Color presentation, such as
-an FP16 scRGB DXGI swapchain, and correct display/color-space handling. That work
+D3D11 or WGL RGBA8 SDR. Native Windows HDR requires a separate output stage,
+starting with PQ/BT.2020 and verified display/color-space handling. That work
 is still planned. The limitation is in Vesperwind's Windows presentation backend;
 OpenGL can already carry the experimental HDR path on macOS.
 
@@ -143,8 +144,15 @@ control Finder.
 to macOS because it packages the macOS `node-pty` assets. Build output is written
 to ignored `dist/`, `staging/`, and `src-tauri/target/` directories.
 
-The local filesystem root defaults to the current user's home directory in the
-Node runtime. To choose another root for one run:
+Desktop filesystem access follows the current user's OS permissions and is not
+confined to the starting folder. Tauri and standalone SEA start both panels in
+the home directory on macOS, at `/` on Linux, and at **This Computer** on Windows
+with the available drive letters, including removable drives. Breadcrumbs allow
+navigation to the OS root and other volumes. Linux SEA packaging is still a future
+target; its runtime navigation policy is already defined.
+
+The browser/Node server remains confined to `FILE_MANAGER_ROOT`, which defaults
+to the current user's home directory. To choose another browser root for one run:
 
 ```bash
 FILE_MANAGER_ROOT=/path/to/root npm run dev
@@ -206,13 +214,21 @@ Use the default Cargo output tree: the application is
 `src-tauri/target/release/bundle/msi` and `bundle/nsis`. An explicit `--target`
 creates a separate build tree and is unnecessary for this native x64 build.
 
-Local checks covered H.264/HEVC D3D11VA copy-back decoding, WASAPI initialization,
-WGL playback, ASS subtitles, fullscreen round trips, and EOF rewind followed by
+Local checks covered H.264/HEVC decoding, direct D3D11VA surfaces for the owned
+backend and copy-back for WGL, WASAPI initialization,
+D3D11/gpu-next SDR and WGL playback, ASS subtitles, fullscreen round trips, and EOF rewind followed by
 Play. Release builds use the Windows GUI subsystem and create no console window.
+Media commands wait on worker threads so pause, resize, and close do not block
+the window message pump. Resize requests coalesce, and the controls overlay uses
+physical pixels to handle independent WebView zoom. The Windows SDR backend uses
+bilinear downscaling and source metadata for tone mapping, avoiding per-frame
+peak analysis to reduce 4K GPU load on integrated graphics.
 Windows uses the frontend controls without a native application menu, including
 image and video fullscreen. The shared Windows/macOS video transition hides the
-native surface under a fading black overlay during resize; repeated transitions
-were checked on Windows. Audible listening and HDR-display validation remain
+native surface under a fading black overlay during resize, then holds the opaque
+cover for a fixed 500 ms before fading back in. It does not wait for a video frame.
+Repeated transitions were checked on Windows; the updated timing still needs a
+visual check on macOS. Audible listening and HDR-display validation remain
 separate manual checks.
 
 The main Tauri/file-management paths have been exercised on Windows, but
@@ -266,9 +282,10 @@ security contact and policy are published.
   FP16 macOS EDR output for HDR10/HLG;
 - self-contained arm64 macOS libmpv dependency bundle;
 - Windows H.264/HEVC D3D11VA copy-back
-  decoding, WASAPI audio and WGL SDR rendering;
+  decoding, WASAPI audio and mpv-owned `wid + gpu-next + D3D11` SDR rendering,
+  with the existing WGL renderer as an automatic startup fallback;
 - shared Windows/macOS native fullscreen fade through a controls overlay, with
-  layout and rendered-frame readiness before uncovering video;
+  a fixed 500 ms hold after resizing before uncovering video;
 - large remote media and PDF behavior across varied SSH servers.
 
 ### Planned
@@ -276,7 +293,10 @@ security contact and policy are published.
 - Finder/Explorer drag-and-drop integration;
 - Content search inside files and additional editor encodings;
 - A complete Windows regression pass for SSH/SFTP, search, and document editing;
-- a Windows DXGI FP16/Advanced Color libmpv presentation backend;
+- Windows HDR10 output through PQ/BT.2020 after the D3D11 SDR prototype is stable,
+  followed by HLG and a reviewed FP16 scRGB path with correct Windows white scaling;
+- Dolby Vision reshaping with `dovi` first (Profile 8, then Profile 5), and `libdovi`
+  only if its additional metadata provides a practical benefit;
 - further hardware-decoder coverage and HDR/color-management work;
 - enhanced remote media recovery and buffering behavior;
 - external-editor synchronization;

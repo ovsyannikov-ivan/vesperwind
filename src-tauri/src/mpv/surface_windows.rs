@@ -114,6 +114,18 @@ unsafe extern "system" fn surface_window_proc(
 
 impl NativeSurface {
     pub fn create(window: &Window) -> Result<Self, String> {
+        Self::create_with_context(window, true)
+    }
+
+    pub fn create_video_host(window: &Window) -> Result<Self, String> {
+        Self::create_with_context(window, false)
+    }
+
+    pub fn host_address(&self) -> usize {
+        self.0.hwnd as usize
+    }
+
+    fn create_with_context(window: &Window, opengl: bool) -> Result<Self, String> {
         // Transparent overlay pixels expose the native parent where its
         // border is wider than the video child. Avoid the default white brush.
         window
@@ -159,7 +171,7 @@ impl NativeSurface {
         let (sender, receiver) = mpsc::sync_channel(1);
         window
             .run_on_main_thread(move || {
-                let result = unsafe { create_surface(parent as HWND) }
+                let result = unsafe { create_surface(parent as HWND, opengl) }
                     .map(|(hwnd, dc, context)| (hwnd as usize, dc as usize, context as usize));
                 let _ = sender.send(result);
             })
@@ -214,7 +226,7 @@ impl NativeSurface {
                 inner.pixel_width.store(width, Ordering::Release);
                 inner.pixel_height.store(height, Ordering::Release);
                 inner.geometry_changed.store(true, Ordering::Release);
-                if std::env::var_os("VESPERWIND_MPV_RENDER_DIAGNOSTICS").is_some() {
+                if !inner.dc.is_null() && std::env::var_os("VESPERWIND_MPV_RENDER_DIAGNOSTICS").is_some() {
                     let mut clip = Default::default();
                     let clip_type = unsafe { GetClipBox(inner.dc, &mut clip) };
                     eprintln!(
@@ -276,13 +288,19 @@ impl NativeSurface {
     }
     pub fn refresh_display_capabilities(&self) {}
     pub fn display_capabilities(&self) -> DisplayCapabilities {
-        query_display_capabilities(self.0.hwnd).unwrap_or_else(|reason| DisplayCapabilities {
-            platform: "windows".to_string(),
-            surface_format: "WGL RGBA8".to_string(),
-            output_supported: false,
-            reason: Some(reason),
-            ..DisplayCapabilities::default()
-        })
+        let mut display =
+            query_display_capabilities(self.0.hwnd).unwrap_or_else(|reason| DisplayCapabilities {
+                platform: "windows".to_string(),
+                surface_format: "WGL RGBA8".to_string(),
+                output_supported: false,
+                reason: Some(reason),
+                ..DisplayCapabilities::default()
+            });
+        if self.0.context.is_null() {
+            display.surface_format = "mpv-owned D3D11 SDR (RGBA8 / BT.709)".into();
+            display.reason = Some("D3D11 prototype is restricted to SDR output".into());
+        }
+        display
     }
     pub fn framebuffer_internal_format(&self) -> i32 {
         0
@@ -540,7 +558,7 @@ fn positive(value: f32) -> Option<f64> {
     (value > 0.0).then_some(value as f64)
 }
 
-unsafe fn create_surface(parent: HWND) -> Result<(HWND, HDC, HGLRC), String> {
+unsafe fn create_surface(parent: HWND, opengl: bool) -> Result<(HWND, HDC, HGLRC), String> {
     let instance: HINSTANCE = unsafe { GetModuleHandleW(ptr::null()) };
     let class = WNDCLASSW {
         style: CS_HREDRAW | CS_VREDRAW | CS_OWNDC,
@@ -570,6 +588,11 @@ unsafe fn create_surface(parent: HWND) -> Result<(HWND, HDC, HGLRC), String> {
     };
     if hwnd.is_null() {
         return Err("Unable to create the Win32 video child window".to_string());
+    }
+    if !opengl {
+        // The embedded VO owns its child HWND, device and swapchain. This host
+        // has no pixel format or WGL context and only controls layout/clipping.
+        return Ok((hwnd, ptr::null_mut(), ptr::null_mut()));
     }
     let dc = unsafe { GetDC(hwnd) };
     if dc.is_null() {
@@ -645,9 +668,13 @@ impl Drop for SurfaceInner {
         let dc = self.dc as usize;
         let context = self.context as usize;
         let _ = self.window.run_on_main_thread(move || unsafe {
-            wglMakeCurrent(ptr::null_mut(), ptr::null_mut());
-            wglDeleteContext(context as HGLRC);
-            ReleaseDC(hwnd as HWND, dc as HDC);
+            if context != 0 {
+                wglMakeCurrent(ptr::null_mut(), ptr::null_mut());
+                wglDeleteContext(context as HGLRC);
+            }
+            if dc != 0 {
+                ReleaseDC(hwnd as HWND, dc as HDC);
+            }
             DestroyWindow(hwnd as HWND);
         });
     }
