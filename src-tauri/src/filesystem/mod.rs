@@ -126,11 +126,7 @@ impl Filesystem {
     pub fn root_entry(&self) -> Result<FileEntry, NativeError> {
         if self.desktop {
             if cfg!(target_os = "windows") {
-                return Ok(directory_location(
-                    "This PC",
-                    COMPUTER_PATH,
-                    "computer",
-                ));
+                return Ok(directory_location("This PC", COMPUTER_PATH, "computer"));
             }
             return self.directory_entry(Path::new("/"));
         }

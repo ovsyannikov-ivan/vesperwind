@@ -92,7 +92,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div class="modal-footer">
-            <button class="btn btn-sm btn-secondary" type="button" :disabled="busy" @click="$emit('cancel')">
+            <button class="btn btn-sm btn-neutral" type="button" :disabled="busy" @click="$emit('cancel')">
               Cancel
             </button>
             <button class="btn btn-sm btn-danger" type="button" :disabled="busy" @click="$emit('discard')">

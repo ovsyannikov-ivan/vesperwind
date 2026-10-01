@@ -271,7 +271,7 @@ onBeforeUnmount(() => {
 
           <div v-if="audioTracks.length" class="dropup media-overlay-dropdown">
             <button class="btn btn-sm btn-dark dropdown-toggle" type="button" :aria-expanded="activeMenu === 'audio'" @click="toggleMenu('audio')">Audio</button>
-            <ul v-if="activeMenu === 'audio'" class="dropdown-menu dropdown-menu-dark show" role="menu" aria-label="Audio tracks">
+            <ul v-if="activeMenu === 'audio'" class="dropdown-menu show" role="menu" aria-label="Audio tracks">
               <li v-for="track in audioTracks" :key="track.id">
                 <button class="dropdown-item" type="button" role="menuitemradio" :aria-checked="track.selected" @click="selectTrack('audio', track.id)">
                   <i class="mdi" :class="track.selected ? 'mdi-check' : 'mdi-blank'" aria-hidden="true" />
@@ -283,7 +283,7 @@ onBeforeUnmount(() => {
 
           <div v-if="subtitleTracks.length" class="dropup media-overlay-dropdown">
             <button class="btn btn-sm btn-dark dropdown-toggle" type="button" :aria-expanded="activeMenu === 'subtitle'" @click="toggleMenu('subtitle')">Subtitles</button>
-            <ul v-if="activeMenu === 'subtitle'" class="dropdown-menu dropdown-menu-dark show" role="menu" aria-label="Subtitle tracks">
+            <ul v-if="activeMenu === 'subtitle'" class="dropdown-menu show" role="menu" aria-label="Subtitle tracks">
               <li><button class="dropdown-item" type="button" role="menuitemradio" :aria-checked="!subtitleTracks.some((track) => track.selected)" @click="selectTrack('subtitle', null)"><i class="mdi" :class="subtitleTracks.some((track) => track.selected) ? 'mdi-blank' : 'mdi-check'" aria-hidden="true" />Off</button></li>
               <li v-for="track in subtitleTracks" :key="track.id">
                 <button class="dropdown-item" type="button" role="menuitemradio" :aria-checked="track.selected" @click="selectTrack('subtitle', track.id)">

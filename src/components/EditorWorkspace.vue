@@ -434,7 +434,7 @@ onBeforeUnmount(() => {
   <div ref="workspaceElement" class="editor-workspace">
     <aside v-show="editorLayout.treeVisible" class="editor-tree-pane" :style="treeStyle">
       <div class="editor-tree-toolbar">
-        <button class="btn btn-sm toolbar-button" type="button" title="Return to file panels" @click="$emit('show-files')">
+        <button class="compact-button" type="button" title="Return to file panels" @click="$emit('show-files')">
           <i class="mdi mdi-arrow-left" aria-hidden="true" />
           Files
         </button>
@@ -453,7 +453,7 @@ onBeforeUnmount(() => {
       </template>
     </aside>
 
-    <Splitter v-if="editorLayout.treeVisible" orientation="vertical" @resize="resizeTree" />
+    <Splitter v-if="editorLayout.treeVisible" orientation="vertical" seam @resize="resizeTree" />
 
     <section class="editor-main">
       <div class="editor-header">

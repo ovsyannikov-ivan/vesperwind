@@ -135,7 +135,7 @@ onBeforeUnmount(() => {
             <div v-if="localError || error" class="alert alert-danger mt-3 mb-0" role="alert">{{ localError || error }}</div>
           </div>
           <div class="modal-footer">
-            <button class="btn btn-sm btn-secondary" type="button" :disabled="busy" @click="emit('cancel')">Cancel</button>
+            <button class="btn btn-sm btn-neutral" type="button" :disabled="busy" @click="emit('cancel')">Cancel</button>
             <button class="btn btn-sm btn-primary" type="button" :disabled="busy || loading || !directory" @click="submit"><span v-if="busy" class="spinner-border spinner-border-sm me-2" aria-hidden="true" />Save</button>
           </div>
         </div>

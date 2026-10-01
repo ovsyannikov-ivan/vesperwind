@@ -30,3 +30,33 @@ test('editor sidebar collapse retains width in shared session state', () => {
   assert.equal(editorLayout.treeVisible, original)
   assert.equal(editorLayout.treeWidth, 310)
 })
+
+const cssRule = (css, selector) => {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+  return css.match(new RegExp(`(?:^|\\n)${escaped}\\s*\\{([^}]*)\\}`, 'u'))?.[1] || ''
+}
+
+test('editor tree and file panels meet at a 1px seam with a wider resize hit area', async () => {
+  const [css, workspace, manager, splitter] = await Promise.all([
+    read('src/styles/main.css'), read('src/components/EditorWorkspace.vue'),
+    read('src/components/FileManager.vue'), read('src/components/Splitter.vue'),
+  ])
+  assert.match(workspace, /<Splitter v-if="editorLayout\.treeVisible" orientation="vertical" seam /u)
+  assert.match(manager, /<Splitter\s+v-if="bothPanelsVisible"\s+orientation="vertical"\s+seam\b/u)
+  assert.match(splitter, /'splitter-seam': seam/u)
+  assert.match(css, /--panel-seam-width: 1px;/u)
+  assert.match(cssRule(css, '.splitter-vertical.splitter-seam'), /flex: 0 0 var\(--panel-seam-width\);[^}]*background: transparent;/u)
+  const hitArea = cssRule(css, '.splitter-vertical.splitter-seam::before')
+  assert.match(hitArea, /right: -\d+px;/u)
+  assert.match(hitArea, /left: -\d+px;/u)
+  assert.match(cssRule(css, '.splitter-vertical.splitter-seam::after'), /width: var\(--panel-seam-width\);/u)
+  assert.doesNotMatch(css, /\.files-container > \.splitter-vertical/u)
+})
+
+test('editor sidebar Files button matches the compact sidebar control height', async () => {
+  const [css, workspace] = await Promise.all([read('src/styles/main.css'), read('src/components/EditorWorkspace.vue')])
+  const button = workspace.match(/<button\b[^>]*title="Return to file panels"[^>]*>/u)[0]
+  assert.match(button, /class="compact-button"/u)
+  assert.doesNotMatch(button, /\b(btn|toolbar-button)\b/u)
+  assert.match(cssRule(css, '.compact-icon-button,\n.compact-button'), /height: 24px;/u)
+})

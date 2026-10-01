@@ -122,7 +122,7 @@ onBeforeUnmount(() => {
                     <strong class="d-block text-truncate">{{ profile.name }}</strong><small class="d-block text-truncate">{{ profile.username }}@{{ profile.host }}:{{ profile.port }}</small>
                   </button>
                 </div>
-                <button class="btn btn-sm btn-secondary w-100" type="button" @click="newProfile"><i class="mdi mdi-plus" aria-hidden="true" /> Add</button>
+                <button class="btn btn-sm btn-neutral w-100" type="button" @click="newProfile"><i class="mdi mdi-plus" aria-hidden="true" /> Add</button>
               </div>
               <form class="col-8" @submit.prevent="connect()">
                 <div class="row g-2">
@@ -149,8 +149,8 @@ onBeforeUnmount(() => {
           </div>
           <div class="modal-footer">
             <button v-if="selected" class="btn btn-sm btn-danger me-auto" type="button" :disabled="busy" @click="remove">Delete</button>
-            <button class="btn btn-sm btn-secondary" type="button" :disabled="busy" @click="close">Cancel</button>
-            <button class="btn btn-sm btn-secondary" type="button" :disabled="busy" @click="save">Save</button>
+            <button class="btn btn-sm btn-neutral" type="button" :disabled="busy" @click="close">Cancel</button>
+            <button class="btn btn-sm btn-neutral" type="button" :disabled="busy" @click="save">Save</button>
             <button class="btn btn-sm btn-primary" type="button" :disabled="busy" @click="connect()">{{ busy ? 'Connecting…' : 'Connect' }}</button>
           </div>
         </div>

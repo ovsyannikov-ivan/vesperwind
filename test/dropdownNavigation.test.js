@@ -46,7 +46,7 @@ test('all dropdown surfaces share primary interaction states and no item receive
   assert.match(styles, /--bs-dropdown-link-hover-bg: var\(--bs-primary\)/u)
   assert.match(styles, /--bs-dropdown-link-active-bg: var\(--bs-primary\)/u)
   assert.match(styles, /padding: 0\.35rem/u)
-  assert.match(styles, /\.dropdown-menu \.dropdown-item \{\s*border-radius: var\(--bs-border-radius-sm\)/u)
+  assert.match(styles, /\.dropdown-menu \.dropdown-item \{\s*border-radius: 0\.5rem;/u)
   assert.match(styles, /\.dropdown-menu \.dropdown-item:has\(> \.mdi\)/u)
   assert.match(styles, /\.dropdown-menu \.dropdown-item:not\(:disabled\):hover,[\s\S]*background-color: var\(--bs-primary\)/u)
   assert.match(styles, /\.dropdown-menu \.dropdown-item:not\(:disabled\):focus-visible \{[\s\S]*background-color: var\(--bs-primary\)/u)
@@ -61,4 +61,30 @@ test('all dropdown surfaces share primary interaction states and no item receive
   assert.match(toolbar, /document\.addEventListener\('pointerdown', closeCreateOnOutsidePointer, true\)/u)
   assert.match(toolbar, /!createButton\.value\?\.contains\(event\.target\) && !createMenu\.value\?\.contains\(event\.target\)/u)
   assert.match(toolbar, /createDropdown\?\.hide\(\)/u)
+})
+
+test('every dropdown, including the media overlay window, uses the context menu surface', async () => {
+  const read = (file) => fs.readFile(new URL(`../${file}`, import.meta.url), 'utf8')
+  const [styles, mainCss, overlayCss, overlay] = await Promise.all([
+    read('src/styles/dropdown.css'), read('src/styles/main.css'),
+    read('src/media-overlay/media-overlay.css'), read('src/media-overlay/MediaOverlay.vue'),
+  ])
+  const menu = styles.match(/^\.dropdown-menu \{([^}]*)\}/mu)[1]
+  // The overlay window does not load main.css, so main.css-only tokens need dark fallbacks.
+  assert.match(menu, /--bs-dropdown-bg: var\(--app-bg, #1c1c1e\);/u)
+  assert.match(menu, /--bs-dropdown-border-color: var\(--dropdown-border-color\);/u)
+  assert.match(menu, /--bs-dropdown-border-radius: 0\.75rem;/u)
+  assert.match(menu, /box-shadow:/u)
+  assert.match(styles, /^:root \{\s*--dropdown-border-color:/mu)
+  assert.match(styles, /^\[data-bs-theme='light'\] \{\s*--dropdown-border-color:/mu)
+  assert.doesNotMatch(styles, /--bs-border-radius-sm/u)
+
+  assert.doesNotMatch(overlay, /dropdown-menu-dark/u)
+  assert.equal(overlay.match(/class="dropdown-menu show"/gu)?.length, 2)
+  for (const [name, css] of [['main.css', mainCss], ['media-overlay.css', overlayCss]]) {
+    for (const rule of css.matchAll(/([^{}]*(?:-menu|\.dropdown-menu)[^{}]*)\{([^}]*)\}/gu)) {
+      if (!/menu\s*$/u.test(rule[1].trim())) continue
+      assert.doesNotMatch(rule[2], /(^|[;\s])(background(-color)?|border-radius)\s*:/u, `${name}: ${rule[1].trim()} must keep the shared menu surface`)
+    }
+  }
 })

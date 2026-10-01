@@ -5,6 +5,7 @@ mod presentation;
 mod render;
 mod stream;
 mod surface;
+pub(crate) mod transition_cover;
 
 use serde::Serialize;
 use std::{

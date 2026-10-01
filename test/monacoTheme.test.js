@@ -58,3 +58,15 @@ test('Monarch bridge gives embedded Vue and common code tokens the Dark 2026 col
   assert.equal(colors.get('attribute.name'), '9CDCFE')
   assert.equal(colors.get('number'), 'B5CEA8')
 })
+
+test('Monaco editors start with and follow the Vesperwind theme', async () => {
+  const source = await fs.readFile(
+    new URL('../src/components/MonacoEditor.vue', import.meta.url),
+    'utf8',
+  )
+  assert.match(source, /monaco\.editor\.defineTheme\(VESPERWIND_DARK_2026_THEME_ID,/)
+  assert.match(source, /\? 'vs'\s*: VESPERWIND_DARK_2026_THEME_ID/)
+  assert.match(source, /theme: currentTheme\(\)/)
+  assert.match(source, /addEventListener\('vesperwind:theme-changed', handleThemeChange\)/)
+  assert.match(source, /monaco\.editor\.setTheme\(currentTheme\(\)\)/)
+})

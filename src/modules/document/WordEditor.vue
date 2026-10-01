@@ -1,7 +1,8 @@
 <script setup>
-import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { DocxEditor, useFonts } from '@docx-editor.dev/vue'
 import { packagedFonts } from '@docx-editor.dev/fonts'
+import { useTheme } from '../../composables/useTheme.js'
 import { attachDocumentRuntime } from './runtime.js'
 import '@docx-editor.dev/vue/styles.css'
 import './styles/document.css'
@@ -10,6 +11,9 @@ const props = defineProps({ tab: { type: Object, required: true }, visible: Bool
 const emit = defineEmits(['save'])
 const editorRef = ref(null)
 const fonts = useFonts(packagedFonts())
+const { resolvedTheme } = useTheme()
+// The editor's colorMode prop is reactive, so theme changes restyle an open document.
+const colorMode = computed(() => resolvedTheme.value === 'light' ? 'light' : 'dark')
 let detachRuntime = null
 
 const ready = () => {
@@ -49,7 +53,7 @@ onBeforeUnmount(() => {
       :document="tab.bytes"
       :title="tab.fileName"
       :fonts="fonts"
-      color-mode="light"
+      :color-mode="colorMode"
       zoom-mode="auto"
       @ready="ready"
       @change="changed"

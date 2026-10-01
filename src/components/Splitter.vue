@@ -5,6 +5,11 @@ const props = defineProps({
     default: 'vertical',
     validator: (value) => ['vertical', 'horizontal'].includes(value),
   },
+  // Draw a 1px seam between adjacent panels, keeping a wider hit area.
+  seam: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 const emit = defineEmits(['resize'])
@@ -65,7 +70,7 @@ const onKeydown = (event) => {
 <template>
   <div
     class="splitter"
-    :class="`splitter-${orientation}`"
+    :class="[`splitter-${orientation}`, { 'splitter-seam': seam }]"
     role="separator"
     :aria-orientation="orientation"
     tabindex="0"

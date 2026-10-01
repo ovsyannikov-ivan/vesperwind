@@ -32,6 +32,7 @@ const requestCommands = Object.freeze({
   'player:set-geometry': 'player_set_geometry',
   'player:set-visible': 'player_set_visible',
   'player:set-overlay': 'player_set_overlay',
+  'player:set-transition-cover': 'player_set_transition_cover',
   'player:overlay-snapshot': 'player_overlay_snapshot',
   'player:snapshot': 'player_snapshot',
   'player:close': 'player_close',

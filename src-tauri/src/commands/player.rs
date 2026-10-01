@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 #[cfg(target_os = "macos")]
-use objc2_app_kit::{NSColor, NSWindow, NSWindowOrderingMode};
+use objc2_app_kit::{NSColor, NSView, NSWindow, NSWindowOrderingMode};
 #[cfg(target_os = "macos")]
 use objc2_foundation::{ns_string, NSNumber, NSObjectNSKeyValueCoding};
 #[cfg(target_os = "macos")]
@@ -101,6 +101,14 @@ pub struct OverlayPayload {
 pub struct VisibilityPayload {
     session_id: String,
     visible: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransitionCoverPayload {
+    covered: bool,
+    #[serde(default)]
+    duration_ms: u64,
 }
 
 // libmpv and native child-window APIs may wait on the window message pump.
@@ -275,6 +283,22 @@ pub async fn player_set_visible(app: AppHandle, payload: VisibilityPayload) -> V
     .await
 }
 
+// Not tied to a session: a closing viewer must still be able to uncover.
+#[tauri::command]
+pub async fn player_set_transition_cover(app: AppHandle, payload: TransitionCoverPayload) -> Value {
+    player_task(move || {
+        let Some(window) = app.get_window("main") else {
+            return json!({"ok":false,"error":{"code":"EMPV","message":"Main window is unavailable"}});
+        };
+        let duration = std::time::Duration::from_millis(payload.duration_ms.min(1_000));
+        match crate::mpv::transition_cover::set_cover(&window, payload.covered, duration) {
+            Ok(native) => json!({"ok":true,"native":native}),
+            Err(message) => json!({"ok":false,"error":{"code":"EMPV","message":message}}),
+        }
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn player_set_overlay(app: AppHandle, payload: OverlayPayload) -> Value {
     player_task(move || {
@@ -335,17 +359,23 @@ pub async fn player_set_overlay(app: AppHandle, payload: OverlayPayload) -> Valu
         } else {
             0.0
         };
-        if let Err(error) =
-            overlay.set_position(tauri::PhysicalPosition::new(
-                geometry.x * geometry.scale_factor, geometry.y.max(0.0) * geometry.scale_factor))
-        {
-            return json!({"ok":false,"error":{"code":"EMPV_OVERLAY","message":error.to_string()}});
-        }
         let window_scale = overlay.window().scale_factor().unwrap_or(1.0);
-        if let Err(error) = overlay.set_size(tauri::PhysicalSize::new(
-            (geometry.width * geometry.scale_factor).max(1.0),
-            (geometry.height * geometry.scale_factor + (titlebar_offset - border_inset) * window_scale).max(1.0),
-        )) {
+        // One native frame change: separate position and size updates expose
+        // the old-size WebView at the new origin for a composited frame.
+        if let Err(error) = overlay.set_bounds(tauri::Rect {
+            position: tauri::PhysicalPosition::new(
+                geometry.x * geometry.scale_factor,
+                geometry.y.max(0.0) * geometry.scale_factor,
+            )
+            .into(),
+            size: tauri::PhysicalSize::new(
+                (geometry.width * geometry.scale_factor).max(1.0),
+                (geometry.height * geometry.scale_factor
+                    + (titlebar_offset - border_inset) * window_scale)
+                    .max(1.0),
+            )
+            .into(),
+        }) {
             return json!({"ok":false,"error":{"code":"EMPV_OVERLAY","message":error.to_string()}});
         }
 
@@ -414,7 +444,7 @@ fn raise_windows_overlay(overlay: &tauri::Webview, radius: f64) -> Result<(), St
     use std::{sync::mpsc, time::Duration};
     use windows::Win32::Foundation::HWND;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        SetWindowPos, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+        IsWindowVisible, SetWindowPos, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
     };
 
     let radius = radius
@@ -427,15 +457,19 @@ fn raise_windows_overlay(overlay: &tauri::Webview, radius: f64) -> Result<(), St
         .with_webview(move |platform| {
             let result = (|| {
                 // This is Wry's child container, not the application's main
-                // HWND. Keep it above the separate WGL video child.
+                // HWND. Keep it above the separate video child and directly
+                // below a visible transition cover.
                 let mut container = HWND::default();
                 unsafe { platform.controller().ParentWindow(&mut container) }
                     .map_err(|error| error.to_string())?;
+                let insert_after = crate::mpv::transition_cover::cover_window()
+                    .filter(|cover| unsafe { IsWindowVisible(*cover) } != 0)
+                    .unwrap_or(HWND_TOP);
                 if container.0.is_null()
                     || unsafe {
                         SetWindowPos(
                             container.0,
-                            HWND_TOP,
+                            insert_after,
                             0,
                             0,
                             0,
@@ -475,19 +509,41 @@ fn configure_macos_overlay(overlay: &tauri::Webview) -> Result<(), String> {
                 view.setWantsLayer(true);
                 if let Some(parent) = view.superview() {
                     parent.setWantsLayer(true);
-                    parent.addSubview_positioned_relativeTo(
-                        view,
-                        NSWindowOrderingMode::Above,
-                        None,
-                    );
+                    order_macos_overlay(&parent, view);
                 }
                 eprintln!(
-                    "[overlay] WKWebView native transparency opaque_before={was_opaque} opaque_after={} reordered_above_siblings=true",
+                    "[overlay] WKWebView native transparency opaque_before={was_opaque} opaque_after={}",
                     view.isOpaque()
                 );
             }
         })
         .map_err(|error| error.to_string())
+}
+
+// Keep the controls above the video surface and below a visible transition
+// cover. Re-inserting a WKWebView that is already in place detaches it from
+// the window for a moment, so reorder only when the order is wrong.
+#[cfg(target_os = "macos")]
+fn order_macos_overlay(parent: &NSView, view: &WKWebView) {
+    let subviews = parent.subviews();
+    let index_of = |target: *const NSView| {
+        (0..subviews.count()).find(|index| std::ptr::eq(&*subviews.objectAtIndex(*index), target))
+    };
+    let Some(overlay_index) = index_of(view as *const WKWebView as *const NSView) else {
+        return;
+    };
+    let cover = crate::mpv::transition_cover::cover_view()
+        .map(|cover| unsafe { &*(cover as *const NSView) })
+        .filter(|cover| !cover.isHidden())
+        .and_then(|cover| index_of(cover).map(|index| (cover, index)));
+    match cover {
+        Some((cover, cover_index)) if overlay_index + 1 != cover_index => parent
+            .addSubview_positioned_relativeTo(view, NSWindowOrderingMode::Below, Some(cover)),
+        None if overlay_index + 1 != subviews.count() => {
+            parent.addSubview_positioned_relativeTo(view, NSWindowOrderingMode::Above, None)
+        }
+        _ => {}
+    }
 }
 
 #[tauri::command]

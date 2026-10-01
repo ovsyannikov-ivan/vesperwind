@@ -746,6 +746,7 @@ onBeforeUnmount(() => {
         <Splitter
           v-if="bothPanelsVisible"
           orientation="vertical"
+          seam
           @resize="resizePanels"
         />
 

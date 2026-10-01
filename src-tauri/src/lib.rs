@@ -204,6 +204,7 @@ pub fn run() {
             commands::player::player_set_geometry,
             commands::player::player_set_visible,
             commands::player::player_set_overlay,
+            commands::player::player_set_transition_cover,
             commands::player::player_overlay_snapshot,
             commands::player::player_snapshot,
             commands::player::player_close,

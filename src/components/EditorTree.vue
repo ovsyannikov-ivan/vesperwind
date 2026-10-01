@@ -3,9 +3,11 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { useFilesystem } from '../composables/useFilesystem.js'
 import { buildPathBreadcrumbs } from '../utils/pathBreadcrumbs.js'
 import FileTree from './FileTree.vue'
+import FolderPathMenu from './FolderPathMenu.vue'
 import SearchResults from './SearchResults.vue'
 import { useRecursiveSearch } from '../composables/useRecursiveSearch.js'
-import { buildFilesystemPathLevels } from '../utils/filesystemPath.js'
+import { buildFilesystemPathLevels, getFilesystemPathName, isSameOrDescendantPath } from '../utils/filesystemPath.js'
+import { currentChildPath } from '../utils/folderMenu.js'
 import { entryChange, relocatePath } from '../composables/useEntryChanges.js'
 
 const props = defineProps({
@@ -26,10 +28,13 @@ const selectedPath = ref(
   props.activeFilePath || props.context.sourceRootPath,
 )
 const expandedPaths = ref([])
+// The folder shown by this tree. Breadcrumb navigation changes only this view;
+// tabs keep their source context, so tree grouping in the workspace is unchanged.
+const browsedPath = ref(props.context.sourceRootPath)
 const { search, results: searchResults, start: startSearch, cancel: cancelSearch, clear: clearSearch } = useRecursiveSearch()
-const runSearch = () => startSearch({ providerId: props.context.filesystemId, basePath: props.context.sourceRootPath })
+const runSearch = () => startSearch({ providerId: props.context.filesystemId, basePath: browsedPath.value })
 const revealResult = (node) => {
-  const levels = buildFilesystemPathLevels(props.context.sourceRootPath, node.path)
+  const levels = buildFilesystemPathLevels(browsedPath.value, node.path)
   expandedPaths.value = [...new Set([...expandedPaths.value, ...levels.slice(0, -1), ...(node.isDirectory ? [node.path] : [])])]
   selectedPath.value = node.path
   clearSearch()
@@ -43,15 +48,17 @@ const updateExpanded = ({ path, expanded }) => {
 watch(entryChange, (change) => {
   if (change?.providerId === props.context.filesystemId) {
     selectedPath.value = relocatePath(selectedPath.value, change)
+    browsedPath.value = relocatePath(browsedPath.value, change)
   }
 })
 const breadcrumbsRef = ref(null)
 const root = computed(() => ({
-  name:
-    props.context.sourceRootName ||
-    props.context.sourceRootPath.split('/').filter(Boolean).at(-1) ||
-    '/',
-  path: props.context.sourceRootPath,
+  name: browsedPath.value === props.context.sourceRootPath
+    ? props.context.sourceRootName ||
+      props.context.sourceRootPath.split('/').filter(Boolean).at(-1) ||
+      '/'
+    : getFilesystemPathName(browsedPath.value) || browsedPath.value,
+  path: browsedPath.value,
   type: 'directory',
   isDirectory: true,
   isSymbolicLink: false,
@@ -59,8 +66,28 @@ const root = computed(() => ({
   modifiedAt: null,
 }))
 const breadcrumbs = computed(() =>
-  buildPathBreadcrumbs(props.context.filesystemRoot, props.context.sourceRootPath),
+  buildPathBreadcrumbs(props.context.filesystemRoot, browsedPath.value),
 )
+
+const folderMenu = ref(null)
+let folderMenuSequence = 0
+const browse = (path) => {
+  folderMenu.value = null
+  if (!path || path === browsedPath.value) return
+  clearSearch()
+  browsedPath.value = path
+  expandedPaths.value = expandedPaths.value.filter((value) => isSameOrDescendantPath(path, value))
+}
+const openFolderMenu = (event, crumb, index) => {
+  const rect = event.currentTarget.getBoundingClientRect()
+  folderMenu.value = {
+    id: ++folderMenuSequence,
+    path: crumb.path,
+    name: crumb.name,
+    anchor: { left: rect.left, bottom: rect.bottom },
+    currentPath: currentChildPath(breadcrumbs.value, index),
+  }
+}
 
 const openNode = (payload) => {
   const node = payload?.node || payload
@@ -85,6 +112,7 @@ watch(() => props.context.filesystemId, cancelSearch)
 watch(
   () => props.context.sourceRootPath,
   async (path) => {
+    browsedPath.value = path
     if (!props.activeFilePath) {
       selectedPath.value = path
     }
@@ -97,6 +125,11 @@ watch(
   },
   { immediate: true },
 )
+
+watch(browsedPath, async () => {
+  await nextTick()
+  if (breadcrumbsRef.value) breadcrumbsRef.value.scrollLeft = breadcrumbsRef.value.scrollWidth
+})
 
 watch(
   () => props.activeFilePath,
@@ -116,9 +149,27 @@ watch(
       <nav ref="breadcrumbsRef" class="panel-breadcrumbs" aria-label="Editor tree root path">
         <template v-for="(crumb, index) in breadcrumbs" :key="crumb.path">
           <i v-if="index" class="mdi mdi-chevron-right breadcrumb-separator" aria-hidden="true" />
-          <span class="editor-path-segment" :title="crumb.path">{{ crumb.name }}</span>
+          <button
+            class="path-segment"
+            :class="{ 'is-current': index === breadcrumbs.length - 1 }"
+            type="button"
+            :title="crumb.path"
+            aria-haspopup="menu"
+            :aria-expanded="folderMenu?.path === crumb.path"
+            :aria-current="index === breadcrumbs.length - 1 ? 'location' : undefined"
+            @click="browse(crumb.path)"
+            @contextmenu.prevent.stop="openFolderMenu($event, crumb, index)"
+          >{{ crumb.name }}</button>
         </template>
       </nav>
+      <FolderPathMenu
+        v-if="folderMenu"
+        :key="folderMenu.id"
+        :request="folderMenu"
+        :list-directory="listDirectory"
+        @select="browse($event.path)"
+        @cancel="folderMenu = null"
+      />
       <button class="editor-tree-toggle compact-icon-button" type="button" title="Search workspace" aria-label="Search workspace" @click="search.open ? clearSearch() : (search.open = true)"><i class="mdi mdi-magnify" aria-hidden="true" /></button>
     </header>
     <form v-if="search.open" class="search-controls" role="search" @submit.prevent="runSearch" @keydown.esc.prevent="clearSearch">

@@ -73,7 +73,7 @@ onBeforeUnmount(() => {
             </p>
           </div>
           <div class="modal-footer">
-            <button class="btn btn-sm btn-secondary" type="button" @click="$emit('cancel')">
+            <button class="btn btn-sm btn-neutral" type="button" @click="$emit('cancel')">
               Cancel
             </button>
             <button class="btn btn-sm btn-danger" type="button" @click="$emit('confirm')">

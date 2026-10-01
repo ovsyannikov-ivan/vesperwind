@@ -58,7 +58,8 @@ test('native audio and subtitle selectors use vertical Bootstrap dropdown menus'
   )
 
   assert.match(component, /media-overlay-dropdown/)
-  assert.match(component, /dropdown-menu dropdown-menu-dark show/)
+  assert.match(component, /class="dropdown-menu show"/)
+  assert.doesNotMatch(component, /dropdown-menu-dark/)
   assert.match(component, /class="dropdown-item"/)
   assert.match(component, /handlePointerDown/)
 
@@ -136,4 +137,14 @@ test('Enter opens focused files while retaining directory toggle behavior', () =
 
   assert.match(component, /if \(props\.node\.isDirectory\) toggle\(\)/)
   assert.match(component, /else emit\('open', props\.node\)/)
+})
+
+test('native mpv styles only cover classes the player markup still uses', () => {
+  const read = (path) => fs.readFileSync(fileURLToPath(new URL(`../${path}`, import.meta.url)), 'utf8')
+  const styles = read('src/styles/main.css')
+  const markup = ['src/components/CustomMediaPlayer.vue', 'src/components/MediaViewerModal.vue']
+    .map(read).join('\n')
+  const classes = new Set(styles.match(/\.native-mpv-[\w-]+/gu)?.map((name) => name.slice(1)))
+  assert.ok(classes.size > 0)
+  for (const name of classes) assert.match(markup, new RegExp(`\\b${name}\\b`, 'u'), `${name} is unused`)
 })

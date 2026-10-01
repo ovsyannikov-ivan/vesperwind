@@ -9,6 +9,7 @@ import { isSameOrDescendantPath } from '../utils/filesystemPath.js'
 import { reconcileDirectorySelection } from '../utils/reconcileDirectorySelection.js'
 import { selectFileEntries } from '../utils/fileSelection.js'
 import FileTree from './FileTree.vue'
+import FolderPathMenu from './FolderPathMenu.vue'
 import SearchResults from './SearchResults.vue'
 import { useRecursiveSearch } from '../composables/useRecursiveSearch.js'
 import { entryChange, relocatePath } from '../composables/useEntryChanges.js'
@@ -17,6 +18,7 @@ import { FILE_ENTRY_MIME, parseFileDragPayload } from '../utils/fileDrag.js'
 import { isPanelSwapHandle, restorePanelViewState } from '../utils/panelSwap.js'
 import { availableExtensions, sortAndFilterEntries } from '../utils/fileDirectoryView.js'
 import { reconcileFilteredSelection } from '../utils/reconcileFilteredSelection.js'
+import { currentChildPath } from '../utils/folderMenu.js'
 
 const props = defineProps({
   panelId: { type: String, required: true },
@@ -419,6 +421,23 @@ const navigateToBreadcrumb = (crumb) => {
   })
 }
 
+const folderMenu = ref(null)
+let folderMenuSequence = 0
+const openFolderMenu = (event, crumb, index) => {
+  const rect = event.currentTarget.getBoundingClientRect()
+  folderMenu.value = {
+    id: ++folderMenuSequence,
+    path: crumb.path,
+    name: crumb.name,
+    anchor: { left: rect.left, bottom: rect.bottom },
+    currentPath: currentChildPath(breadcrumbs.value, index),
+  }
+}
+const selectMenuFolder = (folder) => {
+  folderMenu.value = null
+  if (folder.path !== root.value?.path) openDirectory({ ...folder, type: 'directory', isDirectory: true })
+}
+
 const handleHeaderPointerDown = (event) => {
   if (event.button !== 0 || !isPanelSwapHandle(event.target)) {
     return
@@ -443,7 +462,8 @@ watch(
   },
 )
 
-watch(() => props.providerId, () => { cancelSearch(); search.open = false })
+watch(() => props.providerId, () => { cancelSearch(); search.open = false; folderMenu.value = null })
+watch(() => root.value?.path, () => { folderMenu.value = null })
 watch(
   panelState,
   (state) => emit('state-change', state),
@@ -523,12 +543,23 @@ watch(entryChange, (change) => {
               :aria-current="index === breadcrumbs.length - 1 ? 'location' : undefined"
               type="button"
               :title="crumb.path"
+              aria-haspopup="menu"
+              :aria-expanded="folderMenu?.path === crumb.path"
               @click.stop="navigateToBreadcrumb(crumb)"
+              @contextmenu.prevent.stop="openFolderMenu($event, crumb, index)"
             >
               {{ crumb.name }}
             </button>
           </template>
         </nav>
+        <FolderPathMenu
+          v-if="folderMenu"
+          :key="folderMenu.id"
+          :request="folderMenu"
+          :list-directory="listDirectory"
+          @select="selectMenuFolder"
+          @cancel="folderMenu = null"
+        />
         <span v-else class="panel-path">Loading…</span>
       </div>
       <button class="panel-action compact-icon-button" type="button" :aria-label="`Search ${side} panel`" title="Search files" @click.stop="search.open ? closeSearch() : (search.open = true)"><i class="mdi mdi-magnify" aria-hidden="true" /></button>
@@ -552,7 +583,7 @@ watch(entryChange, (change) => {
       <select v-model="search.type" class="form-select form-select-sm" aria-label="Search type" @change="cancelSearch"><option value="all">All</option><option value="files">Files</option><option value="folders">Folders</option></select>
       <select v-model="search.scope" class="form-select form-select-sm" aria-label="Search scope" @change="cancelSearch"><option value="current">Current folder</option><option value="root">Provider root</option></select>
       <button class="btn btn-sm btn-primary" type="submit" title="Start search"><i class="mdi mdi-magnify" aria-hidden="true" /></button>
-      <button class="btn btn-sm btn-secondary" type="button" title="Close search" aria-label="Close search" @click="closeSearch"><i class="mdi mdi-close" aria-hidden="true" /></button>
+      <button class="btn btn-sm btn-neutral" type="button" title="Close search" aria-label="Close search" @click="closeSearch"><i class="mdi mdi-close" aria-hidden="true" /></button>
     </form>
     <div ref="panelContentRef" class="panel-content" @scroll="handlePanelScroll" @wheel.capture="stopScrollRestore" @touchstart.capture="stopScrollRestore">
       <div v-if="loading" class="panel-message">
@@ -587,7 +618,7 @@ watch(entryChange, (change) => {
                 <span v-if="!extensionChoices.length" class="text-muted">No files in this folder</span>
               </div>
               <label class="dropdown-item tree-filter-choice"><input v-model="directoryView.keepFolders" type="checkbox"> Keep folders visible</label>
-              <div class="tree-filter-actions"><button class="btn btn-sm btn-secondary" type="button" @click="directoryView.name = ''">Clear name</button><button class="btn btn-sm btn-secondary" type="button" @click="clearFilters">Clear all filters</button></div>
+              <div class="tree-filter-actions"><button class="btn btn-sm btn-neutral" type="button" @click="directoryView.name = ''">Clear name</button><button class="btn btn-sm btn-neutral" type="button" @click="clearFilters">Clear all filters</button></div>
             </div></Teleport>
           </div>
           <div class="tree-column-size"><button class="tree-column-sort" type="button" @click="toggleSort('size')">Size <i v-if="directoryView.sort === 'size'" class="mdi" :class="directoryView.direction === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'" aria-hidden="true" /></button></div>

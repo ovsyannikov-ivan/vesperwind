@@ -182,7 +182,7 @@ onBeforeUnmount(() => {
 
           <div class="modal-footer">
             <button
-              class="btn btn-sm btn-secondary"
+              class="btn btn-sm btn-neutral"
               type="button"
               :disabled="busy"
               @click="requestCancel"

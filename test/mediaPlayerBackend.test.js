@@ -4,6 +4,7 @@ import {
   NativeMpvPlayerBackend,
   PlayerStatus,
   WebMediaPlayerBackend,
+  setNativeTransitionCover,
 } from '../src/player/mediaPlayerBackend.js'
 
 class FakeMediaElement extends EventTarget {
@@ -252,4 +253,9 @@ test('recoverable layout errors never poison playback state or block pause', asy
   assert.equal(requests.at(-1), 'player:pause')
   assert.equal(player.snapshot().status, PlayerStatus.PAUSED)
   player.dispose()
+})
+
+test('outside the desktop runtime the fullscreen transition falls back to the WebView cover', async () => {
+  assert.equal(await setNativeTransitionCover(true, 150), false)
+  assert.equal(await setNativeTransitionCover(false, 180), false)
 })

@@ -17,6 +17,7 @@ import {
   PlayerStatus,
   WebMediaPlayerBackend,
   selectPlayerBackend,
+  setNativeTransitionCover,
 } from '../player/mediaPlayerBackend.js'
 
 const props = defineProps({
@@ -60,6 +61,9 @@ let generation = 0
 let nativeReady = false
 let nativeTransitioning = false
 let nativeTransitionGeneration = 0
+// The current transition is hidden by the native window cover instead of the
+// overlay WebView cover.
+let nativeCover = false
 const pendingGeometryUpdates = new Set()
 const trackGeometryUpdate = (request) => {
   pendingGeometryUpdates.add(request)
@@ -199,6 +203,17 @@ const coverNativeTransition = async () => {
   layoutQueue.cancel()
   await Promise.allSettled([...pendingGeometryUpdates])
   if (current !== nativeTransitionGeneration) return
+  // WebViews resize and repaint asynchronously, so a WebView cover shows stale
+  // geometry for a frame. The native cover resizes with the window itself.
+  nativeCover = await setNativeTransitionCover(true, 150).catch((error) => {
+    console.warn('Native transition cover failed', error)
+    return false
+  })
+  if (current !== nativeTransitionGeneration) return
+  if (nativeCover) {
+    if (nativeReady && player) await player.setVisible(false)
+    return
+  }
   await mediaOverlay.fade(true)
   if (current !== nativeTransitionGeneration) return
   if (!nativeReady || !player) return
@@ -215,10 +230,39 @@ const coverNativeTransition = async () => {
   if (current !== nativeTransitionGeneration) return
   await mediaOverlay.fade(true, { immediate: true, viewport })
 }
+const uncoverNative = async () => {
+  nativeCover = false
+  await setNativeTransitionCover(false, 180).catch((error) => console.warn('Native transition cover failed', error))
+}
+const nextFrames = (count) => new Promise((resolve) => {
+  const step = (left) => left ? requestAnimationFrame(() => step(left - 1)) : resolve()
+  step(count)
+})
+const revealUnderNativeCover = async (current) => {
+  try {
+    if (nativeReady && player) {
+      // Final layout happens under the cover. The overlay WebView repaints
+      // after its resize, so wait until it presents the new size.
+      const bounds = overlayGeometry()
+      await player.setOverlay(true, bounds, overlayContext())
+      await mediaOverlay.fade(false, { immediate: true, viewport: bounds }).catch(() => {})
+      if (current !== nativeTransitionGeneration) return
+      await player.setGeometry(geometry())
+      await player.setVisible(true)
+      await nextFrames(2)
+    }
+  } finally {
+    if (current === nativeTransitionGeneration) {
+      await uncoverNative()
+      if (current === nativeTransitionGeneration) syncGeometry()
+    }
+  }
+}
 const revealNativeTransition = async () => {
   // Invalidate delayed cover/settle continuations after a timeout.
   const current = ++nativeTransitionGeneration
   nativeTransitioning = false
+  if (nativeCover) return revealUnderNativeCover(current)
   try {
     if (nativeReady && player) {
       const bounds = overlayGeometry()
@@ -240,7 +284,8 @@ const revealNativeTransition = async () => {
   }
 }
 const settleNativePresentation = async () => {
-  if (!nativeReady || !player) return
+  // Under the native cover the layout is applied once, when revealing.
+  if (nativeCover || !nativeReady || !player) return
   const current = nativeTransitionGeneration
   await nextTick()
   cancelAnimationFrame(geometryFrame)
@@ -287,6 +332,7 @@ watch(
 onBeforeUnmount(() => {
   generation += 1
   nativeTransitionGeneration += 1
+  if (nativeCover) void uncoverNative()
   cancelAnimationFrame(geometryFrame)
   layoutQueue.cancel()
   resizeObserver?.disconnect()

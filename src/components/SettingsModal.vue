@@ -342,7 +342,7 @@ onBeforeUnmount(() => {
             </button>
             <div class="d-flex gap-2">
               <button
-                class="btn btn-sm btn-secondary"
+                class="btn btn-sm btn-neutral"
                 type="button"
                 :disabled="saving"
                 @click="close"

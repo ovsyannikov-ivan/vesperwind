@@ -22,6 +22,20 @@ test('DOCX uses the lazy Word handler; imports are Word tabs; existing handlers 
   assert.equal(getFileOpenType('photo.png'), 'image')
 })
 
+test('Word editor follows the live Vesperwind theme through the docx-editor colorMode prop', async () => {
+  const [component, css] = await Promise.all([
+    fs.readFile(new URL('../src/modules/document/WordEditor.vue', import.meta.url), 'utf8'),
+    fs.readFile(new URL('../src/modules/document/styles/document.css', import.meta.url), 'utf8'),
+  ])
+  assert.doesNotMatch(component, /\scolor-mode="(light|dark)"/)
+  assert.match(component, /:color-mode="colorMode"/)
+  assert.match(component, /const \{ resolvedTheme \} = useTheme\(\)/)
+  assert.match(component, /resolvedTheme\.value === 'light' \? 'light' : 'dark'/)
+  // docx-editor owns its light/dark tokens; the host must not pin one palette.
+  assert.doesNotMatch(css, /--doc-bg\s*:/)
+  assert.doesNotMatch(css, /#[0-9a-f]{3,8}\b/i)
+})
+
 test('generated DOCX fixtures parse and preserve text, formatting, tables, images, headers, Unicode, and unknown XML', async () => {
   for (const name of ['simple', 'formatting', 'tables', 'images', 'headers-footers', 'unicode', 'advanced']) {
     const parsed = readOoxmlPackage(await fixture(`${name}.docx`))

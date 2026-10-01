@@ -261,6 +261,19 @@ export const getNativePlayerCapabilities = async () => {
     : { available: false, renderApi: false, customStream: false, reason: response?.error?.message }
 }
 
+// The native transition cover belongs to the main window, not to a player
+// session, so a closing viewer can still remove it. Resolves after the fade
+// with `false` when this platform has no native cover.
+export const setNativeTransitionCover = async (covered, durationMs = 0) => {
+  if (backendRuntimeMode !== 'tauri') return false
+  const response = await backend.request('player:set-transition-cover', {
+    covered: Boolean(covered),
+    durationMs: Math.max(0, Math.round(Number(durationMs) || 0)),
+  })
+  if (!response?.ok) throw new Error(response?.error?.message || 'Native transition cover failed')
+  return Boolean(response.native)
+}
+
 export const selectPlayerBackend = async () => {
   const capabilities = await getNativePlayerCapabilities()
   return capabilities.available && capabilities.renderApi ? 'mpv' : 'web'

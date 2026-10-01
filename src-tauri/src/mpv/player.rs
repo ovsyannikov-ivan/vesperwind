@@ -918,15 +918,16 @@ fn control_loop(
                     };
                     if error < 0 {
                         state.status = "error".into();
-                        let mut message = format!(
+                        let message = format!(
                             "libmpv could not play this file: {}",
                             api.error_string(error)
                         );
                         #[cfg(target_os = "windows")]
-                        if backend == Backend::D3d11 && error == -15 {
-                            message =
-                                format!("D3D11 presentation initialization failed: {message}");
-                        }
+                        let message = if backend == Backend::D3d11 && error == -15 {
+                            format!("D3D11 presentation initialization failed: {message}")
+                        } else {
+                            message
+                        };
                         state.error = Some(message.clone());
                         *lifecycle.lock().unwrap_or_else(|value| value.into_inner()) =
                             PlayerLifecycle::Error;

@@ -73,7 +73,7 @@ onBeforeUnmount(() => {
             <div v-if="validationError || error" id="create-entry-error" class="text-danger mt-2" role="alert">{{ validationError || error }}</div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-sm btn-secondary" :disabled="busy" @click="cancel">Cancel</button>
+            <button type="button" class="btn btn-sm btn-neutral" :disabled="busy" @click="cancel">Cancel</button>
             <button type="submit" class="btn btn-sm btn-primary" :disabled="busy">{{ busy ? 'Creating…' : 'Create' }}</button>
           </div>
         </form>
