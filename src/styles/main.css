@@ -637,8 +637,14 @@ body.is-swapping-panels * {
   color: var(--text);
 }
 
-/* Right-click a breadcrumb to list that folder's subfolders. */
-.folder-path-menu {
+/* Right-click a breadcrumb to list that folder's subfolders. Its rows use the
+   file tree's row height, font and icon size rather than the context menu's,
+   so the list reads as part of the tree. The compound selectors outrank the
+   shared rules in dropdown.css, which loads after this file. */
+.dropdown-menu.folder-path-menu {
+  --bs-dropdown-font-size: 0.75rem;
+  --bs-dropdown-item-padding-x: var(--file-tree-row-padding);
+  --bs-dropdown-item-padding-y: 0;
   position: fixed;
   min-width: 12rem;
   max-width: min(22rem, calc(100vw - 16px));
@@ -646,8 +652,16 @@ body.is-swapping-panels * {
   z-index: 1090;
 }
 
-.folder-path-menu .dropdown-item {
+.dropdown-menu.folder-path-menu .dropdown-item:has(> .mdi) {
   min-width: 0;
+  height: var(--file-tree-row-height);
+  gap: 4px;
+}
+
+.dropdown-menu.folder-path-menu .dropdown-item > .mdi {
+  width: 19px;
+  flex-basis: 19px;
+  font-size: var(--file-tree-icon-size);
 }
 
 .folder-path-menu-name {
@@ -668,6 +682,7 @@ body.is-swapping-panels * {
 
 .folder-path-menu-status {
   display: flex;
+  min-height: var(--file-tree-row-height);
   align-items: center;
   gap: 0.5rem;
   color: var(--text-muted);

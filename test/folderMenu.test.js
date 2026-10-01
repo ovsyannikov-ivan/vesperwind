@@ -62,6 +62,12 @@ test('file panels and the editor tree open the folder menu from breadcrumbs thro
   // Folder icons match the file tree, including its color and Windows drive icons.
   assert.match(menu, /getFileIcon\(folder, folder\.path === props\.request\.currentPath\)/u)
   assert.match(menu, /:class="folderIcon\(folder\)"/u)
+  // Rows match the file tree (font, row height, icon size), not the context menu.
+  const styles = await read('src/styles/main.css')
+  assert.match(styles, /\.file-tree,\s*\.tree-children \{[^}]*font-size: 0\.75rem;/u)
+  assert.match(styles, /\.dropdown-menu\.folder-path-menu \{[^}]*--bs-dropdown-font-size: 0\.75rem;/u)
+  assert.match(styles, /\.dropdown-menu\.folder-path-menu \.dropdown-item:has\(> \.mdi\) \{[^}]*height: var\(--file-tree-row-height\);/u)
+  assert.match(styles, /\.dropdown-menu\.folder-path-menu \.dropdown-item > \.mdi \{[^}]*font-size: var\(--file-tree-icon-size\);/u)
   const dropdown = await read('src/styles/dropdown.css')
   assert.match(dropdown, /\.dropdown-item:not\(:disabled\):is\(:hover, :active\) > \.mdi,[\s\S]*?\{\s*color: inherit;/u)
 
@@ -71,6 +77,9 @@ test('file panels and the editor tree open the folder menu from breadcrumbs thro
     assert.match(source, /:list-directory="listDirectory"/u, `${name}: menu uses the provider listing`)
     assert.match(source, /currentPath: currentChildPath\(breadcrumbs\.value, index\)/u, `${name}: current folder is marked`)
   }
+
+  // The placeholder belongs to the breadcrumbs; it must not become the menu's v-else.
+  assert.match(panel, /<\/nav>\s*<span v-else class="panel-path">Loading…<\/span>/u)
 
   // Left click keeps its existing navigation in file panels.
   assert.match(panel, /@click\.stop="navigateToBreadcrumb\(crumb\)"/u)

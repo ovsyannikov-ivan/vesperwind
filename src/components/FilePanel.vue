@@ -552,6 +552,7 @@ watch(entryChange, (change) => {
             </button>
           </template>
         </nav>
+        <span v-else class="panel-path">Loading…</span>
         <FolderPathMenu
           v-if="folderMenu"
           :key="folderMenu.id"
@@ -560,7 +561,6 @@ watch(entryChange, (change) => {
           @select="selectMenuFolder"
           @cancel="folderMenu = null"
         />
-        <span v-else class="panel-path">Loading…</span>
       </div>
       <button class="panel-action compact-icon-button" type="button" :aria-label="`Search ${side} panel`" title="Search files" @click.stop="search.open ? closeSearch() : (search.open = true)"><i class="mdi mdi-magnify" aria-hidden="true" /></button>
       <button
