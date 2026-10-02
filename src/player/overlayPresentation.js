@@ -15,7 +15,14 @@ export const waitForOverlayPresentation = async ({
   const scale = viewport?.scaleFactor || 1
   let paintedFrames = 0
   while (paintedFrames < 2) {
-    await frame()
+    let timer
+    try {
+      // An opaque native transition cover can suspend WKWebView animation
+      // frames entirely. A deadline checked only after rAF never expires.
+      await Promise.race([frame(), new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Media overlay did not present the resized cover')), Math.max(0, deadline - now()))
+      })])
+    } finally { clearTimeout(timer) }
     const size = measure()
     const ready = !viewport || (
       size.width >= viewport.width * scale - 2 && size.height >= viewport.height * scale - 2

@@ -147,8 +147,10 @@ export class NativeMpvPlayerBackend extends MediaPlayerBackend {
     this.sessionId = sessionId || createPlayerSessionId()
     this.hasOpenedSession = Boolean(sessionId)
     this.closed = false
+    this.sourceGeneration = 0
     this.unsubscribe = this.transport.subscribe('player:state', (state) => {
       if (!state || this.closed || !this.sessionId || state.sessionId !== this.sessionId) return
+      if (this.state.status === PlayerStatus.CLOSING) return
       this.update({
         status: state.status || this.state.status,
         currentTime: state.currentTime ?? this.state.currentTime,
@@ -165,8 +167,18 @@ export class NativeMpvPlayerBackend extends MediaPlayerBackend {
 
   async request(eventName, payload = {}, { fatal = true } = {}) {
     if (!this.sessionId) throw new Error('Native player session is not attached')
-    console.info(`[player=${this.sessionId}] command sent: ${eventName}`)
-    const response = await this.transport.request(eventName, { ...payload, sessionId: this.sessionId })
+    const sessionId = this.sessionId
+    const sourceGeneration = this.sourceGeneration
+    console.info(`[player=${sessionId}] command sent: ${eventName}`)
+    let response
+    try {
+      response = await this.transport.request(eventName, { ...payload, sessionId })
+    } catch (error) {
+      if (this.closed || sessionId !== this.sessionId || sourceGeneration !== this.sourceGeneration) return
+      throw error
+    }
+    // close can finish while a native open/seek response is still in flight.
+    if (this.closed || sessionId !== this.sessionId || sourceGeneration !== this.sourceGeneration) return response
     if (!response?.ok) {
       const error = response?.error || { message: 'Native media playback failed' }
       if (fatal) this.update({ status: PlayerStatus.ERROR, error })
@@ -177,18 +189,26 @@ export class NativeMpvPlayerBackend extends MediaPlayerBackend {
   }
 
   async setSource(source, geometry) {
+    if (this.closed) return
+    const sourceGeneration = ++this.sourceGeneration
     if (this.hasOpenedSession) await this.closeSession()
+    if (this.closed || sourceGeneration !== this.sourceGeneration) return
     if (!this.sessionId) this.sessionId = createPlayerSessionId()
     const sourceKey = `${source?.providerId || 'local'}:${source?.path || ''}`
     console.info(`[player=${this.sessionId}] source selected: ${sourceKey}`)
     console.info(`[player=${this.sessionId}] native open requested`)
     this.update({ ...initialState(), source: sourceKey, status: PlayerStatus.OPENING })
+    const sessionId = this.sessionId
+    // An opening session already owns native resources. A source switch must
+    // cancel it too, rather than sending a second open with the same identity.
+    this.hasOpenedSession = true
     const response = await this.request('player:open', {
       filesystemId: source?.providerId || 'local',
       path: source?.path || '',
       autoplay: this.autoplay,
       geometry,
     })
+    if (this.closed || sessionId !== this.sessionId || sourceGeneration !== this.sourceGeneration) return
     if (response.sessionId !== this.sessionId) {
       throw new Error(`Native player returned a different session id: ${response.sessionId || 'none'}`)
     }

@@ -10,7 +10,10 @@ use crate::{filesystem::Filesystem, provider_content::ContentSource, ssh::SshMan
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
-    sync::{mpsc, Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc, Arc, Mutex,
+    },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
@@ -117,6 +120,9 @@ pub struct PlaybackDiagnostics {
     pub current_gpu_context: Option<String>,
     pub target_transfer: Option<String>,
     pub target_primaries: Option<String>,
+    pub target_pixel_format: Option<String>,
+    pub current_ao: Option<String>,
+    pub video_target_params: Option<String>,
     pub dolby_vision_rpu: Option<bool>,
     pub dolby_vision_processing: Option<String>,
     pub system_dolby_vision_output: bool,
@@ -180,6 +186,7 @@ pub struct VideoDiagnostics {
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AudioDiagnostics {
+    pub decoder: Option<String>,
     pub codec: Option<String>,
     pub friendly_codec: Option<String>,
     pub bitrate: Option<f64>,
@@ -283,6 +290,33 @@ struct RunningPlayer {
     lifecycle: Arc<Mutex<PlayerLifecycle>>,
 }
 
+struct PlayerAccess {
+    sender: mpsc::Sender<Control>,
+    surface: NativeSurface,
+}
+
+struct OpeningPlayer {
+    session_id: String,
+    cancelled: Arc<AtomicBool>,
+}
+
+struct OpeningGuard<'a> {
+    registry: &'a Mutex<Option<OpeningPlayer>>,
+    cancelled: Arc<AtomicBool>,
+}
+
+impl Drop for OpeningGuard<'_> {
+    fn drop(&mut self) {
+        let mut guard = self.registry.lock().unwrap_or_else(|v| v.into_inner());
+        if guard
+            .as_ref()
+            .is_some_and(|opening| Arc::ptr_eq(&opening.cancelled, &self.cancelled))
+        {
+            *guard = None;
+        }
+    }
+}
+
 // If spawning the control thread fails, its captured runtime still tears down
 // the renderer and embedded VO in the required order.
 struct PlayerRuntime {
@@ -339,6 +373,7 @@ pub struct MpvPlayerManager {
     ssh: Arc<SshManager>,
     registry: Arc<MpvStreamRegistry>,
     running: Mutex<Option<RunningPlayer>>,
+    opening: Mutex<Option<OpeningPlayer>>,
     overlay_context: Mutex<Option<(String, Value)>>,
 }
 
@@ -348,6 +383,7 @@ impl MpvPlayerManager {
             registry: MpvStreamRegistry::new(Arc::clone(&ssh)),
             ssh,
             running: Mutex::new(None),
+            opening: Mutex::new(None),
             overlay_context: Mutex::new(None),
         })
     }
@@ -359,8 +395,9 @@ impl MpvPlayerManager {
         app: &AppHandle,
         backend: Backend,
         fallback_reason: Option<String>,
+        cancelled: &AtomicBool,
     ) -> Result<(), String> {
-        let mut running = self
+        let running = self
             .running
             .lock()
             .unwrap_or_else(|value| value.into_inner());
@@ -369,6 +406,10 @@ impl MpvPlayerManager {
                 "Cannot open native player session {session_id}; session {} is still active",
                 active.session_id
             ));
+        }
+        drop(running);
+        if cancelled.load(Ordering::Acquire) {
+            return Err("Native player opening was cancelled".into());
         }
         eprintln!("[player={session_id}] create requested");
         let api = Arc::new(MpvApi::load_bundled()?);
@@ -421,6 +462,15 @@ impl MpvPlayerManager {
             _host: surface.clone(),
             _registry: Arc::clone(&self.registry),
         };
+        // Creation can wait for AppKit. Never hold the registry across that
+        // wait: close/ExitRequested on the main thread must be able to cancel it.
+        let mut running = self.running.lock().unwrap_or_else(|v| v.into_inner());
+        if cancelled.load(Ordering::Acquire) {
+            return Err("Native player opening was cancelled".into());
+        }
+        if running.is_some() {
+            return Err("Another native player session is already active".into());
+        }
         let (sender, receiver) = mpsc::channel();
         let registry = Arc::clone(&self.registry);
         let control_surface = surface.clone();
@@ -468,15 +518,43 @@ impl MpvPlayerManager {
     ) -> Result<PlayerSnapshot, String> {
         eprintln!("[player={session_id}] open requested source={path}");
         let backends = requested_backends()?;
+        let cancelled = Arc::new(AtomicBool::new(false));
+        {
+            let mut opening = self.opening.lock().unwrap_or_else(|v| v.into_inner());
+            if let Some(active) = opening.as_ref() {
+                if !active.cancelled.load(Ordering::Acquire) {
+                    return Err(format!(
+                        "Native player session {} is still opening",
+                        active.session_id
+                    ));
+                }
+            }
+            *opening = Some(OpeningPlayer {
+                session_id: session_id.into(),
+                cancelled: Arc::clone(&cancelled),
+            });
+        }
+        let _opening = OpeningGuard {
+            registry: &self.opening,
+            cancelled: Arc::clone(&cancelled),
+        };
         let mut fallback_reason = None;
         for (index, backend) in backends.iter().copied().enumerate() {
+            if cancelled.load(Ordering::Acquire) {
+                return Err("Native player opening was cancelled".into());
+            }
             let can_fallback = index + 1 < backends.len();
             let source = ContentSource::open(filesystem, &self.ssh, provider_id, path)
                 .map_err(|error| error.message)?;
-            if let Err(error) =
-                self.ensure_started(session_id, window, app, backend, fallback_reason.clone())
-            {
-                if !can_fallback {
+            if let Err(error) = self.ensure_started(
+                session_id,
+                window,
+                app,
+                backend,
+                fallback_reason.clone(),
+                &cancelled,
+            ) {
+                if !can_fallback || cancelled.load(Ordering::Acquire) {
                     return Err(error);
                 }
                 eprintln!("[player={session_id}] presentation startup failed; trying OpenGL Render API: {error}");
@@ -486,7 +564,17 @@ impl MpvPlayerManager {
             let uri = self.registry.register(source);
             eprintln!("[player={session_id}] source load requested");
             let result = self.with_running(session_id, true, |running| {
-                running.surface.set_geometry(geometry)?;
+                let startup_geometry = geometry;
+                // Exercise actual VO/swapchain startup with a safely retained,
+                // zero-sized host. Never change source/codec or OpenGL geometry.
+                #[cfg(all(target_os = "macos", debug_assertions))]
+                let startup_geometry = if backend == Backend::MacVk
+                    && std::env::var("VESPERWIND_MPV_TEST_MACVK_STARTUP_FAILURE").as_deref() == Ok("1")
+                {
+                    eprintln!("[player={session_id}] injecting debug-only MacVk zero-sized presentation host startup failure");
+                    PlayerGeometry { width: 0.0, height: 0.0, ..startup_geometry }
+                } else { startup_geometry };
+                running.surface.set_geometry(startup_geometry)?;
                 running.surface.set_visible(true)?;
                 running
                     .sender
@@ -501,8 +589,9 @@ impl MpvPlayerManager {
             if let Err(error) = &result {
                 eprintln!("[player={session_id}] open failed: {error}");
                 self.registry.remove(&uri);
-                self.close(session_id);
+                self.close_running(session_id);
                 if can_fallback
+                    && !cancelled.load(Ordering::Acquire)
                     && error.starts_with("Owned video presentation initialization failed")
                 {
                     fallback_reason = Some(error.clone());
@@ -633,7 +722,7 @@ impl MpvPlayerManager {
         &self,
         session_id: &str,
         allow_opening: bool,
-        operation: impl FnOnce(&RunningPlayer) -> Result<T, String>,
+        operation: impl FnOnce(&PlayerAccess) -> Result<T, String>,
     ) -> Result<T, String> {
         let running = self
             .running
@@ -663,10 +752,30 @@ impl MpvPlayerManager {
                 "Native player session {session_id} is not ready (state={lifecycle:?})"
             ));
         }
-        operation(active)
+        let access = PlayerAccess {
+            sender: active.sender.clone(),
+            surface: active.surface.clone(),
+        };
+        // Native/main-thread and mpv replies must never hold the registry lock.
+        // In particular close must be able to cancel a pending VO startup.
+        drop(running);
+        operation(&access)
     }
 
     pub fn close(&self, session_id: &str) -> bool {
+        let opening = self.opening.lock().unwrap_or_else(|v| v.into_inner());
+        let cancelled = opening.as_ref().is_some_and(|opening| {
+            if opening.session_id != session_id {
+                return false;
+            }
+            opening.cancelled.store(true, Ordering::Release);
+            true
+        });
+        drop(opening);
+        self.close_running(session_id) || cancelled
+    }
+
+    fn close_running(&self, session_id: &str) -> bool {
         eprintln!("[player={session_id}] close requested");
         let mut guard = self
             .running
@@ -689,6 +798,8 @@ impl MpvPlayerManager {
                 .lifecycle
                 .lock()
                 .unwrap_or_else(|value| value.into_inner()) = PlayerLifecycle::Closing;
+            #[cfg(target_os = "macos")]
+            running.surface.retire();
             let _ = running.surface.set_visible(false);
             let (reply, finished) = mpsc::sync_channel(1);
             let _ = running.sender.send(Control::Shutdown(reply));
@@ -713,6 +824,14 @@ impl MpvPlayerManager {
     }
 
     pub fn close_all(&self) {
+        if let Some(opening) = self
+            .opening
+            .lock()
+            .unwrap_or_else(|v| v.into_inner())
+            .as_ref()
+        {
+            opening.cancelled.store(true, Ordering::Release);
+        }
         let session_id = self
             .running
             .lock()
@@ -1071,6 +1190,10 @@ fn control_loop(
                     state.diagnostics.decoder_dropped_frames, state.diagnostics.delayed_frames,
                     state.diagnostics.video_sync, state.diagnostics.av_sync_seconds, state.diagnostics.windows_output);
                 last_performance_log = Instant::now();
+                eprintln!(
+                    "[player={session_id}] diagnostics {}",
+                    serde_json::to_string(&state.diagnostics).unwrap_or_default()
+                );
             }
         }
     }
@@ -1514,6 +1637,7 @@ fn read_diagnostics(
             matrix: matrix.clone(),
         },
         audio: AudioDiagnostics {
+            decoder: api.get_string(handle, "current-tracks/audio/decoder"),
             friendly_codec: audio_codec.as_deref().map(friendly_codec_name),
             codec: audio_codec,
             bitrate: track_average_bitrate(api, handle, "current-tracks/audio"),
@@ -1592,6 +1716,9 @@ fn read_diagnostics(
             Backend::RenderApi.name().to_string()
         },
         current_vo, current_gpu_context, target_transfer, target_primaries,
+        target_pixel_format: api.get_string(handle, "video-target-params/pixelformat"),
+        current_ao: api.get_string(handle, "current-ao"),
+        video_target_params: api.get_string(handle, "video-target-params"),
         display: display.clone(),
         windows_output,
         dropped_frames: api.get_i64(handle, "frame-drop-count"),
@@ -1856,6 +1983,35 @@ fn emit_state(app: &AppHandle, session_id: &str, state: &PlayerSnapshot) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cancelled_opening_cleanup_does_not_remove_reopened_session() {
+        let previous = Arc::new(AtomicBool::new(false));
+        let replacement = Arc::new(AtomicBool::new(false));
+        let registry = Mutex::new(Some(OpeningPlayer {
+            session_id: "previous".into(),
+            cancelled: Arc::clone(&previous),
+        }));
+        let guard = OpeningGuard {
+            registry: &registry,
+            cancelled: Arc::clone(&previous),
+        };
+        previous.store(true, Ordering::Release);
+        *registry.lock().unwrap() = Some(OpeningPlayer {
+            session_id: "reopened".into(),
+            cancelled: Arc::clone(&replacement),
+        });
+        drop(guard);
+        assert_eq!(
+            registry.lock().unwrap().as_ref().unwrap().session_id,
+            "reopened"
+        );
+        drop(OpeningGuard {
+            registry: &registry,
+            cancelled: replacement,
+        });
+        assert!(registry.lock().unwrap().is_none());
+    }
 
     #[cfg(target_os = "windows")]
     #[test]

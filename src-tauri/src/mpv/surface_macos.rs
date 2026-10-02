@@ -39,6 +39,11 @@ impl NativeSurface {
     pub fn set_visible(&self, visible: bool) -> Result<(), String> {
         forward!(self, set_visible, visible)
     }
+    pub fn retire(&self) {
+        if let Self::Metal(surface) = self {
+            surface.retire();
+        }
+    }
     pub fn set_transition_visible(&self, visible: bool) -> Result<(), String> {
         forward!(self, set_transition_visible, visible)
     }

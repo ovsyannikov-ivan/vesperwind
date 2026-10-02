@@ -106,6 +106,13 @@ const handleHidden = () => {
   videoPlayer.value?.pause()
   if (isFullscreen.value) void fullscreen.exit()
 
+  // Bootstrap hides this persistent modal without unmounting it. Dispose the
+  // child player as well, including an open request still awaiting VO startup.
+  displayedMedia.value = null
+  displayedKind.value = ''
+  playerBackend.value = ''
+  playbackError.value = ''
+
   if (props.open) {
     emit('close')
   }
@@ -175,7 +182,7 @@ onBeforeUnmount(() => {
     >
       <div class="modal-dialog modal-xl modal-dialog-centered media-viewer-dialog">
         <div class="modal-content" :class="{ 'is-native-video': isNativeVideo }">
-          <div v-if="!isNativeVideo" class="modal-header">
+          <div v-if="!isNativeVideo || playbackError" class="modal-header">
             <h1
               id="media-viewer-title"
               class="modal-title fs-6 d-flex align-items-center gap-2 text-truncate"

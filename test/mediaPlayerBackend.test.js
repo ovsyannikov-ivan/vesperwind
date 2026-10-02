@@ -259,3 +259,125 @@ test('outside the desktop runtime the fullscreen transition falls back to the We
   assert.equal(await setNativeTransitionCover(true, 150), false)
   assert.equal(await setNativeTransitionCover(false, 180), false)
 })
+
+test('close during native opening ignores the late ready response', async () => {
+  let finishOpen
+  let openedSession
+  const player = new NativeMpvPlayerBackend({ transport: {
+    subscribe() { return () => {} },
+    async request(event, payload) {
+      if (event === 'player:open') {
+        openedSession = payload.sessionId
+        return new Promise((resolve) => { finishOpen = resolve })
+      }
+      return { ok: true }
+    },
+  } })
+  const opening = player.setSource({ path: '/video.mp4' }, {})
+  player.close()
+  await new Promise((resolve) => setImmediate(resolve))
+  finishOpen({ ok: true, sessionId: openedSession, state: { status: PlayerStatus.READY } })
+  await opening
+  assert.equal(player.snapshot().status, PlayerStatus.CLOSED)
+  assert.equal(player.hasOpenedSession, false)
+  assert.equal(player.sessionId, null)
+})
+
+test('source switch cancels pending native opening and ignores its late error', async () => {
+  const requests = []
+  let finishFirst
+  const player = new NativeMpvPlayerBackend({ transport: {
+    subscribe() { return () => {} },
+    request(eventName, payload) {
+      requests.push({ eventName, payload })
+      if (eventName === 'player:open' && payload.path === '/first.mp4') {
+        return new Promise((resolve) => { finishFirst = resolve })
+      }
+      return Promise.resolve({ ok: true, sessionId: payload.sessionId,
+        state: { status: PlayerStatus.READY } })
+    },
+  } })
+  const first = player.setSource({ path: '/first.mp4' }, {})
+  const firstSession = player.sessionId
+  await player.setSource({ path: '/second.mp4' }, {})
+  assert.deepEqual(requests.map(({ eventName }) => eventName), ['player:open', 'player:close', 'player:open'])
+  assert.equal(requests[1].payload.sessionId, firstSession)
+  assert.notEqual(player.sessionId, firstSession)
+  finishFirst({ ok: false, error: { message: 'Opening cancelled' } })
+  await first
+  assert.equal(player.snapshot().source, 'local:/second.mp4')
+  assert.equal(player.snapshot().status, PlayerStatus.READY)
+  assert.equal(player.snapshot().error, null)
+  player.close()
+})
+
+test('closing during a pending native open ignores a late transport rejection', async () => {
+  let rejectOpen
+  const player = new NativeMpvPlayerBackend({ transport: {
+    subscribe() { return () => {} },
+    request(eventName) {
+      if (eventName === 'player:open') return new Promise((_, reject) => { rejectOpen = reject })
+      return Promise.resolve({ ok: true })
+    },
+  } })
+  const opening = player.setSource({ path: '/video.mp4' }, {})
+  player.close()
+  rejectOpen(new Error('Native command cancelled'))
+  await opening
+  assert.equal(player.snapshot().status, PlayerStatus.CLOSED)
+  assert.equal(player.snapshot().error, null)
+})
+
+test('rapid source switches while close is pending open only the latest source', async () => {
+  const paths = []
+  const finishClose = []
+  let stateListener
+  const player = new NativeMpvPlayerBackend({ transport: {
+    subscribe(_eventName, listener) { stateListener = listener; return () => {} },
+    request(eventName, payload) {
+      if (eventName === 'player:close') return new Promise((resolve) => { finishClose.push(resolve) })
+      paths.push(payload.path)
+      return Promise.resolve({ ok: true, sessionId: payload.sessionId,
+        state: { status: PlayerStatus.READY } })
+    },
+  } })
+  await player.setSource({ path: '/first.mp4' }, {})
+  const second = player.setSource({ path: '/second.mp4' }, {})
+  const third = player.setSource({ path: '/third.mp4' }, {})
+  stateListener({ sessionId: player.sessionId, status: PlayerStatus.ERROR, error: 'Cancelled old VO' })
+  assert.equal(player.snapshot().status, PlayerStatus.CLOSING)
+  assert.equal(player.snapshot().error, null)
+  finishClose.forEach((resolve) => resolve({ ok: true }))
+  await Promise.all([second, third])
+  assert.deepEqual(paths, ['/first.mp4', '/third.mp4'])
+  assert.equal(player.snapshot().source, 'local:/third.mp4')
+  player.dispose()
+})
+
+test('close while switching source cannot open the replacement after teardown', async () => {
+  let finishClose
+  let opens = 0
+  const player = new NativeMpvPlayerBackend({ transport: {
+    subscribe() { return () => {} },
+    request(event, payload) {
+      if (event === 'player:open') {
+        opens += 1
+        return Promise.resolve({ ok: true, sessionId: payload.sessionId,
+          state: { status: PlayerStatus.READY } })
+      }
+      return new Promise((resolve) => { finishClose = resolve })
+    },
+  } })
+  await player.setSource({ path: '/first.mp4' }, {})
+  const switching = player.setSource({ path: '/second.mp4' }, {})
+  const finishSourceClose = finishClose
+  player.close()
+  finishClose({ ok: true })
+  await new Promise((resolve) => setImmediate(resolve))
+  finishSourceClose({ ok: true })
+  await switching
+  await player.setSource({ path: '/third.mp4' }, {})
+  assert.equal(opens, 1)
+  assert.equal(player.snapshot().status, PlayerStatus.CLOSED)
+  assert.equal(player.sessionId, null)
+})

@@ -82,7 +82,10 @@ const friendlyRenderer = (value = '') => {
   return value || 'Not configured'
 }
 
-const decodedPixelFormat = (value) => value ? String(value).toUpperCase() : ''
+const decodedPixelFormat = (value) => {
+  const format = String(value || '')
+  return format.toLowerCase() === 'videotoolbox' ? 'VideoToolbox' : format.toUpperCase()
+}
 
 const row = (label, value, title = '') => ({ label, value, title })
 

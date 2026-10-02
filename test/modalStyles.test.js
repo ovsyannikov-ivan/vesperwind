@@ -78,6 +78,7 @@ test('targeted neutral actions share one compact btn-neutral style', async () =>
   assert.equal(classes.length, 2)
   for (const tokens of classes) assert.deepEqual(tokens, ['btn', 'btn-sm', 'btn-neutral'])
   // Filter actions split the menu width evenly instead of wrapping.
-  assert.match(css, /\.tree-filter-actions \{ display: flex; gap: [^;]+; margin-top: [^;]+; \}/u)
-  assert.match(css, /\.tree-filter-actions > \.btn \{ flex: 1 1 0; min-width: 0;[^}]*white-space: nowrap; \}/u)
+  const compactCss = css.replace(/\s+/gu, ' ')
+  assert.match(compactCss, /\.tree-filter-actions \{ display: flex; gap: [^;]+; margin-top: [^;]+; \}/u)
+  assert.match(compactCss, /\.tree-filter-actions > \.btn \{ flex: 1 1 0; min-width: 0;[^}]*white-space: nowrap; \}/u)
 })

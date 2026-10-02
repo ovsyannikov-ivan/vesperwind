@@ -52,3 +52,11 @@ test('independent WebView zoom uses physical pixels for cover acknowledgement', 
   })
   assert.equal(frames, 2)
 })
+
+test('an occluded WebView with suspended animation frames still times out', async () => {
+  await assert.rejects(waitForOverlayPresentation({
+    viewport: { width: 1920, height: 1080 },
+    frame: () => new Promise(() => {}),
+    timeout: 20,
+  }), /did not present/)
+})

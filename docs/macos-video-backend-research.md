@@ -327,12 +327,16 @@ Rust mpv checks and frontend regression tests passed. The existing Info panel wa
 visually inspected in headless Chrome with Metal, OpenGL fallback and unknown
 state fixtures. Those fixtures validate layout, not real runtime GPU evidence.
 
-Still pending: real Tauri native-video composition and controls z-order,
-fullscreen transitions, real application automatic fallback, listening/audio,
-SFTP application playback, physical HDR10/HLG color accuracy, moving between
-SDR/HDR displays, hotplug, sleep/wake and brightness/headroom changes. Dolby Vision
-8.1/8.4/5 and MEL/FEL media were not tested. No native system Dolby Vision output
-is implemented or claimed. The experimental backend is not release accepted.
+Subsequent real Tauri checks are recorded separately in the
+[application acceptance report](macos-video-backend-acceptance.md). Windowed
+composition, controls, backend/decoder state and controlled application VO
+fallback have now been observed. Paused fullscreen reproduced solid-color/stale
+composition and white edge strips; fullscreen visual acceptance remains open.
+Listening/audio quality, SFTP application playback, physical HDR10/HLG color
+accuracy, moving between SDR/HDR displays, hotplug, sleep/wake and
+brightness/headroom changes remain pending. Dolby Vision 8.1/8.4/5 and MEL/FEL
+media were not tested. No native system Dolby Vision output is implemented or
+claimed. The experimental backend is not release accepted.
 
 
 The retained OpenGL Render API also rendered a synthetic H.264 file with the new

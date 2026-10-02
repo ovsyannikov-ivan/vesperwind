@@ -21,6 +21,12 @@ is the default. Strict `macvk` returns presentation errors without falling back;
 source/decoder failures do not trigger renderer retry. Actual `current-vo` and
 `current-gpu-context` must match before video startup succeeds.
 
+See the [2026-10-02 Tauri application acceptance record](macos-video-backend-acceptance.md)
+for measured VO/context/hwdec/audio/display state, controlled application fallback
+and the remaining paused fullscreen composition defect. The backend remains
+experimental; model geometry and completed fullscreen round trips are not visual
+acceptance.
+
 See [the dated research and alternatives](macos-video-backend-research.md) for
 embedding, VideoToolbox texture import, HDR limitations, Dolby Vision and public
 AVFoundation findings. No AVFoundation player or custom video renderer was added.
@@ -62,6 +68,17 @@ Transition steps have bounded waits, and the overlay has its own watchdog to
 remove an abandoned cover and restore controls. On Windows, HWND layout never
 waits for the render mutex: the graphics driver may synchronously message the
 window during buffer presentation. The WGL context remains on the render thread.
+
+The macOS native cover follows the AppKit root view above both native siblings.
+Metal host geometry uses a non-animated CA transaction. Covered WKWebView rAF
+callbacks can be suspended, so startup/presentation deadlines run independently
+of them. Do not synchronously call AppKit display or CATransaction::flush from a
+Tauri main-thread task: reentrant Tao drawing can deadlock its dispatch mutex.
+
+Debug macOS application fallback can be exercised with
+`VESPERWIND_MPV_TEST_MACVK_STARTUP_FAILURE=1`: an unusable MacVk host extent causes
+actual VO startup failure, while OpenGL retains valid geometry. It neither alters
+source/codec nor participates in release builds (`cfg(debug_assertions)`).
 
 The backend currently reports duration, position, pause/play state, volume, mute,
 audio/subtitle track metadata, selected tracks, and subtitle delay. Embedded ASS
@@ -119,10 +136,10 @@ instead of setting gpu-next-only options.
 
 ### HDR format matrix
 
-| Format | macOS EDR status | Windows status |
+| Format | macOS status | Windows status |
 | --- | --- | --- |
-| HDR10 / HEVC Main10, BT.2020 PQ | Implemented in the FP16 EDR path; manual XDR playback validation still required | D3D11 PQ/BT.2020 output policy implemented; actual RGB10A2/PQ target checked through mpv. HDR display/HDMI validation: **not verified** |
-| HLG | Implemented through the same linear EDR target; manual XDR playback validation still required | Source detection works; native HLG output planned after HDR10 validation |
+| HDR10 / HEVC Main10, BT.2020 PQ | Experimental Metal PQ/BT.2020 target with OpenGL FP16 EDR fallback; actual application HDR-display validation pending | D3D11 PQ/BT.2020 output policy implemented; actual RGB10A2/PQ target checked through mpv. HDR display/HDMI validation: **not verified** |
+| HLG | Metal maps HLG to PQ; OpenGL retains its linear EDR path. Actual application HDR-display validation pending | SDR tone mapping; native HLG output planned after HDR10 validation |
 | Dolby Vision profile 5 | Profile metadata is detected, but the bundled libplacebo build has `dovi`/`libdovi` disabled; correct RPU reshaping is not claimed | Not supported |
 | Dolby Vision profile 7 | Profile metadata is detected; an HDR10 base layer may be usable, but RPU, MEL, FEL, and enhancement-layer reconstruction are not claimed | Not supported |
 | Dolby Vision profile 8 | Profile metadata is detected; a compatible base layer may be usable, but RPU processing is not claimed | PQ/BT.2020 compatible base layer can use HDR10 policy; no Dolby Vision RPU processing or Dolby Vision signalling |
@@ -132,6 +149,22 @@ HLG-compatible base layer. Successful playback of such a file can therefore
 come from the compatible base layer rather than Dolby Vision processing. The
 profile number alone does not establish base-layer compatibility; see Dolby's
 [profile compatibility reference](https://ott.dolby.com/browser_test_kit/help_files/topics/r_resources.html).
+
+The default bundles disable `dovi` and `libdovi`. Compatible base-layer playback,
+RPU detection, reshaping and native system Dolby Vision output are distinct
+capabilities; successful HEVC playback proves neither Dolby Vision nor HDR output.
+A separate controlled `VESPERWIND_LIBMPV_DOVI=enabled` build is for research only.
+No native/system Dolby Vision output is claimed; `systemDolbyVisionOutput` remains
+false. See the [macOS application acceptance record](macos-video-backend-acceptance.md)
+for actual SDR/PQ/HLG source, VO, target and layer observations on the available
+SDR display. HDR-capable physical displays still require their own acceptance.
+
+The Windows path requires HDR to be active on the player's monitor. Info separates
+source, decode, processing, presentation and output summaries; the full diagnostic
+snapshot retains the underlying metadata. Requested settings are insufficient:
+actual `video-target-params` must confirm PQ, BT.2020 and `rgb10a2`. DXGI color-space
+mapping is labelled Expected; HDR metadata delivery and physical HDMI output need
+external verification. There is no Windows FP16 scRGB path in this stage.
 
 ### Windows HDR10 PQ / BT.2020 output
 

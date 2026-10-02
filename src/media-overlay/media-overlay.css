@@ -168,6 +168,10 @@ body,
   transition: opacity 180ms ease;
 }
 
+.media-overlay.is-fullscreen .media-overlay-controls {
+  inset: auto 0 0;
+}
+
 .media-overlay-controls.is-hidden,
 .media-overlay-fullscreen-close.is-hidden,
 .media-overlay-navigation.is-hidden {

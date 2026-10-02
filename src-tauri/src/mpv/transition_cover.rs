@@ -45,6 +45,7 @@ mod platform {
 
     // One cover per process: the media viewer exists only in the main window.
     static COVER: AtomicUsize = AtomicUsize::new(0);
+    static COVER_GENERATION: AtomicUsize = AtomicUsize::new(0);
 
     pub(crate) fn cover_view() -> Option<usize> {
         Some(COVER.load(Ordering::Acquire)).filter(|view| *view != 0)
@@ -72,12 +73,17 @@ mod platform {
     }
 
     pub fn set_cover(window: &Window, covered: bool, duration: Duration) -> Result<bool, String> {
-        let root = window.ns_view().map_err(|error| error.to_string())? as usize;
+        let host_window = window.clone();
+        let generation = COVER_GENERATION.fetch_add(1, Ordering::AcqRel) + 1;
         let seconds = duration.as_secs_f64();
         wait_for_main(window, move || {
+            if COVER_GENERATION.load(Ordering::Acquire) != generation {
+                return Ok::<_, String>(());
+            }
             let Some(mtm) = MainThreadMarker::new() else {
-                return;
+                return Err("Transition cover requires the main thread".into());
             };
+            let root = host_window.ns_view().map_err(|error| error.to_string())?;
             let root = unsafe { &*(root as *const NSView) };
             let cover = ensure_cover(root, mtm);
             if covered {
@@ -90,6 +96,15 @@ mod platform {
                     root.addSubview_positioned_relativeTo(cover, NSWindowOrderingMode::Above, None);
                 }
                 cover.setHidden(false);
+            } else {
+                // AppKit may retain the pre-fullscreen composite while paused.
+                // Request a repaint of the resized subtree; IPC/frame
+                // acknowledgements alone do not invalidate that composite.
+                root.setNeedsDisplay(true);
+                // Never call display()/CATransaction::flush() from a Tauri
+                // main-thread task: drawRect re-enters Tao's event handler
+                // while its dispatch mutex is held. Let AppKit paint in the
+                // next run-loop iteration.
             }
             NSAnimationContext::beginGrouping();
             NSAnimationContext::currentContext().setDuration(seconds);
@@ -97,16 +112,29 @@ mod platform {
                 .animator()
                 .setAlphaValue(if covered { 1.0 } else { 0.0 });
             NSAnimationContext::endGrouping();
-        })?;
+            if std::env::var_os("VESPERWIND_MPV_LOG").is_some() {
+                eprintln!(
+                    "[transition-cover] generation={generation} covered={covered} root={:?}",
+                    root.bounds()
+                );
+            }
+            Ok(())
+        })??;
         // Return after the animation, so callers act on a fully opaque cover.
         thread::sleep(duration + Duration::from_millis(20));
         if !covered {
-            wait_for_main(window, || {
+            wait_for_main(window, move || {
+                if COVER_GENERATION.load(Ordering::Acquire) != generation {
+                    return;
+                }
                 if let Some(view) = cover_view() {
                     let cover = unsafe { &*(view as *const NSView) };
-                    // A hidden view no longer intercepts pointer events.
-                    if cover.alphaValue() == 0.0 {
-                        cover.setHidden(true);
+                    // AppKit's animator may finish late during a Space resize.
+                    // Commit the final state, unless a newer cover superseded us.
+                    cover.setAlphaValue(0.0);
+                    cover.setHidden(true);
+                    if std::env::var_os("VESPERWIND_MPV_LOG").is_some() {
+                        eprintln!("[transition-cover] generation={generation} hidden");
                     }
                 }
             })?;
@@ -132,8 +160,8 @@ mod platform {
         System::LibraryLoader::GetModuleHandleW,
         UI::WindowsAndMessaging::{
             CreateWindowExW, DefWindowProcW, RegisterClassW, SetLayeredWindowAttributes,
-            SetWindowPos, ShowWindow, HWND_TOP, LWA_ALPHA, SWP_NOACTIVATE, SWP_SHOWWINDOW,
-            SW_HIDE, WNDCLASSW, WS_CHILD, WS_CLIPSIBLINGS, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+            SetWindowPos, ShowWindow, HWND_TOP, LWA_ALPHA, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE,
+            WNDCLASSW, WS_CHILD, WS_CLIPSIBLINGS, WS_EX_LAYERED, WS_EX_NOACTIVATE,
         },
     };
 
@@ -141,9 +169,22 @@ mod platform {
     static COVER: AtomicUsize = AtomicUsize::new(0);
     const FRAME: Duration = Duration::from_millis(16);
     const CLASS_NAME: &[u16] = &[
-        b'V' as u16, b'e' as u16, b's' as u16, b'p' as u16, b'e' as u16, b'r' as u16,
-        b'w' as u16, b'i' as u16, b'n' as u16, b'd' as u16, b'C' as u16, b'o' as u16,
-        b'v' as u16, b'e' as u16, b'r' as u16, 0,
+        b'V' as u16,
+        b'e' as u16,
+        b's' as u16,
+        b'p' as u16,
+        b'e' as u16,
+        b'r' as u16,
+        b'w' as u16,
+        b'i' as u16,
+        b'n' as u16,
+        b'd' as u16,
+        b'C' as u16,
+        b'o' as u16,
+        b'v' as u16,
+        b'e' as u16,
+        b'r' as u16,
+        0,
     ];
 
     pub(crate) fn cover_window() -> Option<HWND> {

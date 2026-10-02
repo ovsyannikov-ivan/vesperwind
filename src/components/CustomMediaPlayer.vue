@@ -15,6 +15,7 @@ import { useThumbnailPreview } from '../composables/useThumbnailPreview.js'
 import { createSeekController, canHandleSeekKey } from '../player/seekController.js'
 import { mediaOverlay } from '../api/mediaOverlay.js'
 import { createLayoutQueue } from '../player/layoutQueue.js'
+import { waitForNativeGeometry } from '../player/nativeGeometry.js'
 import {
   NativeMpvPlayerBackend,
   PlayerStatus,
@@ -200,12 +201,17 @@ const createPlayer = async () => {
   backendMode.value = mode
   emit('backend', mode)
   await nextTick()
+  if (currentGeneration !== generation) return
   if (mode === 'mpv') {
+    const bounds = await waitForNativeGeometry({ measure: geometry,
+      cancelled: () => currentGeneration !== generation })
+    if (!bounds || currentGeneration !== generation) return
     player = new NativeMpvPlayerBackend({ autoplay: props.autoplay })
     console.info(`[player=${player.sessionId}] viewer mounted`)
     console.info(`[player=${player.sessionId}] backend selected: ${mode}`)
     unsubscribeState = player.subscribe(applyState)
-    await player.setSource(sourceLocation(), geometry())
+    await player.setSource(sourceLocation(), bounds)
+    if (currentGeneration !== generation) return
     nativeReady = true
     attachNativeGeometry()
     await player.setOverlay(true, overlayGeometry(), overlayContext())
@@ -260,10 +266,6 @@ const uncoverNative = async () => {
   nativeCover = false
   await setNativeTransitionCover(false, 180).catch((error) => console.warn('Native transition cover failed', error))
 }
-const nextFrames = (count) => new Promise((resolve) => {
-  const step = (left) => left ? requestAnimationFrame(() => step(left - 1)) : resolve()
-  step(count)
-})
 const revealUnderNativeCover = async (current) => {
   try {
     if (nativeReady && player) {
@@ -275,7 +277,10 @@ const revealUnderNativeCover = async (current) => {
       if (current !== nativeTransitionGeneration) return
       await player.setGeometry(geometry())
       await player.setVisible(true)
-      await nextFrames(2)
+      // WKWebView can suspend rAF while the native cover occludes it. Native
+      // geometry/visibility acknowledgements have already reached AppKit;
+      // allow compositor time without waiting on the covered main WebView.
+      await new Promise((resolve) => setTimeout(resolve, 50))
     }
   } finally {
     if (current === nativeTransitionGeneration) {
@@ -336,9 +341,13 @@ watch(
     thumbnail.hide()
     if (!player) return
     nativeReady = false
+    const activePlayer = player
+    const currentGeneration = ++generation
     const request = isNative.value
-      ? player.setSource(sourceLocation(), geometry()).then(async () => {
+      ? activePlayer.setSource(sourceLocation(), geometry()).then(async () => {
+          if (currentGeneration !== generation || activePlayer !== player) return
           nativeReady = true
+          attachNativeGeometry()
           await player.setOverlay(true, overlayGeometry(), overlayContext())
         })
       : player.setSource(props.src)

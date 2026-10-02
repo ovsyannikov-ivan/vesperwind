@@ -3,7 +3,7 @@ use super::{DisplayCapabilities, PlayerGeometry};
 use objc2::{rc::Retained, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{NSView, NSWindowOrderingMode};
 use objc2_foundation::{NSPoint, NSRect, NSSize};
-use objc2_quartz_core::{CACornerMask, CAMetalLayer};
+use objc2_quartz_core::{CACornerMask, CAMetalLayer, CATransaction};
 use std::sync::{
     atomic::{AtomicBool, AtomicI32, Ordering},
     mpsc, Arc, Mutex, MutexGuard,
@@ -20,28 +20,30 @@ struct Inner {
     width: AtomicI32,
     height: AtomicI32,
     visible: AtomicBool,
+    retired: AtomicBool,
     changed: AtomicBool,
     display: Mutex<DisplayCapabilities>,
     // Used only by the common surface interface; no GPU operation takes it.
     unused_gl_lock: Mutex<()>,
 }
-// AppKit objects are accessed only by main-thread closures. The mpv-owned VO
-// retains the layer independently and accesses it through its Metal WSI path.
-unsafe impl Send for Inner {}
-unsafe impl Sync for Inner {}
+// All addresses are owned retains, dereferenced only on the main thread.
+// Closures retain Inner with Arc; mpv is destroyed before the host is released.
+// usize addresses already implement Send/Sync; no unsafe trait impl is needed.
 
 #[derive(Clone)]
 pub struct MetalSurface(Arc<Inner>);
 impl MetalSurface {
     pub fn create(window: &Window) -> Result<Self, String> {
-        let root = window.ns_view().map_err(|e| e.to_string())? as usize;
         let (tx, rx) = mpsc::sync_channel(1);
+        let host_window = window.clone();
         window
             .run_on_main_thread(move || {
-                let result = (|| -> Result<(usize, usize, usize), String> {
+                let result = (|| -> Result<Self, String> {
                     let mtm =
                         MainThreadMarker::new().ok_or("Metal host requires the main thread")?;
-                    let root_view = unsafe { &*(root as *const NSView) };
+                    let root = host_window.ns_view().map_err(|e| e.to_string())?;
+                    let root_view = unsafe { Retained::retain(root as *mut NSView) }
+                        .ok_or("Metal host root view is unavailable")?;
                     root_view.setWantsLayer(true);
                     let frame = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(2.0, 2.0));
                     let container = NSView::initWithFrame(NSView::alloc(mtm), frame);
@@ -70,35 +72,33 @@ impl MetalSurface {
                         NSWindowOrderingMode::Above,
                         None,
                     );
-                    Ok((
-                        Retained::into_raw(container) as usize,
-                        Retained::into_raw(view) as usize,
-                        Retained::into_raw(layer) as usize,
-                    ))
+                    Ok(Self(Arc::new(Inner {
+                        window: host_window,
+                        root: Retained::into_raw(root_view) as usize,
+                        container: Retained::into_raw(container) as usize,
+                        view: Retained::into_raw(view) as usize,
+                        layer: Retained::into_raw(layer) as usize,
+                        width: AtomicI32::new(2),
+                        height: AtomicI32::new(2),
+                        visible: AtomicBool::new(false),
+                        retired: AtomicBool::new(false),
+                        changed: AtomicBool::new(true),
+                        display: Mutex::new(DisplayCapabilities {
+                            platform: "macos".into(),
+                            surface_format: "mpv-owned Metal (not configured)".into(),
+                            ..Default::default()
+                        }),
+                        unused_gl_lock: Mutex::new(()),
+                    })))
                 })();
+                // If create timed out, SendError drops the fully owned surface
+                // here on the main thread, removing its views and all retains.
                 let _ = tx.send(result);
             })
             .map_err(|e| e.to_string())?;
-        let (container, view, layer) = rx
+        let surface = rx
             .recv_timeout(Duration::from_secs(5))
             .map_err(|e| e.to_string())??;
-        let surface = Self(Arc::new(Inner {
-            window: window.clone(),
-            root,
-            container,
-            view,
-            layer,
-            width: AtomicI32::new(2),
-            height: AtomicI32::new(2),
-            visible: AtomicBool::new(false),
-            changed: AtomicBool::new(true),
-            display: Mutex::new(DisplayCapabilities {
-                platform: "macos".into(),
-                surface_format: "mpv-owned Metal (not configured)".into(),
-                ..Default::default()
-            }),
-            unused_gl_lock: Mutex::new(()),
-        }));
         surface.refresh_display_capabilities();
         Ok(surface)
     }
@@ -110,10 +110,16 @@ impl MetalSurface {
         self.0
             .window
             .run_on_main_thread(move || {
+                if inner.retired.load(Ordering::Acquire) { return; }
                 let root = unsafe { &*(inner.root as *const NSView) };
                 let container = unsafe { &*(inner.container as *const NSView) };
                 let view = unsafe { &*(inner.view as *const NSView) };
                 let layer = unsafe { &*(inner.layer as *const CAMetalLayer) };
+                // Publish host geometry as one non-animated CA transaction.
+                // A paused VO cannot rely on the next drawable submission to
+                // commit changes made to the shared layer on the main thread.
+                CATransaction::begin();
+                CATransaction::setDisableActions(true);
                 let root_height = root.bounds().size.height;
                 let offset = geometry
                     .viewport_height
@@ -144,14 +150,20 @@ impl MetalSurface {
                     clip.setCornerRadius(geometry.border_radius.max(0.0));
                     clip.setMasksToBounds(geometry.border_radius > 0.0);
                 }
+                CATransaction::commit();
                 inner.width.store(width, Ordering::Release);
                 inner.height.store(height, Ordering::Release);
                 inner.changed.store(true, Ordering::Release);
+                if std::env::var_os("VESPERWIND_MPV_LOG").is_some() {
+                    eprintln!("[metal-host] geometry logical={}x{} scale={scale} drawable={width}x{height} radius={} origin={},{} root={:?} rootFrame={:?} container={:?} containerBounds={:?} clip={:?} layer={:?}", size.width, size.height, geometry.border_radius, geometry.x, geometry.y, root.bounds(), root.frame(), container.frame(), container.bounds(), container.layer().map(|l| l.frame()), layer.frame());
+                    eprintln!("[metal-host] rootLayer={:?} rootLayerBounds={:?} viewBounds={:?} layerBounds={:?}", root.layer().map(|l| l.frame()), root.layer().map(|l| l.bounds()), view.bounds(), layer.bounds());
+                }
                 refresh(&inner);
             })
             .map_err(|e| e.to_string())
     }
     pub fn set_visible(&self, visible: bool) -> Result<(), String> {
+        let visible = visible && !self.0.retired.load(Ordering::Acquire);
         self.0.visible.store(visible, Ordering::Release);
         let inner = Arc::clone(&self.0);
         let (tx, rx) = mpsc::sync_channel(1);
@@ -159,7 +171,19 @@ impl MetalSurface {
             .window
             .run_on_main_thread(move || {
                 let view = unsafe { &*(inner.container as *const NSView) };
-                view.setHidden(!visible);
+                view.setHidden(!visible || inner.retired.load(Ordering::Acquire));
+                if visible && std::env::var_os("VESPERWIND_MPV_LOG").is_some() {
+                    let root = unsafe { &*(inner.root as *const NSView) };
+                    eprintln!(
+                        "[metal-host] show rootPresentation={:?} containerPresentation={:?}",
+                        root.layer()
+                            .and_then(|l| unsafe { l.presentationLayer() })
+                            .map(|l| l.frame()),
+                        view.layer()
+                            .and_then(|l| unsafe { l.presentationLayer() })
+                            .map(|l| l.frame())
+                    );
+                }
                 inner.changed.store(true, Ordering::Release);
                 let _ = tx.send(());
             })
@@ -169,6 +193,11 @@ impl MetalSurface {
     }
     pub fn set_transition_visible(&self, visible: bool) -> Result<(), String> {
         self.set_visible(visible)
+    }
+    pub fn retire(&self) {
+        // Invalidates already-cloned command access as well as queued geometry.
+        self.0.retired.store(true, Ordering::Release);
+        self.0.visible.store(false, Ordering::Release);
     }
     pub fn is_visible(&self) -> bool {
         self.0.visible.load(Ordering::Acquire)
@@ -252,13 +281,17 @@ impl Drop for Inner {
     fn drop(&mut self) {
         // PlayerRuntime destroys mpv and joins its VO before the final host Arc
         // drops. Pending main-thread closures keep their own Arc alive.
-        let (container, view, layer) = (self.container, self.view, self.layer);
+        let (root, container, view, layer) = (self.root, self.container, self.view, self.layer);
         let _ = self.window.run_on_main_thread(move || unsafe {
             (&*(container as *const NSView)).removeFromSuperview();
             (&*(view as *const NSView)).removeFromSuperview();
             drop(Retained::from_raw(view as *mut NSView));
             drop(Retained::from_raw(container as *mut NSView));
             drop(Retained::from_raw(layer as *mut CAMetalLayer));
+            drop(Retained::from_raw(root as *mut NSView));
+            if std::env::var_os("VESPERWIND_MPV_LOG").is_some() {
+                eprintln!("[metal-host] removed views and released layer");
+            }
         });
     }
 }
