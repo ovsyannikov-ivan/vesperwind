@@ -34,7 +34,8 @@ pub struct AppState {
     terminal: Arc<TerminalManager>,
     ssh: Arc<SshManager>,
     player: Arc<mpv::MpvPlayerManager>,
-    thumbnails: media::thumbnail::ThumbnailManager,
+    thumbnails: Arc<media::thumbnail::ThumbnailManager>,
+    web_history: Arc<media::history::WebHistory>,
     directory_watches: filesystem::watch::DirectoryWatches,
     search_jobs: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
 }
@@ -64,7 +65,12 @@ pub fn run() {
     let content = ContentManager::new();
     let media_http = media::http::MediaHttpServer::start(Arc::clone(&filesystem), Arc::clone(&ssh))
         .expect("Unable to start the local media server");
-    let player = mpv::MpvPlayerManager::new(Arc::clone(&ssh));
+    let thumbnails = Arc::new(media::thumbnail::ThumbnailManager::default());
+    let shutdown_thumbnails = Arc::clone(&thumbnails);
+    let player = mpv::MpvPlayerManager::new(Arc::clone(&ssh), Arc::clone(&thumbnails));
+    let shutdown_history = Arc::clone(&player.history);
+    let web_history = Arc::new(media::history::WebHistory::new(Arc::clone(&player.history)));
+    let shutdown_web_history = Arc::clone(&web_history);
     let shutdown_terminal = Arc::clone(&terminal);
     let shutdown_player = Arc::clone(&player);
     let media_filesystem = Arc::clone(&filesystem);
@@ -131,11 +137,13 @@ pub fn run() {
             terminal,
             ssh: Arc::clone(&ssh),
             player,
-            thumbnails: media::thumbnail::ThumbnailManager::default(),
+            thumbnails,
+            web_history,
             directory_watches: filesystem::watch::DirectoryWatches::default(),
             search_jobs: Arc::new(Mutex::new(HashMap::new())),
         })
         .setup(move |app| {
+            app.state::<AppState>().player.history.configure(app.path().app_data_dir()?.join("media-history.sqlite3"));
             let window = app
                 .get_window("main")
                 .expect("main window must exist before creating media overlay");
@@ -195,6 +203,7 @@ pub fn run() {
             commands::runtime::runtime_info,
             commands::media::media_source,
             commands::media::video_thumbnail,
+            commands::media::media_history,
             commands::player::player_capabilities,
             commands::player::player_open,
             commands::player::player_play,
@@ -232,6 +241,9 @@ pub fn run() {
         ) {
             shutdown_terminal.shutdown();
             shutdown_player.close_all();
+            shutdown_thumbnails.shutdown();
+            shutdown_web_history.close_all();
+            shutdown_history.flush();
             ssh.shutdown();
         }
     });

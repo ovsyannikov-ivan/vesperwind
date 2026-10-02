@@ -18,6 +18,7 @@ base64 = "0.22"
 dirs = "6"
 filetime = "0.2"
 notify = "8"
+rusqlite = { version = "0.40", features = ["bundled"] }
 path-clean = "1"
 portable-pty = "0.9"
 serde = { version = "1", features = ["derive"] }
@@ -26,6 +27,9 @@ ssh2 = { version = "0.9", features = ["vendored-openssl"] }
 tauri = { version = "2", features = ["unstable", "macos-private-api"] }
 url = "2"
 uuid = { version = "1", features = ["v4"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"

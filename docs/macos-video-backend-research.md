@@ -1,4 +1,4 @@
-# macOS owned video output research
+# macOS video backend references
 
 Research date: 2026-10-02. Library baseline: mpv 0.41.0
 (`2c219aa822df18a1b7fd9abe3e151cd93ad67307`), FFmpeg 8.0,
@@ -13,12 +13,12 @@ thread, custom provider stream, mpv handle, lifecycle and common player snapshot
 Render API callbacks, its rendering thread, context and frame/swap counters.
 `stream.rs` keeps the opaque `vesperwind://` local/SFTP source contract.
 
-macOS: `surface_macos.rs` owns an AppKit NSOpenGLView/context; `vo=libmpv`
-feeds the public OpenGL Render API (`vo_gpu`, not gpu-next). The optional FP16
-surface uses a linear Display-P3 target, EDR and current NSScreen headroom.
-Decoder policy is auto-copy-safe. A transparent controls WKWebView remains above
-video, above the main Wry WebView. Native fullscreen and transition covers are
-application owned. Shutdown joins rendering before destroying context/surface.
+macOS: `surface_metal_macos.rs` owns an NSView/CAMetalLayer passed through `wid`
+to the downstream `macvk-embedded` context. The default `auto` backend attempts
+`gpu-next`/Vulkan/MoltenVK/Metal and falls back to the OpenGL Render API on
+startup/VO failure. `surface_opengl_macos.rs` retains the NSOpenGLView/context
+fallback. A transparent controls WKWebView remains above video and the main Wry
+WebView. Native fullscreen and transition covers remain application owned.
 
 Windows: a child HWND is passed through wid; gpu-next/D3D11 owns its GPU device
 and DXGI swapchain. auto-safe permits direct D3D11VA. Startup/VO failure retries
@@ -260,94 +260,12 @@ No private APIs, FairPlay bypass or Apple TV internals were investigated.
 | AVSampleBufferDisplayLayer | Apple layer + custom packet/frame pipeline | substantial integration needed | documented native 8.4 with preserved Apple metadata | timebase, subtitles, flush/backpressure, metadata handoff |
 | AVPlayerLayer | AVPlayer | new adapters/native format limits | public automatic HDR/DV for eligible assets | MKV/SFTP/codec/subtitle mismatch |
 
-## 14. Recommendation and implementation boundary
+## 14. SDR negotiation
 
-Implement the CAMetalLayer-pointer downstream context as an experimental owned
-backend, default auto attempt with explicit macvk/opengl strict overrides, and
-startup/VO-only fallback to the existing Render API. Preserve all common stream,
-player command, Vue controls, z-order and fullscreen code. Keep requested options,
-mpv actual VO/target and observed layer state separate in diagnostics. Do not
-invent presented-frame counters for owned VO.
+The embedded Metal policy uses BT.709 + sRGB for SDR and PQ + BT.2020 for HDR.
+Pinned libplacebo's WSI selection can favor transfer over primaries: requesting
+BT.709 + gamma2.2 can select an Adobe RGB nonlinear swapchain. Diagnostics must
+report the actually negotiated target rather than infer it from requested hints.
 
-Affected areas: `src-tauri/src/mpv/{mod,presentation,player,surface*}.rs`, optional
-native dependency features, `scripts/build-libmpv-macos.sh`, a pinned mpv patch,
-GPU dependency build recipe, bundle verifier/manifest, and Info's shared formatter.
-No alternative AVFoundation player is introduced. First stage keeps dovi disabled,
-but records an optional built-in dovi build without adding libdovi.
-
-Acceptance must record actual vo=gpu-next, Vulkan context and Metal surface, then
-resize (including paused), play/pause/seek, fullscreen/controls, source switching,
-shutdown and strict OpenGL fallback. Separate format matrix: H.264, HEVC 8-bit,
-HEVC Main10 SDR, HDR10, HLG, DV 8.1, 8.4, 5; MEL/FEL are distinct future checks.
-Compilation and synthetic policy tests do not prove visible video or HDR fidelity.
-
-
-### Observed Vulkan SDR negotiation
-
-The native probe confirmed a pinned libplacebo WSI selection detail: requesting
-BT.709 + gamma2.2 selects an Adobe RGB nonlinear swapchain because matching the
-transfer scores higher than matching primaries. With strict target hints mpv
-correctly reports Adobe primaries, rather than pretending BT.709 was negotiated.
-The embedded Metal policy therefore uses BT.709 + sRGB for SDR. The OpenGL and
-Windows policies are unchanged. HDR requests still use PQ + BT.2020.
-
-
-### Implementation and observed checks (2026-10-02)
-
-Implemented the experimental host/context, auto/macvk/opengl runtime override,
-startup fallback, native diagnostics, pinned source recipe and dylib verifier.
-OpenGL surface implementation was moved intact to surface_opengl_macos.rs.
-No Vue renderer selection or player command API changes are required.
-
-The final source recipe built mpv/FFmpeg/libplacebo/MoltenVK/glslang and passed
-closure, checksum, architecture, macOS 12 deployment and development signature
-verification. The VO context was then rebuilt with a source-reconfiguration fix:
-resize polling compares drawableSize with actual VO dimensions, because mpv
-resets dwidth/dheight to source dimensions when a new decoder configures. Testing
-only changes to a cached host size would miss this paused source-switch case.
-
-Native public-client probe on Apple M4 passed all five generated, non-DRM clips:
-H.264, HEVC 8-bit, HEVC Main10 SDR, HEVC Main10 PQ/BT.2020 and HEVC Main10
-HLG/BT.2020. All reported hwdec-current=videotoolbox; Main10 reported p010 native
-decoder surfaces. Each clip passed paused resize and play/pause/seek; all clips
-were switched through the same player for three create/destroy cycles.
-The probe waits for FILE_LOADED + VIDEO_RECONFIG, rather than mistaking the
-previous source's vo-configured state for the new source's readiness.
-
-Actual SDR negotiation is rgb10a2 / BT.709 / gamma2.2 on the sRGB Vulkan surface
-(pinned libplacebo intentionally maps SRGB_NONLINEAR to its monitor gamma2.2).
-PQ hints negotiated RGB10A2Unorm (Metal 90), kCGColorSpaceITUR_2100_PQ,
-wantsExtendedDynamicRangeContent=true and EDRMetadata present. These are
-observations of GPU/layer state, not colorimetric or Dolby Vision acceptance.
-MoltenVK reports a primitive-restart capability warning during pipeline creation;
-the smoke operations complete. Shader startup can exceed 300ms; the probe uses
-bounded waits instead of assuming a warm shader cache.
-
-Rust mpv checks and frontend regression tests passed. The existing Info panel was
-visually inspected in headless Chrome with Metal, OpenGL fallback and unknown
-state fixtures. Those fixtures validate layout, not real runtime GPU evidence.
-
-Subsequent real Tauri checks are recorded separately in the
-[application acceptance report](macos-video-backend-acceptance.md). Windowed
-composition, controls, backend/decoder state and controlled application VO
-fallback have now been observed. Paused fullscreen reproduced solid-color/stale
-composition and white edge strips; fullscreen visual acceptance remains open.
-Listening/audio quality, SFTP application playback, physical HDR10/HLG color
-accuracy, moving between SDR/HDR displays, hotplug, sleep/wake and
-brightness/headroom changes remain pending. Dolby Vision 8.1/8.4/5 and MEL/FEL
-media were not tested. No native system Dolby Vision output is implemented or
-claimed. The experimental backend is not release accepted.
-
-
-The retained OpenGL Render API also rendered a synthetic H.264 file with the new
-bundle for three context/handle lifetimes: current-vo=libmpv,
-hwdec-current=videotoolbox-copy, three rendered/swapped frames per cycle. This
-checks library/render compatibility; application auto-fallback and the FP16 EDR
-physical output remain separate acceptance checks.
-
-
-The final probe also observed actual SDR layer colorspace kCGColorSpaceSRGB with
-EDR disabled and current/potential headroom both 1.0 on the available screen.
-Consequently, the PQ layer hint experiment does not prove usable display HDR
-headroom. Active playback shutdown with the host hidden completed in all three
-lifetimes. Application fullscreen/overlay behavior still requires its own check.
+See [the native integration documentation](libmpv.md) for current backend selection,
+configuration, diagnostics and display-validation limits.

@@ -21,13 +21,11 @@ is the default. Strict `macvk` returns presentation errors without falling back;
 source/decoder failures do not trigger renderer retry. Actual `current-vo` and
 `current-gpu-context` must match before video startup succeeds.
 
-See the [2026-10-02 Tauri application acceptance record](macos-video-backend-acceptance.md)
-for measured VO/context/hwdec/audio/display state, controlled application fallback
-and the remaining paused fullscreen composition defect. The backend remains
-experimental; model geometry and completed fullscreen round trips are not visual
-acceptance.
+The Metal backend remains experimental. Paused fullscreen composition, physical
+HDR color accuracy, display changes and concurrent close/seek/source switching
+require validation in the actual application and on the target display.
 
-See [the dated research and alternatives](macos-video-backend-research.md) for
+See [the upstream references and alternatives](macos-video-backend-research.md) for
 embedding, VideoToolbox texture import, HDR limitations, Dolby Vision and public
 AVFoundation findings. No AVFoundation player or custom video renderer was added.
 
@@ -155,9 +153,8 @@ RPU detection, reshaping and native system Dolby Vision output are distinct
 capabilities; successful HEVC playback proves neither Dolby Vision nor HDR output.
 A separate controlled `VESPERWIND_LIBMPV_DOVI=enabled` build is for research only.
 No native/system Dolby Vision output is claimed; `systemDolbyVisionOutput` remains
-false. See the [macOS application acceptance record](macos-video-backend-acceptance.md)
-for actual SDR/PQ/HLG source, VO, target and layer observations on the available
-SDR display. HDR-capable physical displays still require their own acceptance.
+false. HDR-capable physical displays require validation of actual VO, target,
+layer colorspace, EDR headroom and visible output.
 
 The Windows path requires HDR to be active on the player's monitor. Info separates
 source, decode, processing, presentation and output summaries; the full diagnostic
@@ -463,3 +460,26 @@ It checks actual VO/context, paused resize, play/pause/seek, source switching an
 three complete lifetimes; its HDR hint inspection is not a physical HDR test.
 It does not validate Tauri z-order, controls or native fullscreen. Run those in
 the real application with both strict overrides and automatic fallback.
+
+
+## Track presentation, media OSD and resume
+
+Track labels share `src/utils/mediaInfo.js` across Info, menus and OSD. Language
+always accompanies a meaningful title; duplicate language/title is removed without
+modifying file metadata. Existing language aliases are retained, with offline
+Intl DisplayNames and raw-code fallback. mpv codec-profile is used to distinguish
+confirmed DTS-HD MA/HRA from generic DTS; profiles may only become available after
+a track has decoded. Channel layout is independent of codec: mono/1 -> 1.0 mono,
+stereo/2 -> 2.0, common six/eight-channel counts -> 5.1/7.1 only when a useful explicit
+layout is absent. Exotic explicit layouts remain unchanged.
+
+`MediaOsd.vue` renders the same small top-left, pointer-transparent plate in normal
+and fullscreen overlay WebViews. Explicit Play/Pause and actual selected-track
+confirmation produce messages; initial autoplay does not. A shared 1.8-second
+replacement timer rejects stale events, has no message queue and honors reduced
+motion. Confirmed restore displays Play with actual restored position, without a
+second autoplay notification. OSD is independent of controls auto-hide and does
+not enable mpv's built-in OSD or alter native renderers.
+
+See [video thumbnail previews](video-thumbnails.md) and
+[SQLite position history](media-history.md).

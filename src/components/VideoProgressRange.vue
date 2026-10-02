@@ -2,6 +2,7 @@
 import { ref, watch } from 'vue'
 import ThumbnailPreview from './ThumbnailPreview.vue'
 import { useThumbnailPreview } from '../composables/useThumbnailPreview.js'
+import { createProgressDrag } from '../player/progressRange.js'
 import { clampTime } from '../player/seekController.js'
 const props = defineProps({
   currentTime: { type: Number, default: 0 }, duration: { type: Number, default: 0 },
@@ -11,28 +12,23 @@ const props = defineProps({
 const emit = defineEmits(['seek', 'drag'])
 const dragTime = ref(null)
 const thumbnail = useThumbnailPreview(() => ({ path: props.path, providerId: props.providerId, sourceHdr: props.sourceHdr }))
-const showPreview = (event) => {
-  const rect = event.currentTarget.getBoundingClientRect()
-  // Match the native range thumb's effective track, rather than its outer box.
-  const inset = 8
-  const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left - inset) / Math.max(1, rect.width - inset * 2)))
-  thumbnail.show(ratio * props.duration, ratio)
-}
-const start = (event) => {
-  event.currentTarget.setPointerCapture(event.pointerId)
-  dragTime.value = props.currentTime
-  emit('drag')
-  showPreview(event)
-}
+const drag = createProgressDrag({
+  getDuration: () => props.duration,
+  preview: thumbnail.show,
+  onDrag: () => emit('drag'),
+  onCommit: (time) => emit('seek', time),
+  onChange: (time) => { dragTime.value = time },
+})
 const input = (event) => {
   dragTime.value = clampTime(event.target.value, props.duration)
   thumbnail.show(dragTime.value, props.duration ? dragTime.value / props.duration : 0)
 }
 const commit = (event) => {
+  if (drag.active()) return
   emit('seek', clampTime(event.target.value, props.duration))
   dragTime.value = null
 }
-const cancel = () => { dragTime.value = null; thumbnail.hide() }
+const cancel = () => { drag.cancel(); thumbnail.hide() }
 watch(() => [props.path, props.providerId, props.sourceHdr], cancel)
 defineExpose({ hidePreview: cancel })
 </script>
@@ -41,7 +37,7 @@ defineExpose({ hidePreview: cancel })
   <div class="video-preview-track">
     <ThumbnailPreview :preview="thumbnail.preview" />
     <input class="form-range media-overlay-seek" type="range" min="0" :max="duration || 0" step="0.1" :value="dragTime ?? currentTime" :disabled="!duration" aria-label="Playback position"
-      @pointerdown="start" @pointermove="showPreview" @pointerleave="dragTime === null && thumbnail.hide()"
+      @pointerdown="drag.start" @pointermove="drag.update" @pointerup="drag.end" @pointerleave="thumbnail.hide"
       @pointercancel="cancel" @lostpointercapture="cancel" @input="input" @change="commit" @blur="cancel">
   </div>
 </template>

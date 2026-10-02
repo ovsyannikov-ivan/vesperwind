@@ -43,3 +43,33 @@ pub async fn video_thumbnail(
         ))
     })
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryPayload {
+    session_id: String,
+    event: String,
+    path: Option<String>,
+    provider_id: Option<String>,
+    position: Option<f64>,
+    duration: Option<f64>,
+}
+#[tauri::command]
+pub async fn media_history(app: tauri::AppHandle, payload: HistoryPayload) -> Value {
+    use tauri::Manager;
+    if payload.event != "open" {
+        let state = app.state::<AppState>();
+        state.web_history.update(&payload.session_id, payload.position.unwrap_or(0.0), payload.duration.unwrap_or(0.0), &payload.event);
+        return serde_json::json!({"ok":true});
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        match crate::provider_content::ContentSource::open(&state.filesystem, &state.ssh, payload.provider_id.as_deref(), payload.path.as_deref().unwrap_or_default()) {
+            Ok(source) => {
+                let resume = state.web_history.open(payload.session_id, crate::media::history::Identity::from_source(&source));
+                serde_json::json!({"ok":true,"position":resume})
+            }
+            Err(error) => super::failure(error),
+        }
+    }).await.unwrap_or_else(|_|serde_json::json!({"ok":false}))
+}

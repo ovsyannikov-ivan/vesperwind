@@ -381,3 +381,99 @@ test('close while switching source cannot open the replacement after teardown', 
   assert.equal(player.snapshot().status, PlayerStatus.CLOSED)
   assert.equal(player.sessionId, null)
 })
+
+test('web resume waits for metadata and confirmed seek before autoplay and Resume OSD', async () => {
+  const requests = []
+  const history = { request: async (_, payload) => { requests.push(payload); return { ok: true, position: 475 } } }
+  const element = new FakeMediaElement()
+  const player = new WebMediaPlayerBackend(element, { autoplay: true, history })
+  await player.setSource('movie', { path: '/movie.mkv', providerId: 'local' })
+  assert.equal(element.paused, true)
+  assert.equal(player.snapshot().osd, null)
+  element.duration = 7200
+  element.dispatchEvent(new Event('loadedmetadata'))
+  assert.equal(element.currentTime, 475)
+  assert.equal(element.paused, true)
+  assert.equal(player.snapshot().osd, null)
+  element.dispatchEvent(new Event('seeked'))
+  assert.equal(element.paused, false)
+  assert.equal(player.snapshot().osd.kind, 'resume')
+  assert.equal(player.snapshot().osd.currentTime, 475)
+  player.pause()
+  assert.equal(player.snapshot().osd.kind, 'pause')
+  assert.ok(requests.some((p) => p.event === 'pause' && p.position === 475))
+  await player.play()
+  assert.equal(player.snapshot().osd.kind, 'play')
+  player.close()
+  assert.ok(requests.some((p) => p.event === 'close' && p.position === 475))
+})
+
+test('web first open, beginning and EOF skip Resume; ticks mirror RAM and EOF saves before rewind', async () => {
+  for (const position of [null, 5, 598]) {
+    const requests = []
+    const history = { request: async (_, p) => { requests.push(p); return { ok: true, position } } }
+    const element = new FakeMediaElement()
+    const player = new WebMediaPlayerBackend(element, { autoplay: true, history })
+    await player.setSource('movie', { path: '/movie' })
+    element.duration = 600
+    element.dispatchEvent(new Event('loadedmetadata'))
+    assert.equal(element.currentTime, 0)
+    assert.equal(player.snapshot().osd, null)
+    element.currentTime = 475
+    element.dispatchEvent(new Event('timeupdate'))
+    element.dispatchEvent(new Event('timeupdate'))
+    assert.equal(requests.filter((p) => p.event === 'tick').length, 1)
+    element.currentTime = 600
+    element.dispatchEvent(new Event('ended'))
+    assert.ok(requests.some((p) => p.event === 'eof' && p.position === 600))
+    assert.equal(element.currentTime, 0)
+    player.close()
+  }
+})
+
+test('web source switch saves old position and cancelled lookup cannot revive a closed session', async () => {
+  const requests = []
+  const history = { request: async (_, p) => { requests.push(p); return { ok: true, position: null } } }
+  const element = new FakeMediaElement()
+  const player = new WebMediaPlayerBackend(element, { history })
+  await player.setSource('one', { path: '/one' })
+  element.duration = 600
+  element.dispatchEvent(new Event('loadedmetadata'))
+  const id = player.historySession
+  element.currentTime = 100
+  await player.setSource('two', { path: '/two' })
+  assert.ok(requests.some((p) => p.event === 'close' && p.sessionId === id && p.position === 100))
+  assert.notEqual(player.historySession, id)
+  player.close()
+  let finish
+  const late = new WebMediaPlayerBackend(new FakeMediaElement(), { history: { request: (_, p) => p.event === 'open' ? new Promise((r) => { finish = r }) : Promise.resolve({ ok: true }) } })
+  const opening = late.setSource('late', { path: '/late' })
+  await new Promise((r) => setImmediate(r))
+  late.close()
+  finish({ ok: true, position: 100 })
+  await opening
+  assert.equal(late.snapshot().status, PlayerStatus.CLOSED)
+  assert.equal(late.element.src, '')
+})
+
+
+test('native pending seek stays at clicked target through stale snapshots and replacement failures', async () => {
+  let listener; const replies = []
+  const transport = { subscribe: (_, cb) => { listener = cb; return () => {} }, request: (name) => name === 'player:seek' ? new Promise((resolve) => replies.push(resolve)) : Promise.resolve({ ok: true }) }
+  const player = new NativeMpvPlayerBackend({ sessionId: 'seek-test', transport })
+  player.update({ status: PlayerStatus.PLAYING, currentTime: 100, duration: 7200 })
+  const first = player.seek(475)
+  listener({ sessionId: 'seek-test', currentTime: 100, seeking: true })
+  assert.equal(player.snapshot().pendingSeekTime, 475)
+  const second = player.seek(3000)
+  replies[0]({ ok: false, error: { message: 'Seek superseded' } })
+  await assert.rejects(first, /superseded/)
+  assert.equal(player.snapshot().status, PlayerStatus.PLAYING)
+  assert.equal(player.snapshot().pendingSeekTime, 3000)
+  listener({ sessionId: 'seek-test', currentTime: 475, seeking: false })
+  assert.equal(player.snapshot().pendingSeekTime, 3000)
+  replies[1]({ ok: true, state: { currentTime: 3000, seeking: false } }); await second
+  assert.equal(player.snapshot().pendingSeekTime, null)
+  assert.equal(player.snapshot().currentTime, 3000)
+  player.dispose()
+})

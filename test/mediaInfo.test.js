@@ -85,13 +85,13 @@ test('summarizes selected audio, subtitles, and runtime playback separately', ()
   assert.equal(section(sections, 'Decode').Surface.value, 'NV12')
 })
 
-test('does not invent a surround layout from channel count alone', () => {
+test('uses canonical surround fallback when only channel count is available', () => {
   const value = structuredClone(diagnostics)
   value.audio.channelLayout = null
 
   assert.equal(
     section(buildMediaInfoSections(value), 'Current audio').Format.value,
-    'Dolby Digital Plus · 6 channels · 1.02 Mbps · 48 kHz',
+    'Dolby Digital Plus · 5.1 · 1.02 Mbps · 48 kHz',
   )
 })
 
@@ -103,7 +103,7 @@ test('shows AAC stereo bitrate and sample rate on one current-audio line', () =>
   }
   assert.equal(
     section(buildMediaInfoSections(value), 'Current audio').Format.value,
-    'AAC · Stereo · 209 kbps · 48 kHz',
+    'AAC · 2.0 · 209 kbps · 48 kHz',
   )
 })
 
@@ -173,13 +173,13 @@ test('Info omits raw HDR metadata, long floats, and requested output details', (
 
 test('unknown mpv channel layouts get a readable count in menus and Info', () => {
   const track = { id: 8, kind: 'audio', friendlyLanguage: 'English', friendlyCodec: 'DTS-HD MA', channelLayout: 'undefined8' }
-  assert.equal(formatMediaChannels('undefined8'), '8 channels')
-  assert.equal(formatMediaChannels('unknown', '6'), '6 channels')
+  assert.equal(formatMediaChannels('undefined8'), '7.1')
+  assert.equal(formatMediaChannels('unknown', '6'), '5.1')
   assert.equal(formatMediaChannels('undefined'), '')
-  assert.equal(formatMediaTrack(track), 'English · DTS-HD MA · 8 channels')
+  assert.equal(formatMediaTrack(track), 'English · DTS-HD MA · 7.1')
   assert.equal(formatMediaTrack({ id: 3, kind: 'audio' }), 'Track 3')
   assert.match(section(buildMediaInfoSections({ ...diagnostics,
-    audio: { ...diagnostics.audio, channelLayout: 'undefined8', channelCount: 8 } }), 'Current audio').Format.value, /8 channels/)
+    audio: { ...diagnostics.audio, channelLayout: 'undefined8', channelCount: 8 } }), 'Current audio').Format.value, /7\.1/)
 })
 
 
@@ -201,4 +201,30 @@ test('Metal info shows actual surface and unknown output without inventing HDR o
   assert.match(section(sections, 'Output').Output.value, /Not verified/)
   assert.equal(section(sections, 'Processing').RPU.value, 'Not verified')
   assert.equal(section(sections, 'Processing')['System Dolby Vision output'].value, 'Not used')
+})
+
+
+test('canonical channels preserve explicitly nonstandard layouts independently of codec', () => {
+  for (const [layout, count, expected] of [
+    ['mono', null, '1.0 mono'], [null, 1, '1.0 mono'], ['undefined1', null, '1.0 mono'],
+    ['stereo', null, '2.0'], [null, 2, '2.0'], ['undefined2', null, '2.0'],
+    ['5.1(side)', 6, '5.1'], ['5.1(back)', 6, '5.1'], [null, 6, '5.1'], ['undefined6', null, '5.1'],
+    ['7.1', 8, '7.1'], ['7.1(wide-side)', 8, '7.1'], ['7.1(wide)', 8, '7.1'],
+    ['undefined8', 8, '7.1'], ['unknown8', null, '7.1'], [null, 8, '7.1'],
+    ['octagonal', 8, 'octagonal'], ['7.1(top)', 8, '7.1(top)'], [null, 4, '4 channels'],
+  ]) assert.equal(formatMediaChannels(layout, count), expected)
+})
+
+test('audio and subtitle identities retain language alongside meaningful titles', () => {
+  for (const [metadata, expected] of [
+    [{ language: 'ru' }, 'Russian'], [{ language: 'rus' }, 'Russian'], [{ language: 'eng' }, 'English'], [{ language: 'ukr' }, 'Ukrainian'],
+    [{ language: 'deu' }, 'German'], [{ language: 'en', title: 'Commentary' }, 'English · Commentary'],
+    [{ title: 'Director Commentary' }, 'Director Commentary'], [{ language: 'ru', title: 'RUSSIAN' }, 'Russian'],
+    [{ language: 'rus', title: 'RU' }, 'Russian'], [{ language: 'xyz-private' }, 'xyz-private'],
+    [{}, 'Track 2'],
+  ]) {
+    assert.equal(formatMediaTrack({ id: 2, kind: 'audio', codec: 'AAC', channels: 2, ...metadata }), `${expected} · AAC · 2.0`)
+    assert.equal(formatMediaTrack({ id: 2, kind: 'subtitle', codec: 'ASS', ...metadata }), `${expected} · ASS`)
+  }
+  assert.equal(formatMediaTrack({ id: 2, kind: 'subtitle', language: 'uk', forced: true, codec: 'PGS' }), 'Ukrainian · Forced · PGS')
 })

@@ -1,5 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import MediaOsd from '../components/MediaOsd.vue'
+import { createMediaOsd } from '../player/mediaOsd.js'
 import VideoProgressRange from '../components/VideoProgressRange.vue'
 import { createSeekController, canHandleSeekKey } from '../player/seekController.js'
 import { mediaOverlay } from '../api/mediaOverlay.js'
@@ -29,6 +31,8 @@ const state = reactive({
   diagnostics: null,
   error: null,
 })
+const osdMessage = ref(null)
+const osd = createMediaOsd({ onChange: (message) => { osdMessage.value = message } })
 const seekFeedback = ref(null)
 const seekController = createSeekController({
   getTime: () => state.currentTime, getDuration: () => state.duration,
@@ -92,10 +96,13 @@ let controlsTimer = 0
 
 const applyState = (snapshot) => {
   Object.assign(state, snapshot || {})
+  if ([PlayerStatus.ERROR, PlayerStatus.CLOSED, PlayerStatus.OPENING].includes(snapshot?.status)) osd.reset()
+  else osd.accept(snapshot?.osd)
   if ([PlayerStatus.ERROR, PlayerStatus.CLOSED, PlayerStatus.LOADING, PlayerStatus.ENDED].includes(snapshot?.status)) seekController.reset()
 }
 const attachToSession = async (sessionId) => {
   if (!sessionId || player?.sessionId === sessionId) return
+  osd.reset()
   seekController.reset()
   progressRange.value?.hidePreview()
   unsubscribeState?.()
@@ -133,7 +140,7 @@ const toggleMenu = (menu) => {
   activeMenu.value = activeMenu.value === menu ? '' : menu
 }
 const closeMenu = () => { activeMenu.value = '' }
-const togglePlay = () => isPlaying.value ? player?.pause() : player?.play()
+const togglePlay = () => (isPlaying.value ? player?.pause() : player?.play())?.catch((error) => console.warn('Playback command failed', error))
 const selectTrack = async (kind, id) => {
   await player?.selectTrack(kind, id).catch(() => {})
   closeMenu()
@@ -189,6 +196,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  osd.dispose()
   clearControlsTimer()
   controlsVisible.value = true
   document.removeEventListener('pointerdown', handlePointerDown, true)
@@ -226,6 +234,7 @@ onBeforeUnmount(() => {
     </header>
 
     <section class="media-overlay-stage" @dblclick="sendAction('fullscreen')">
+      <MediaOsd :message="osdMessage" />
       <span v-if="seekFeedback" class="video-seek-feedback" role="status">{{ seekFeedback.delta > 0 ? '+' : '' }}{{ Math.round(seekFeedback.delta) }} s</span>
       <div v-if="state.error" class="alert alert-danger media-overlay-error" role="alert">
         {{ state.error.message || state.error }}
@@ -326,7 +335,7 @@ onBeforeUnmount(() => {
             <i class="mdi" :class="context.fullscreen ? 'mdi-fullscreen-exit' : 'mdi-fullscreen'" aria-hidden="true" />
           </button>
         </div>
-        <VideoProgressRange ref="progressRange" :current-time="seekFeedback?.target ?? state.currentTime" :duration="state.duration" :path="context.path || ''" :provider-id="context.providerId || 'local'" :source-hdr="state.diagnostics?.sourceHdr || false" @seek="seekTo" @drag="seekController.reset()" />
+        <VideoProgressRange ref="progressRange" :current-time="seekFeedback?.target ?? state.pendingSeekTime ?? state.currentTime" :duration="state.duration" :path="context.path || ''" :provider-id="context.providerId || 'local'" :source-hdr="state.diagnostics?.sourceHdr || false" @seek="seekTo" @drag="seekController.reset()" />
       </div>
     </section>
   </main>

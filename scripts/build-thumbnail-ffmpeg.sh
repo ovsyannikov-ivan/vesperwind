@@ -21,10 +21,14 @@ case "$target_triple" in
   aarch64-apple-darwin|x86_64-apple-darwin|aarch64-unknown-linux-gnu|x86_64-unknown-linux-gnu) ;;
   *) echo "This recipe supports native macOS/Linux builds only: $target_triple" >&2; exit 1 ;;
 esac
+platform_flags=()
+case "$target_triple" in
+  *-apple-darwin) platform_flags+=(--enable-videotoolbox) ;;
+esac
 cd "$source_root"
 ./configure --enable-static --disable-shared --disable-autodetect --disable-network \
   --disable-gpl --disable-nonfree --disable-version3 --disable-doc --disable-debug \
-  --disable-ffplay --disable-ffprobe --disable-x86asm
+  --disable-ffplay --disable-ffprobe --disable-x86asm "${platform_flags[@]}"
 make -j"${VESPERWIND_THUMBNAIL_BUILD_JOBS:-8}" ffmpeg
 cp ffmpeg "$project_root/src-tauri/binaries/ffmpeg-$target_triple"
 chmod 755 "$project_root/src-tauri/binaries/ffmpeg-$target_triple"

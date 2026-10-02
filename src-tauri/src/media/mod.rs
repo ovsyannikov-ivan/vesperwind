@@ -545,3 +545,5 @@ mod tests {
 }
 
 pub mod thumbnail;
+
+pub mod history;

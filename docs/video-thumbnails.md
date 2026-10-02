@@ -1,96 +1,80 @@
-# Video seek and thumbnail previews
+# On-demand video thumbnails
 
-Video arrows seek ±10 seconds. `src/player/seekController.js` anchors a burst to
-its first keypress and updates the feedback immediately. After 180 ms without a
-new press it sends one absolute seek. Pending positions saturate at 0/duration;
-reversing at either edge responds immediately. Commit, explicit slider seek,
-source change, error, transition and unmount reset the burst. Inputs, sliders,
-editable content, menus and modified shortcuts retain their own keyboard behavior.
-File navigation buttons remain available; arrows still navigate non-video viewers.
+## Hover behavior
 
-## Frontend boundary
+Every pointer movement immediately updates timestamp and hides the displayed
+image. It restarts a **250 ms dwell timer**, including movements within the same
+half-second cache bucket. Extraction and cache lookup run only after that timer
+expires. Pointer leave/cancel, source change, modal close and component unmount
+invalidate the revision, clear dwell and abort the active request.
 
-The call chain is:
+Pending or unsupported requests display timestamp only: no rectangle, placeholder,
+spinner or image icon. A detached `Image` loads and decodes the complete JPEG
+before its URL enters Vue state. Only then is the image inserted and faded in over
+180 ms; reduced-motion disables the transition. Removal is immediate, without a
+leave animation. Cached images follow the same dwell and decode-before-show UX.
+Remote/SFTP and runtimes without the native backend stay time-only.
 
-```
-CustomMediaPlayer / VideoProgressRange
-  → useThumbnailPreview
-  → video.getThumbnail({ path, time, width, providerId?, sourceHdr?, signal? })
-  → thumbnailService (bounded cache and latest-request queue)
-  → backend.request('video:thumbnail', { path, time, width })
-  → tauriTransport
-  → video_thumbnail
-  → ThumbnailManager
-  → application-owned FFmpeg CLI
-```
+## One short-lived extraction
 
-Vue components never invoke a native thumbnail command directly. The web player
-uses media-chrome's `mediapreviewrequest` timestamps, including its drag behavior.
-The native overlay uses the existing range styling through `VideoProgressRange`;
-it shows the drag position immediately and commits playback seek on `change`.
-Overlay context includes the provider and source path, independent of the
-`vesperwind-media` streaming URL used for playback.
+The native open hook registers lifecycle ownership. Hover extraction resolves
+the source and generates one JPEG after dwell.
 
-`useThumbnailPreview` samples the latest pointer position every 100 ms. Each new
-position invalidates the previous response; leaving, cancellation, source change
-and unmount abort its signal and hide the preview. Abort signals are local to the
-service; an already running FFmpeg finishes under the Rust timeout and its stale
-result is ignored. The service runs one request at a time, retaining only the
-latest pending request. Its LRU holds at most 32 frames and 4 MiB of data URL
-characters, using half-second buckets and separate keys for source and size.
-The cache lives in a WebView and is cleared on source changes. Rust additionally
-limits extraction to one running operation across all WebViews: contended calls
-return `unavailable/busy` immediately, rather than queueing process launches.
+After dwell, a cache miss uses bundled pinned FFmpeg with **input-side `-ss`**,
+`-map 0:v:0`, `-frames:v 1`, scaling and MJPEG on stdout. Audio, subtitles and data
+are skipped. Decode/filter/encode thread counts remain one. Maximum output is
+512 KiB JPEG, bounded stderr is 128 KiB, and a run has a 12-second deadline.
+The process is killed/reaped on cancellation or limit, and both pipe readers join.
+These output caps are not a total decoder-memory cap. The decoder lives only for
+one request, rather than the duration of the film.
 
-The renderer consumes only `{ status: 'ready', url, time }` or
-`{ status: 'unavailable', reason }` under the response's `thumbnail` field.
-`url` currently contains a JPEG data URL. A future thumbnail index/sprite provider
-can select a frame in the service, resolve it to the same frame URL contract and
-keep the Vue controls unchanged. Transport/backend failures follow the existing
-`{ ok: false, error }` API convention and leave a time-only preview.
+Version validation runs once on the first cache miss. A bounded header-only probe
+resolves duration and the first video stream's HDR policy once per source size/mtime
+identity, on demand. Incomplete
+startup playback tags cannot bypass this original HDR validation. Version
+validation/probe/extraction are serialized; at most one FFmpeg child exists.
+No process starts merely on open or while the dwell timer is being reset.
 
-Remote providers return a time-only preview without requesting extraction. Browser
-runtime also returns a time-only fallback: there is no server/system-FFmpeg route.
-Local HDR sources reach the extractor through the same API as SDR. Rust probes
-only the first video stream with the bundled FFmpeg and caches its metadata against
-canonical path, file size and mtime (8 sources). HDR10/PQ with BT.2020 and HLG with
-BT.2020 produce SDR BT.709 JPEG previews. FFmpeg 8.0's built-in libswscale color
-management uses `scale` with `out_transfer=bt709`, `out_primaries=bt709`,
-`out_color_matrix=bt709` and `intent=perceptual`: transfer conversion, perceptual
-tone mapping and gamut mapping happen together with resizing. This needs neither
-zimg nor libplacebo, and avoids applying a second tone mapper after that conversion.
-The decoded output's BT.709 tags are verified via the final `showinfo`; HDR side
-data is removed before encoding. Conversion failure leaves a time-only fallback.
+## Cancellation and cache
 
-Dolby Vision with a PQ/HLG BT.2020 compatible base layer may use this conversion;
-RPU or enhancement-layer reconstruction is not claimed. Profile 5, unsupported
-transfer functions and HDR metadata without sufficient color tags keep the
-`unsupported-hdr` fallback. If HDR is discovered only while decoding an untagged
-header, that request also falls back. Untagged ordinary video follows the existing
-SDR assumption. Preview conversion does not change the main player's HDR output.
+The frontend retains one active extraction and one replaceable latest pending
+position. Superseded/aborted pending work is dropped, not accumulated. Revision and
+AbortSignal checks reject results before and after JPEG decoding.
 
-## Extractor
+The existing `video:thumbnail` command accepts an opaque request ID and a cancel
+flag. Cancel marks the matching request's native atomic flag; the child runner
+polls it every 10 ms and performs kill/wait/join. A bounded 32-ID cancellation
+record handles cancel-before-start IPC races without canceling a newer ID.
+Rust `try_lock` prevents another WebView from queuing extraction behind the active
+worker; busy falls back to time only. Source close/shutdown also cancel and wait.
 
-`src-tauri/src/media/thumbnail.rs` resolves existing local files through the shared
-filesystem resolver, including Finder aliases and configured-root restrictions.
-FFmpeg receives separate `Command` arguments, never a shell command string.
-Input protocols are restricted to `file,pipe`, standard input is disconnected,
-only the first video stream is decoded, and audio/subtitles are skipped.
+The JavaScript LRU is at most 32 entries and 4 MiB of image-URL string
+storage (UTF-16 accounted). Buckets are `floor(time * 2) / 2`; width and source path
+are part of the key. Hits refresh recency, oldest entries are evicted, oversized
+responses are not cached, and source reset/unmount clears the cache. JPEGs travel
+as `data:image/jpeg;base64,...` response. No disk thumbnails or
+SQLite thumbnail rows are written.
 
-Input-side `-ss` performs an accurate seek to the requested timestamp. The last
-bucket is clamped just before EOF. One frame is scaled proportionally to the
-requested width (64–480 px), bounded to 270 px height, with even dimensions and
-square pixels, encoded as JPEG, and returned via `image2pipe` stdout. There are
-no thumbnail temporary files. CPU decode/filter/encode threads are bounded;
-each subprocess has a 12-second deadline, 512 KiB image and 128 KiB stderr limits.
-Pipes are drained concurrently to avoid deadlocks; oversized/timed-out children
-are killed, waited for, and readers joined. Windows subprocesses hide their console.
+## HDR and source security
+
+Extraction uses local filesystem/root checks, argument-array process
+launch (no shell), pinned app-owned FFmpeg only (no PATH), `file,pipe` protocol
+whitelist and disconnected stdin. Windows uses no-console/below-normal priority;
+Unix requests nice 10. CPU priority is not a disk-I/O isolation guarantee.
+
+HDR10/PQ and HLG with BT.2020, including a compatible Dolby Vision base layer, use
+FFmpeg 8.0 libswscale perceptual transfer/tone/gamut conversion to BT.709. Resize,
+`out_transfer=bt709`, `out_primaries=bt709`, `out_color_matrix=bt709`, and removal of
+HDR side data remain intact. Input/output showinfo checks reject unexpected HDR
+or a non-BT.709 conversion. DV profile 5 and insufficient supported HDR metadata
+stay time-only. No RPU/enhancement-layer reconstruction is claimed. Main playback
+HDR and renderer configuration are unchanged.
 
 ## Pinned sidecar build and distribution
 
 No runtime environment variable, system installation or `$PATH` lookup can select
 FFmpeg. The supported version is exactly FFmpeg **8.0** (optional build suffix).
-The CLI is version-checked once per manager before extraction.
+The CLI is version-checked once per manager, on the first actual hover extraction.
 
 A native macOS/Linux recipe is included:
 
@@ -100,7 +84,9 @@ bash scripts/build-thumbnail-ffmpeg.sh
 
 It downloads FFmpeg's `n8.0` source archive, verifies the same SHA256 already pinned
 by the project's libmpv build, disables GPL/nonfree/autodetected external libraries
-and networking, and statically links libav dependencies. Generated binaries are
+and networking, and statically links libav dependencies. On macOS it explicitly
+enables public VideoToolbox support, but on-demand extraction uses the original
+single-thread software decoder settings. Generated binaries are
 ignored by Git. Development loads only
 `src-tauri/binaries/ffmpeg-<target-triple>[.exe]` or an app-adjacent sidecar. Release
 loads only the app-adjacent `ffmpeg[.exe]`; no source-tree fallback exists in release.
@@ -129,32 +115,17 @@ paths from the user's environment or silently borrow the system FFmpeg.
 
 ## Validation
 
-Behavioral tests cover accumulated/mixed seeks, edge saturation, lifecycle reset,
-failed seeks, key exclusions, remote suppression, HDR request routing, cache
-eviction, cancellation, and a flood of requests with only one active and one
-pending generation.
-
 ```sh
 npm test
-cargo test --manifest-path src-tauri/Cargo.toml media::thumbnail --lib
-# After building the pinned sidecar: real stdout JPEG, EOF, HDR10/HLG-to-BT.709 pixels and concurrency.
-cargo test --manifest-path src-tauri/Cargo.toml media::thumbnail --lib -- --include-ignored
+cargo test --manifest-path src-tauri/Cargo.toml
+cargo test --manifest-path src-tauri/Cargo.toml media::thumbnail --lib -- --include-ignored --nocapture
 ```
 
-The real-frame test synthesizes its own inputs with the pinned CLI, including a
-filename with spaces/shell metacharacters and 10-bit PQ/HLG BT.2020 inputs encoded
-from a known SDR test pattern. It checks the manager's conversion policy, BT.709
-output tags and actual raw RGB pixel changes after tone mapping. It runs only
-when explicitly requested with the staged sidecar. Cross-platform packaged runtime,
-signing/notarization, and physical playback validation are separate acceptance
-checks; local tests do not establish those outcomes.
-
-FFmpeg options follow the [FFmpeg CLI documentation](https://www.ffmpeg.org/ffmpeg.html)
-and [filter documentation](https://www.ffmpeg.org/ffmpeg-filters.html). Binary naming
-and packaging follow [Tauri's sidecar contract](https://v2.tauri.app/develop/sidecar/).
-
-The HDR10 movie on the external drive still requires an acceptance check after
-unlocking the machine: inspect previews at dark, bright and saturated scenes,
-compare timestamps with playback, exercise rapid hover/drag, and confirm HDR
-playback output remains unchanged. Synthetic CLI fixtures do not establish visual
-fidelity on that movie.
+Frontend tests exercise movement floods, exact dwell/reset, extraction and image-
+decode stale races, source reset/unmount, actual rendered timestamp-only markup,
+ready-image markup/fade, image loader cancellation and LRU/concurrency behavior.
+Rust tests preserve input-side seek/one-frame arguments, HDR validation, local-only
+policy, bounded output, cancellation races and single-worker refusal. Explicit
+integration tests decode real SDR/PQ/HLG fixtures and cancel a real FFmpeg child.
+Automated checks cover extraction and UI state; hover latency and visual behavior
+need verification in the actual Tauri application.

@@ -10,6 +10,8 @@ import 'media-chrome/dist/media-time-display.js'
 import 'media-chrome/dist/media-time-range.js'
 import 'media-chrome/dist/media-volume-range.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import MediaOsd from './MediaOsd.vue'
+import { createMediaOsd } from '../player/mediaOsd.js'
 import ThumbnailPreview from './ThumbnailPreview.vue'
 import { useThumbnailPreview } from '../composables/useThumbnailPreview.js'
 import { createSeekController, canHandleSeekKey } from '../player/seekController.js'
@@ -55,6 +57,8 @@ const state = reactive({
   diagnostics: null,
   error: null,
 })
+const osdMessage = ref(null)
+const osd = createMediaOsd({ onChange: (v) => { osdMessage.value = v } })
 const seekFeedback = ref(null)
 const seekController = createSeekController({
   getTime: () => state.currentTime, getDuration: () => state.duration,
@@ -189,6 +193,8 @@ const attachNativeGeometry = () => {
 
 const applyState = (snapshot) => {
   Object.assign(state, snapshot)
+  if ([PlayerStatus.ERROR, PlayerStatus.CLOSED, PlayerStatus.LOADING, PlayerStatus.OPENING].includes(snapshot.status)) osd.reset()
+  else osd.accept(snapshot.osd)
   if ([PlayerStatus.ERROR, PlayerStatus.CLOSED, PlayerStatus.LOADING, PlayerStatus.ENDED].includes(snapshot.status)) seekController.reset()
   if (snapshot.error) emit('error', snapshot.error)
 }
@@ -218,7 +224,7 @@ const createPlayer = async () => {
   } else {
     player = new WebMediaPlayerBackend(mediaElement.value, { autoplay: props.autoplay })
     unsubscribeState = player.subscribe(applyState)
-    await player.setSource(props.src)
+    await player.setSource(props.src, sourceLocation())
   }
 }
 
@@ -350,7 +356,7 @@ watch(
           attachNativeGeometry()
           await player.setOverlay(true, overlayGeometry(), overlayContext())
         })
-      : player.setSource(props.src)
+      : player.setSource(props.src, sourceLocation())
     void request.catch((error) => emit('error', error))
   },
 )
@@ -370,6 +376,7 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  osd.dispose()
   seekController.reset()
   document.removeEventListener('keydown', handleVideoKeydown, true)
   generation += 1
@@ -402,10 +409,13 @@ defineExpose({ mediaElement, pause, play, seek, stop, coverNativeTransition, rev
     class="custom-media-player"
     :class="isAudio ? 'is-audio' : 'is-video'"
     :audio="isAudio || undefined"
+    @mediaplayrequest="player?.expectAction?.('play')"
+    @mediapauserequest="player?.expectAction?.('pause')"
     :hotkeys="!isAudio ? 'noarrowleft noarrowright' : undefined"
   >
     <audio v-if="isAudio" ref="mediaElement" slot="media" :autoplay="autoplay" preload="metadata" @error="emit('error')" />
     <video v-else ref="mediaElement" slot="media" :autoplay="autoplay" playsinline preload="metadata" @error="emit('error')" />
+    <MediaOsd v-if="!isAudio" slot="top-chrome" :message="osdMessage" />
     <span v-if="seekFeedback" slot="centered-chrome" class="video-seek-feedback" role="status">{{ seekFeedback.delta > 0 ? '+' : '' }}{{ Math.round(seekFeedback.delta) }} s</span>
     <media-loading-indicator v-if="!isAudio" slot="centered-chrome" noautohide />
     <media-play-button v-if="!isAudio" slot="centered-chrome" class="custom-media-player-centered-play" aria-label="Play or pause video" />

@@ -3,6 +3,7 @@
 use crate::{
     error::NativeError,
     filesystem::{paths, Filesystem},
+    mpv::PlaybackDiagnostics,
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
@@ -30,6 +31,10 @@ pub struct ThumbnailRequest {
     pub time: f64,
     pub width: u32,
     pub provider_id: Option<String>,
+    #[serde(default)]
+    pub request_id: Option<String>,
+    #[serde(default)]
+    pub cancel: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -75,14 +80,111 @@ struct Worker {
     sources: VecDeque<SourceInfo>,
 }
 #[derive(Default)]
-pub struct ThumbnailManager(Mutex<Worker>);
+pub struct ThumbnailManager(Mutex<Worker>, Mutex<Cancellation>);
+
+#[derive(Default)]
+struct Cancellation {
+    owner: Option<String>,
+    active: Option<(String, Arc<AtomicBool>)>,
+    cancelled: VecDeque<String>,
+}
+impl Cancellation {
+    fn cancel(&mut self, id: &str) {
+        if let Some((active_id, flag)) = &self.active {
+            if active_id == id {
+                flag.store(true, Ordering::Release);
+            }
+        }
+        if !self.cancelled.iter().any(|old| old == id) {
+            self.cancelled.push_back(id.to_owned());
+            if self.cancelled.len() > 32 {
+                self.cancelled.pop_front();
+            }
+        }
+    }
+}
+struct ActiveRequest<'a> {
+    manager: &'a ThumbnailManager,
+    id: String,
+}
+impl Drop for ActiveRequest<'_> {
+    fn drop(&mut self) {
+        let mut state = self.manager.1.lock().unwrap_or_else(|e| e.into_inner());
+        if state.active.as_ref().is_some_and(|(id, _)| id == &self.id) {
+            state.active = None;
+        }
+    }
+}
 
 impl ThumbnailManager {
+    // Register lifecycle ownership without source I/O or decoder startup. Resolve
+    // the HDR policy on demand, independently of incomplete startup mpv tags.
+    pub fn start(
+        &self,
+        _filesystem: &Filesystem,
+        owner: &str,
+        provider: Option<&str>,
+        _requested: &str,
+        diagnostics: &PlaybackDiagnostics,
+        _duration: f64,
+        cancelled: Arc<AtomicBool>,
+    ) -> Result<(), NativeError> {
+        if provider.unwrap_or("local") == "local"
+            && diagnostics.video.codec.is_some()
+            && !cancelled.load(Ordering::Acquire)
+        {
+            self.1.lock().unwrap_or_else(|e| e.into_inner()).owner = Some(owner.into());
+        }
+        Ok(())
+    }
+    pub fn cancel(&self, owner: &str) {
+        let mut state = self.1.lock().unwrap_or_else(|e| e.into_inner());
+        if state.owner.as_deref() != Some(owner) {
+            return;
+        }
+        if let Some((id, _)) = &state.active {
+            let id = id.clone();
+            state.cancel(&id);
+        }
+        state.owner = None;
+        drop(state);
+        // The cancelled child is killed/reaped and its pipe readers joined before
+        // this lock is released. No playback state is changed.
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .sources
+            .clear();
+    }
+    pub fn shutdown(&self) {
+        let mut state = self.1.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((id, _)) = &state.active {
+            let id = id.clone();
+            state.cancel(&id);
+        }
+        state.owner = None;
+        drop(state);
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .sources
+            .clear();
+    }
     pub fn generate(
         &self,
         filesystem: &Filesystem,
         request: ThumbnailRequest,
     ) -> Result<Thumbnail, NativeError> {
+        if request.cancel {
+            if let Some(id) = request
+                .request_id
+                .as_deref()
+                .filter(|id| !id.is_empty() && id.len() <= 128)
+            {
+                self.1.lock().unwrap_or_else(|e| e.into_inner()).cancel(id);
+            }
+            return Ok(Thumbnail::unavailable("cancelled"));
+        }
         if request.provider_id.as_deref().unwrap_or("local") != "local" {
             return Ok(Thumbnail::unavailable("remote"));
         }
@@ -96,6 +198,22 @@ impl ThumbnailManager {
         let Ok(mut worker) = self.0.try_lock() else {
             return Ok(Thumbnail::unavailable("busy"));
         };
+        let id = request
+            .request_id
+            .clone()
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        if id.is_empty() || id.len() > 128 {
+            return Err(NativeError::new("EINVAL", "Invalid thumbnail request ID"));
+        }
+        let flag = Arc::new(AtomicBool::new(false));
+        {
+            let mut state = self.1.lock().unwrap_or_else(|e| e.into_inner());
+            if state.cancelled.iter().any(|old| old == &id) {
+                return Ok(Thumbnail::unavailable("cancelled"));
+            }
+            state.active = Some((id.clone(), Arc::clone(&flag)));
+        }
+        let _active = ActiveRequest { manager: self, id };
         let resolved = paths::resolve_inside_root(filesystem, &request.path)?;
         let path = paths::verify_existing_inside_root(filesystem, &resolved)?;
         let metadata =
@@ -107,7 +225,7 @@ impl ThumbnailManager {
             let Some(binary) = bundled_binary() else {
                 return Ok(Thumbnail::unavailable("sidecar-missing"));
             };
-            let version = run(&binary, &["-version".into()], MAX_LOG)?;
+            let version = run_cancelled(&binary, &["-version".into()], MAX_LOG, &flag)?;
             if !version.success || !is_pinned_version(&String::from_utf8_lossy(&version.stdout)) {
                 return Ok(Thumbnail::unavailable("sidecar-version"));
             }
@@ -125,7 +243,7 @@ impl ThumbnailManager {
             None => {
                 // FFmpeg's input header exposes HDR transfer/side metadata without
                 // decoding a frame. No ffprobe or second player is required.
-                let probe = run(
+                let probe = run_cancelled(
                     &binary,
                     &[
                         "-hide_banner".into(),
@@ -136,6 +254,7 @@ impl ThumbnailManager {
                         path.as_os_str().to_owned(),
                     ],
                     MAX_LOG,
+                    &flag,
                 )?;
                 let log = String::from_utf8_lossy(&probe.stderr);
                 // No output is intentional; FFmpeg normally exits 1 here.
@@ -165,11 +284,15 @@ impl ThumbnailManager {
         } else {
             request.time
         };
-        let frame = run(
+        let frame = run_cancelled(
             &binary,
             &frame_args(&path, time, request.width, source.color_policy),
             MAX_IMAGE,
+            &flag,
         )?;
+        if flag.load(Ordering::Acquire) {
+            return Ok(Thumbnail::unavailable("cancelled"));
+        }
         let log = String::from_utf8_lossy(&frame.stderr);
         // Input HDR metadata remains in the log, so validate the OUTPUT filter's
         // color tags instead of rejecting every log mentioning the HDR source.
@@ -389,11 +512,18 @@ fn read_pipe(mut pipe: impl Read, limit: usize, overflow: Arc<AtomicBool>) -> Ve
     }
     bytes
 }
-fn run(
+fn run_cancelled(
     binary: &Path,
     args: &[std::ffi::OsString],
     limit: usize,
+    cancel: &AtomicBool,
 ) -> Result<ProcessOutput, NativeError> {
+    if cancel.load(Ordering::Acquire) {
+        return Err(NativeError::new(
+            "ETHUMBNAIL_CANCELLED",
+            "Thumbnail request cancelled",
+        ));
+    }
     let mut command = Command::new(binary);
     command
         .args(args)
@@ -403,11 +533,18 @@ fn run(
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        command.creation_flags(0x08000000 | 0x00004000); // CREATE_NO_WINDOW
     }
     let mut child = command
         .spawn()
         .map_err(|e| NativeError::from_io(&e, "Bundled FFmpeg could not start"))?;
+    #[cfg(unix)]
+    unsafe {
+        libc::setpriority(libc::PRIO_PROCESS, child.id(), 10);
+    }
+    if std::env::var_os("VESPERWIND_THUMBNAIL_LOG").is_some() {
+        eprintln!("[thumbnail] child={} single-frame/request", child.id());
+    }
     let overflow = Arc::new(AtomicBool::new(false));
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
@@ -417,6 +554,12 @@ fn run(
     let err = thread::spawn(move || read_pipe(stderr, MAX_LOG, stderr_flag));
     let start = Instant::now();
     let result = loop {
+        if cancel.load(Ordering::Acquire) {
+            break Err(NativeError::new(
+                "ETHUMBNAIL_CANCELLED",
+                "Thumbnail request cancelled",
+            ));
+        }
         if overflow.load(Ordering::Relaxed) || start.elapsed() > Duration::from_secs(12) {
             break Err(NativeError::new(
                 "ETHUMBNAIL_LIMIT",
@@ -447,6 +590,15 @@ fn run(
         stdout,
         stderr,
     })
+}
+
+#[cfg(test)]
+fn run(
+    binary: &Path,
+    args: &[std::ffi::OsString],
+    limit: usize,
+) -> Result<ProcessOutput, NativeError> {
+    run_cancelled(binary, args, limit, &AtomicBool::new(false))
 }
 
 #[cfg(test)]
@@ -513,6 +665,10 @@ mod tests {
         let args = frame_args(path, 30.0, 180, ColorPolicy::ToneMap);
         let i = args.iter().position(|a| a == "-i").unwrap();
         assert_eq!(args[i + 1], path.as_os_str());
+        assert!(args.iter().position(|a| a == "-ss").unwrap() < i);
+        let frames = args.iter().position(|a| a == "-frames:v").unwrap();
+        assert_eq!(args[frames + 1], "1");
+        assert!(!args.iter().any(|a| a.to_string_lossy().contains("fps=")));
         assert_eq!(args.last().unwrap(), "pipe:1");
     }
     #[test]
@@ -521,6 +677,117 @@ mod tests {
         let bytes = read_pipe(std::io::Cursor::new(vec![1; 20]), 10, Arc::clone(&overflow));
         assert_eq!(bytes.len(), 11);
         assert!(overflow.load(Ordering::Relaxed));
+    }
+    #[test]
+    fn cancellation_ids_are_bounded_and_do_not_cancel_a_newer_request() {
+        let flag = Arc::new(AtomicBool::new(false));
+        let mut state = Cancellation {
+            active: Some(("new".into(), Arc::clone(&flag))),
+            ..Default::default()
+        };
+        state.cancel("old");
+        assert!(!flag.load(Ordering::Acquire));
+        state.cancel("new");
+        assert!(flag.load(Ordering::Acquire));
+        for i in 0..100 {
+            state.cancel(&i.to_string());
+        }
+        assert_eq!(state.cancelled.len(), 32);
+        assert!(!state.cancelled.iter().any(|id| id == "0"));
+        assert!(state.cancelled.iter().any(|id| id == "99"));
+    }
+    #[test]
+    fn opening_video_registers_lifecycle_without_source_io_or_decoder() {
+        let root = std::env::temp_dir();
+        let filesystem = Filesystem::from_root(&root, root.clone()).unwrap();
+        let manager = ThumbnailManager::default();
+        let mut diagnostics = PlaybackDiagnostics::default();
+        diagnostics.video.codec = Some("hevc".into());
+        manager
+            .start(
+                &filesystem,
+                "player-one",
+                None,
+                "/nonexistent-video",
+                &diagnostics,
+                7200.0,
+                Arc::new(AtomicBool::new(false)),
+            )
+            .unwrap();
+        let worker = manager.0.lock().unwrap();
+        assert!(worker.binary.is_none());
+        assert!(worker.sources.is_empty());
+        assert_eq!(
+            manager.1.lock().unwrap().owner.as_deref(),
+            Some("player-one")
+        );
+    }
+    #[test]
+    fn pre_cancelled_request_never_resolves_or_opens_source() {
+        let root = std::env::temp_dir();
+        let filesystem = Filesystem::from_root(&root, root.clone()).unwrap();
+        let manager = ThumbnailManager::default();
+        let req = |cancel| ThumbnailRequest {
+            path: root
+                .join("nonexistent-video")
+                .to_string_lossy()
+                .into_owned(),
+            time: 1.0,
+            width: 180,
+            provider_id: None,
+            request_id: Some("cancel-before-start".into()),
+            cancel,
+        };
+        manager.generate(&filesystem, req(true)).unwrap();
+        assert_eq!(
+            manager.generate(&filesystem, req(false)).unwrap().reason,
+            Some("cancelled")
+        );
+        assert!(manager.0.lock().unwrap().binary.is_none());
+        assert!(manager.1.lock().unwrap().active.is_none());
+    }
+    #[test]
+    #[ignore = "Requires the pinned FFmpeg sidecar"]
+    fn real_cancel_reaps_child_and_releases_single_worker() {
+        let binary = bundled_binary().unwrap();
+        let args: Vec<std::ffi::OsString> = [
+            "-hide_banner",
+            "-nostdin",
+            "-re",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=320x180:rate=1:duration=60",
+            "-threads",
+            "1",
+            "-c:v",
+            "mjpeg",
+            "-f",
+            "image2pipe",
+            "pipe:1",
+        ]
+        .iter()
+        .map(Into::into)
+        .collect();
+        let flag = Arc::new(AtomicBool::new(false));
+        let worker_flag = Arc::clone(&flag);
+        let started = Instant::now();
+        let task = thread::spawn(move || run_cancelled(&binary, &args, MAX_IMAGE, &worker_flag));
+        thread::sleep(Duration::from_millis(300));
+        flag.store(true, Ordering::Release);
+        let error = match task.join().unwrap() {
+            Err(error) => error,
+            Ok(_) => panic!("Uncancelled extraction"),
+        };
+        assert_eq!(error.code, "ETHUMBNAIL_CANCELLED");
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert_eq!(
+            Arc::strong_count(&flag),
+            1,
+            "Joined runner and both pipe readers"
+        );
+        let output = run(&bundled_binary().unwrap(), &["-version".into()], MAX_LOG).unwrap();
+        assert!(output.success, "A new child can start after cancellation");
     }
     #[test]
     #[ignore = "Requires the pinned FFmpeg sidecar built by scripts/build-thumbnail-ffmpeg.sh"]
@@ -576,6 +843,8 @@ mod tests {
             time,
             width: 180,
             provider_id: None,
+            request_id: None,
+            cancel: false,
         };
         let thumbnail = manager.generate(&filesystem, request(&path, 0.8)).unwrap();
         assert_eq!(thumbnail.status, "ready");

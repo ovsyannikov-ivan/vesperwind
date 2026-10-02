@@ -15,25 +15,15 @@ test('remote, invalid and cancelled requests never start extraction', async () =
   assert.equal(calls, 0)
 })
 
-test('quantizes positions and bounds memory with LRU eviction and source/size keys', async () => {
+test('half-second buckets reuse bounded hover cache', async () => {
   const calls = []
-  const service = createThumbnailService({ maxEntries: 2, generate: async (args) => { calls.push(args); return ready(args.time) } })
-  const request = (time, extra) => service.getThumbnail({ path: '/one.mp4', time, width: 180, ...extra })
-  await request(1.1)
-  await request(1.4)
+  const service = createThumbnailService({ generate: async (args) => { calls.push(args); return ready(args.time) } })
+  const args = { path: '/one.mp4', time: 153.7 }
+  await service.getThumbnail(args)
+  await service.getThumbnail(args)
   assert.equal(calls.length, 1)
-  assert.equal(calls[0].time, 1)
-  await request(2)
-  await request(1.2) // touch first
-  await request(3) // evicts second
-  await request(2)
-  assert.equal(calls.length, 4)
-  await request(2, { width: 240 })
-  await request(2, { path: '/two.mp4' })
-  assert.equal(calls.length, 6)
-  service.clearCache()
-  await request(2, { path: '/two.mp4' })
-  assert.equal(calls.length, 7)
+  assert.equal(calls[0].time, 153.5)
+  assert.equal(calls[0].providerId, 'local')
 })
 
 test('a mouse flood keeps one running extraction and only the latest pending position', async () => {
@@ -91,9 +81,41 @@ test('HDR sources reach the extractor and share the SDR thumbnail cache contract
   const first = await service.getThumbnail(args)
   assert.equal(first.thumbnail.status, 'ready')
   assert.equal(first.thumbnail.url, ready('tonemapped').thumbnail.url)
-  assert.deepEqual(calls, [{ path: args.path, time: 30, width: 180 }])
+  const { requestId, ...call } = calls[0]
+  assert.ok(requestId)
+  assert.deepEqual(call, { path: args.path, time: 30, width: 180, providerId: 'local' })
   assert.deepEqual(await service.getThumbnail(args), first)
   assert.equal(calls.length, 1)
   assert.equal((await service.getThumbnail({ ...args, providerId: 'ssh:test' })).thumbnail.reason, 'remote')
   assert.equal(calls.length, 1)
+})
+
+test('LRU refreshes hits, evicts old frames and clearing cancels active work without repopulating cache', async () => {
+  const calls = []; let finish; const cancelled = []
+  const service = createThumbnailService({ maxEntries: 2, generate: async (args) => { calls.push(args.time); return ready(args.time) } })
+  const request = (time) => service.getThumbnail({ path: '/movie', time })
+  await request(1); await request(2); await request(1); await request(3); await request(1); await request(2)
+  assert.deepEqual(calls, [1, 2, 3, 2])
+  const active = createThumbnailService({ generate: () => new Promise((resolve) => { finish = resolve }), cancel: (id) => cancelled.push(id) })
+  const first = active.getThumbnail({ path: '/movie', time: 1 })
+  const pending = active.getThumbnail({ path: '/movie', time: 2 })
+  active.clearCache(); await tick()
+  assert.equal(cancelled.length, 1)
+  assert.equal((await pending).thumbnail.reason, 'cancelled')
+  finish(ready('stale')); assert.equal((await first).thumbnail.reason, 'cancelled')
+  const again = active.getThumbnail({ path: '/movie', time: 1 })
+  finish(ready('fresh')); assert.equal((await again).thumbnail.url, ready('fresh').thumbnail.url)
+})
+
+test('abort requests native cancellation once and stale completion is neither displayed nor cached', async () => {
+  const signals = []; const cancelled = []; const finishes = []
+  const service = createThumbnailService({ generate: (args) => { signals.push(args.requestId); return new Promise((resolve) => finishes.push(resolve)) }, cancel: (id) => cancelled.push(id) })
+  const controller = new AbortController()
+  const first = service.getThumbnail({ path: '/movie', time: 1, signal: controller.signal })
+  controller.abort(); await tick()
+  assert.deepEqual(cancelled, [signals[0]])
+  finishes[0](ready('old')); assert.equal((await first).thumbnail.reason, 'cancelled')
+  const second = service.getThumbnail({ path: '/movie', time: 1 })
+  assert.equal(signals.length, 2)
+  finishes[1](ready('new')); assert.equal((await second).thumbnail.url, ready('new').thumbnail.url)
 })

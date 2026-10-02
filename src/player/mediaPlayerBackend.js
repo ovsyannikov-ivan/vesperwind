@@ -20,6 +20,8 @@ const initialState = () => ({
   status: PlayerStatus.IDLE,
   source: '',
   currentTime: 0,
+  seeking: false,
+  pendingSeekTime: null,
   duration: 0,
   volume: 1,
   muted: false,
@@ -27,6 +29,7 @@ const initialState = () => ({
   tracks: [],
   diagnostics: null,
   error: null,
+  osd: null,
 })
 
 export class MediaPlayerBackend {
@@ -53,10 +56,21 @@ export class MediaPlayerBackend {
 }
 
 export class WebMediaPlayerBackend extends MediaPlayerBackend {
-  constructor(element, { autoplay = false } = {}) {
+  constructor(element, { autoplay = false, history = backendRuntimeMode === 'tauri' ? backend : null } = {}) {
     super()
     this.element = element
     this.autoplay = autoplay
+    this.history = history
+    this.historySession = null
+    this.historyReady = false
+    this.lastHistorySync = 0
+    this.sourceGeneration = 0
+    this.closed = false
+    this.pendingResume = null
+    this.restoreTimer = null
+    this.explicitAction = null
+    // Resume must complete before any autoplay starts in the WebView.
+    if (history) this.element.autoplay = false
     this.disposers = []
     this.bindEvents()
   }
@@ -64,18 +78,40 @@ export class WebMediaPlayerBackend extends MediaPlayerBackend {
   bindEvents() {
     const events = {
       loadstart: () => this.update({ status: PlayerStatus.LOADING, error: null }),
-      loadedmetadata: () => this.update({
-        status: this.element.paused ? PlayerStatus.READY : PlayerStatus.PLAYING,
-        duration: Number.isFinite(this.element.duration) ? this.element.duration : 0,
-      }),
-      play: () => this.update({ status: PlayerStatus.PLAYING }),
-      pause: () => this.update({ status: PlayerStatus.PAUSED }),
+      loadedmetadata: () => {
+        this.update({ status: this.element.paused ? PlayerStatus.READY : PlayerStatus.PLAYING,
+          duration: Number.isFinite(this.element.duration) ? this.element.duration : 0 })
+        if (!this.history) return
+        const target = this.pendingResume
+        if (target >= 15 && this.element.duration - target > 30) {
+          try {
+            this.element.currentTime = target
+            this.restoreTimer = setTimeout(() => this.finishRestore(false), 10000)
+          } catch { this.finishRestore(false) }
+        } else this.finishRestore(false)
+      },
+      seeked: () => {
+        if (this.pendingResume != null && !this.element.seeking && Math.abs(this.element.currentTime - this.pendingResume) <= 1) this.finishRestore(true)
+      },
+      play: () => { this.update({ status: PlayerStatus.PLAYING }); this.confirmAction('play') },
+      pause: () => {
+        this.update({ status: PlayerStatus.PAUSED, currentTime: this.element.currentTime || 0 })
+        void this.flushHistory('pause')
+        this.confirmAction('pause')
+      },
       ended: () => {
+        void this.flushHistory('eof')
         this.element.pause()
         this.element.currentTime = 0
         this.update({ status: PlayerStatus.PAUSED, currentTime: 0 })
       },
-      timeupdate: () => this.update({ currentTime: this.element.currentTime || 0 }),
+      timeupdate: () => {
+        this.update({ currentTime: this.element.currentTime || 0 })
+        if (this.historyReady && Date.now() - this.lastHistorySync >= 1000) {
+          this.lastHistorySync = Date.now()
+          void this.flushHistory('tick')
+        }
+      },
       durationchange: () => this.update({
         duration: Number.isFinite(this.element.duration) ? this.element.duration : 0,
       }),
@@ -94,21 +130,65 @@ export class WebMediaPlayerBackend extends MediaPlayerBackend {
     }
   }
 
-  async setSource(source) {
-    if (source === this.state.source) return
+  async setSource(source, location) {
+    if (this.closed || source === this.state.source) return
+    const generation = ++this.sourceGeneration
+    clearTimeout(this.restoreTimer)
+    this.pendingResume = null
+    this.explicitAction = null
+    await this.flushHistory('close')
+    this.historyReady = false
+    this.historySession = null
     this.element.pause()
+    if (this.history && location?.path) {
+      const id = createPlayerSessionId()
+      const result = await this.history.request('media:history', { event: 'open', sessionId: id, ...location }).catch(() => null)
+      if (this.closed || generation !== this.sourceGeneration) {
+        void this.history.request('media:history', { event: 'close', sessionId: id }).catch(() => {})
+        return
+      }
+      if (result?.ok) { this.historySession = id; this.pendingResume = result.position }
+    }
     this.element.src = source
     this.update({ ...initialState(), source, status: PlayerStatus.LOADING })
     this.element.load()
-    if (this.autoplay) await this.play()
+    if (this.autoplay && !this.history) await this.play(false)
   }
 
-  async play() {
-    await this.element.play()
+  async flushHistory(event) {
+    if (!this.historySession || (!this.historyReady && event !== 'close')) return
+    const payload = { event, sessionId: this.historySession,
+      position: this.historyReady ? this.element.currentTime || 0 : 0,
+      duration: this.historyReady && Number.isFinite(this.element.duration) ? this.element.duration : 0 }
+    return this.history.request('media:history', payload).catch((error) => console.warn('Media history unavailable', error))
+  }
+  finishRestore(restored) {
+    if (this.closed || this.historyReady) return
+    clearTimeout(this.restoreTimer)
+    this.pendingResume = null
+    this.historyReady = true
+    this.update({ currentTime: this.element.currentTime || 0 })
+    if (restored) this.showOsd('resume')
+    if (this.autoplay) void this.play(false).catch(() => {})
+  }
+  showOsd(kind) {
+    this.update({ osd: { id: createPlayerSessionId(), kind, currentTime: this.element.currentTime || 0,
+      duration: Number.isFinite(this.element.duration) ? this.element.duration : 0, createdAt: Date.now() } })
+  }
+  expectAction(kind) { this.explicitAction = kind }
+  confirmAction(kind) {
+    if (this.explicitAction === kind) { this.explicitAction = null; this.showOsd(kind) }
+  }
+  async play(explicit = true) {
+    if (explicit) this.expectAction('play')
+    try { await this.element.play(); if (explicit && !this.element.paused) this.confirmAction('play') }
+    catch (error) { this.explicitAction = null; throw error }
   }
 
   pause() {
+    this.expectAction('pause')
     this.element.pause()
+    if (this.element.paused) this.confirmAction('pause')
   }
 
   seek(seconds) {
@@ -124,12 +204,19 @@ export class WebMediaPlayerBackend extends MediaPlayerBackend {
   }
 
   stop() {
-    this.pause()
+    this.explicitAction = null
+    this.element.pause()
     this.seek(0)
   }
 
   close() {
     if (this.state.status === PlayerStatus.CLOSED) return
+    this.closed = true
+    this.sourceGeneration++
+    clearTimeout(this.restoreTimer)
+    this.explicitAction = null
+    void this.flushHistory('close')
+    this.historySession = null
     this.element.pause()
     this.element.removeAttribute('src')
     this.element.load()
@@ -148,21 +235,33 @@ export class NativeMpvPlayerBackend extends MediaPlayerBackend {
     this.hasOpenedSession = Boolean(sessionId)
     this.closed = false
     this.sourceGeneration = 0
+    this.seekRevision = 0
+    this.seekTimer = null
     this.unsubscribe = this.transport.subscribe('player:state', (state) => {
       if (!state || this.closed || !this.sessionId || state.sessionId !== this.sessionId) return
       if (this.state.status === PlayerStatus.CLOSING) return
       this.update({
         status: state.status || this.state.status,
         currentTime: state.currentTime ?? this.state.currentTime,
+        seeking: state.seeking ?? this.state.seeking,
         duration: state.duration ?? this.state.duration,
         volume: state.volume ?? this.state.volume,
         muted: state.muted ?? this.state.muted,
         subtitleDelay: state.subtitleDelay ?? this.state.subtitleDelay,
         tracks: state.tracks || this.state.tracks,
         diagnostics: state.diagnostics ?? this.state.diagnostics,
+        osd: state.osd ?? this.state.osd,
         error: state.error ? { message: state.error } : null,
       })
     })
+  }
+
+  update(next) {
+    if (this.state.pendingSeekTime != null && next.currentTime != null && next.seeking === false && Math.abs(next.currentTime - this.state.pendingSeekTime) <= 1) {
+      clearTimeout(this.seekTimer)
+      next = { ...next, pendingSeekTime: null }
+    }
+    super.update(next)
   }
 
   async request(eventName, payload = {}, { fatal = true } = {}) {
@@ -191,13 +290,15 @@ export class NativeMpvPlayerBackend extends MediaPlayerBackend {
   async setSource(source, geometry) {
     if (this.closed) return
     const sourceGeneration = ++this.sourceGeneration
+    clearTimeout(this.seekTimer)
+    this.seekRevision++
     if (this.hasOpenedSession) await this.closeSession()
     if (this.closed || sourceGeneration !== this.sourceGeneration) return
     if (!this.sessionId) this.sessionId = createPlayerSessionId()
     const sourceKey = `${source?.providerId || 'local'}:${source?.path || ''}`
     console.info(`[player=${this.sessionId}] source selected: ${sourceKey}`)
     console.info(`[player=${this.sessionId}] native open requested`)
-    this.update({ ...initialState(), source: sourceKey, status: PlayerStatus.OPENING })
+    this.update({ ...initialState(), pendingSeekTime: null, source: sourceKey, status: PlayerStatus.OPENING })
     const sessionId = this.sessionId
     // An opening session already owns native resources. A source switch must
     // cancel it too, rather than sending a second open with the same identity.
@@ -230,7 +331,16 @@ export class NativeMpvPlayerBackend extends MediaPlayerBackend {
 
   play() { return this.command('player:play') }
   pause() { return this.command('player:pause') }
-  seek(seconds) { return this.command('player:seek', { seconds: Math.max(0, Number(seconds) || 0) }) }
+  async seek(seconds) {
+    if (!this.canSendPlaybackCommand()) return { ok: false, skipped: true }
+    const revision = ++this.seekRevision
+    const target = Math.max(0, Math.min(this.state.duration, Number(seconds) || 0))
+    clearTimeout(this.seekTimer)
+    this.update({ pendingSeekTime: target })
+    this.seekTimer = setTimeout(() => { if (revision === this.seekRevision) this.update({ pendingSeekTime: null }) }, 10000)
+    try { const result = await this.request('player:seek', { seconds: target }, { fatal: false }); if (revision === this.seekRevision) { clearTimeout(this.seekTimer); this.update({ pendingSeekTime: null }) }; return result }
+    catch (error) { if (revision === this.seekRevision) { clearTimeout(this.seekTimer); this.update({ pendingSeekTime: null }) }; throw error }
+  }
   setVolume(volume) { return this.command('player:set-volume', { volume: Math.max(0, Math.min(1, Number(volume) || 0)) }) }
   setMuted(muted) { return this.command('player:set-muted', { muted: Boolean(muted) }) }
   selectTrack(kind, id) { return this.command('player:select-track', { kind, id }) }
@@ -247,6 +357,7 @@ export class NativeMpvPlayerBackend extends MediaPlayerBackend {
   dispose() {
     if (this.closed) return
     this.closed = true
+    clearTimeout(this.seekTimer)
     this.unsubscribe?.()
     this.listeners.clear()
   }

@@ -41,26 +41,45 @@ const formatProfile = (profile, level) => {
   return `${profile}@${normalizedLevel}`
 }
 
+const channelCountLabel = (count) => ({ 1: '1.0 mono', 2: '2.0', 6: '5.1', 8: '7.1' }[Number(count)] || (Number(count) > 0 ? `${count} channels` : ''))
+
 export const formatMediaChannels = (layout, count) => {
-  if (layout) {
-    const normalized = String(layout).toLowerCase()
-    // mpv uses e.g. "undefined8" when the channel count is known but positions are not.
-    const unspecified = normalized.match(/^(?:undefined|unknown)(\d*)$/)
-    if (unspecified) {
-      const channels = Number(count) || Number(unspecified[1])
-      return channels > 0 ? `${channels} channels` : ''
-    }
-    if (normalized === 'stereo') return 'Stereo'
-    if (normalized === 'mono') return 'Mono'
-    if (normalized === '5.1(side)' || normalized === '5.1(back)') return '5.1'
-    if (normalized === '7.1(wide-side)' || normalized === '7.1(wide)') return '7.1'
-    return layout
-  }
-  return Number(count) > 0 ? `${count} channels` : ''
+  const raw = String(layout || '').trim()
+  const normalized = raw.toLowerCase()
+  const unspecified = normalized.match(/^(?:undefined|unknown)(\d*)$/)
+  if (!raw || unspecified || /^\d+$/.test(raw)) return channelCountLabel(count || unspecified?.[1] || raw)
+  if (normalized === 'mono' || normalized === '1.0') return '1.0 mono'
+  if (normalized === 'stereo' || normalized === '2.0') return '2.0'
+  if (/^5\.1(?:\((?:side|back)\))?$/.test(normalized)) return '5.1'
+  if (/^7\.1(?:\((?:wide-side|wide|side|back)\))?$/.test(normalized)) return '7.1'
+  return raw
 }
 
+const languages = {
+  ru: 'Russian', rus: 'Russian', en: 'English', eng: 'English', uk: 'Ukrainian', ukr: 'Ukrainian',
+  ka: 'Georgian', kat: 'Georgian', geo: 'Georgian', de: 'German', deu: 'German', ger: 'German',
+  fr: 'French', fra: 'French', fre: 'French', es: 'Spanish', spa: 'Spanish', it: 'Italian', ita: 'Italian',
+  ja: 'Japanese', jpn: 'Japanese', ko: 'Korean', kor: 'Korean', zh: 'Chinese', zho: 'Chinese', chi: 'Chinese',
+  und: 'Unknown language',
+}
+export const formatMediaLanguage = (raw, friendly) => {
+  if (friendly && friendly !== raw) return friendly
+  if (!raw) return friendly || ''
+  const base = String(raw).toLowerCase().split(/[-_]/)[0]
+  if (languages[base]) return languages[base]
+  // Intl is offline. Unknown codes and runtimes without DisplayNames retain raw evidence.
+  try { return new Intl.DisplayNames(['en'], { type: 'language', fallback: 'none' }).of(raw) || raw } catch { return raw }
+}
+
+export const formatMediaTrackIdentity = (track) => {
+  const language = formatMediaLanguage(track.language, track.friendlyLanguage)
+  const title = String(track.title || '').trim()
+  const equivalent = title && ([language, track.language].some((value) => value && value.toLowerCase() === title.toLowerCase()) || (language && formatMediaLanguage(title).toLowerCase() === language.toLowerCase()))
+  return join([language, !equivalent && title]) || (track.id != null ? `Track ${track.id}` : '')
+}
 export const formatMediaTrack = (track) => join([
-  track.title || track.friendlyLanguage || track.language || `Track ${track.id}`,
+  formatMediaTrackIdentity(track),
+  track.forced && !/forced/i.test(track.title || '') && 'Forced',
   track.friendlyCodec || track.codec,
   track.kind === 'audio' && formatMediaChannels(track.channelLayout, track.channels),
 ])
@@ -144,10 +163,7 @@ export const buildMediaInfoSections = (diagnostics = {}, fallbackDuration = 0) =
           formatMediaBitrate(audio.bitrate),
           audio.sampleRate ? `${Number(audio.sampleRate / 1000).toFixed(audio.sampleRate % 1000 ? 1 : 0)} kHz` : '',
         ]), rawAudio),
-        row('Track', join([
-          audio.friendlyLanguage || audio.language,
-          audio.title,
-        ]), audio.language || ''),
+        row('Track', formatMediaTrackIdentity(audio), audio.language || ''),
       ],
     },
   ]
@@ -158,8 +174,7 @@ export const buildMediaInfoSections = (diagnostics = {}, fallbackDuration = 0) =
       rows: [
         row('Track', join([
           subtitle.friendlyFormat || subtitle.format,
-          subtitle.friendlyLanguage || subtitle.language,
-          subtitle.title,
+          formatMediaTrackIdentity(subtitle),
           subtitle.forced ? 'Forced' : '',
         ]), rawSubtitle),
       ],
