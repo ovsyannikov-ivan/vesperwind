@@ -537,8 +537,9 @@ fn order_macos_overlay(parent: &NSView, view: &WKWebView) {
         .filter(|cover| !cover.isHidden())
         .and_then(|cover| index_of(cover).map(|index| (cover, index)));
     match cover {
-        Some((cover, cover_index)) if overlay_index + 1 != cover_index => parent
-            .addSubview_positioned_relativeTo(view, NSWindowOrderingMode::Below, Some(cover)),
+        Some((cover, cover_index)) if overlay_index + 1 != cover_index => {
+            parent.addSubview_positioned_relativeTo(view, NSWindowOrderingMode::Below, Some(cover))
+        }
         None if overlay_index + 1 != subviews.count() => {
             parent.addSubview_positioned_relativeTo(view, NSWindowOrderingMode::Above, None)
         }
