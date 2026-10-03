@@ -7,7 +7,9 @@ import './styles/main.css'
 import './styles/dropdown.css'
 import App from './App.vue'
 import { runtime } from './api/runtime.js'
+import { installDesktopContextMenuPolicy } from './utils/desktopContextMenuPolicy.js'
 
+installDesktopContextMenuPolicy()
 void runtime.getInfo()
 createApp(App).mount('#app')
 
