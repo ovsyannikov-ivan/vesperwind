@@ -32,7 +32,8 @@ other local panel's directory when available, otherwise the current directory.
 Archive operations require LocalProvider, including mounted network shares.
 SFTP archive commands are unavailable.
 
-Creation writes ZIP with deflate. Extraction explicitly registers ZIP, TAR,
+Creation writes ZIP with deflate and UTF-8 filename headers on every platform.
+Extraction explicitly registers ZIP, TAR,
 RAR/RAR5 and built-in gzip. No external filter, system tar, shell or PATH search
 is used. 7z is not enabled. Encrypted, multipart or unsupported compression
 variants report libarchive errors; no password/multi-volume workflow is provided.

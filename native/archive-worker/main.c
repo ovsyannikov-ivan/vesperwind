@@ -219,8 +219,10 @@ static int source_prefix_matches(const char *path, const char *source) {
 }
 static int create_zip(const char *output, int count, char **sources) {
     struct archive *a = archive_write_new(); uint64_t entries = 0, bytes = 0; int result = 0;
-    archive_write_set_format_zip(a);
-    archive_write_set_options(a, "zip:compression=deflate");
+    if (archive_write_set_format_zip(a) != ARCHIVE_OK ||
+        archive_write_set_options(a, "zip:compression=deflate,zip:hdrcharset=UTF-8") != ARCHIVE_OK) {
+        result = archive_fail(a); goto end;
+    }
     if (archive_write_open_filename(a, output) != ARCHIVE_OK) { result = archive_fail(a); goto end; }
     for (int i = 0; i < count; i++) {
         struct archive *disk = archive_read_disk_new(); struct archive_entry *entry = archive_entry_new();
