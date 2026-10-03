@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chapter controls verification</title>
+<div id="preview"></div>
+<script type="module">
+import { createApp, computed, ref } from 'vue/dist/vue.esm-bundler.js'
+import 'bootstrap/dist/css/bootstrap.min.css'
+import '@mdi/font/css/materialdesignicons.min.css'
+import '../../../src/styles/main.css'
+import '../../../src/media-overlay/media-overlay.css'
+import '../../../src/styles/dropdown.css'
+import ChapterControls from '../../../src/components/ChapterControls.vue'
+import { normalizeChapters, currentChapterIndex, adjacentChapterIndex } from '../../../src/player/chapters.js'
+
+createApp({
+  components: { ChapterControls },
+  setup() {
+    const count = ref(3)
+    const currentTime = ref(47.375)
+    const activeMenu = ref('')
+    const chapters = computed(() => normalizeChapters(Array.from({ length: count.value }, (_, index) => ({
+      index, startTime: index === 0 ? 0 : index === 1 ? 25.25 : 80.5 + (index - 2) * 60,
+      title: index === 0 ? 'Вступление 日本語' : index === 1 ? '' : 'Fin — café · ' + (index + 1),
+    }))))
+    const current = computed(() => currentChapterIndex(chapters.value, currentTime.value))
+    const select = (index) => {
+      const chapter = chapters.value.find((c) => c.index === index)
+      if (chapter) currentTime.value = chapter.startTime
+      activeMenu.value = ''
+    }
+    const step = (direction) => select(adjacentChapterIndex(chapters.value, current.value, direction))
+    return { count, currentTime, activeMenu, chapters, current, select, step }
+  },
+  template: `
+    <main style="padding: 24px; height: 100vh">
+      <label>Chapter count <select v-model.number="count" aria-label="Chapter count"><option>0</option><option>3</option><option>100</option></select></label>
+      <p role="status">Position: {{ currentTime }} · Current chapter: {{ current }}</p>
+      <div class="custom-media-player is-audio" style="height: 34px; margin-top: 20px">
+        <div class="custom-media-player-controls" style="display:flex">
+          <button class="media-control-button" aria-label="Play"><i class="mdi mdi-play" /></button>
+          <span style="flex:1">Audio control context</span>
+          <ChapterControls :chapters="chapters" :current-chapter-index="current" :open="activeMenu === 'audio'"
+            @toggle="activeMenu = activeMenu === 'audio' ? '' : 'audio'" @close="activeMenu = ''"
+            @select="select" @previous="step(-1)" @next="step(1)" />
+        </div>
+      </div>
+      <div class="media-overlay" style="height: 300px; margin-top: 20px; background:#000">
+        <div class="media-overlay-controls" style="opacity:1">
+          <div class="media-overlay-controls-main">
+            <button class="media-overlay-control-button" aria-label="Play"><i class="mdi mdi-play" /></button>
+            <span class="media-overlay-time">Video overlay control context</span>
+            <span class="media-overlay-spacer" />
+            <ChapterControls :chapters="chapters" :current-chapter-index="current" :open="activeMenu === 'video'"
+              control-class="media-overlay-control-button" toggle-class="btn btn-sm btn-dark"
+              @toggle="activeMenu = activeMenu === 'video' ? '' : 'video'" @close="activeMenu = ''"
+              @select="select" @previous="step(-1)" @next="step(1)" />
+            <button class="btn btn-sm btn-dark dropdown-toggle">Audio</button>
+            <button class="btn btn-sm btn-dark dropdown-toggle">Subtitles</button>
+          </div>
+        </div>
+      </div>
+    </main>`,
+}).mount('#preview')
+</script>
+</html>

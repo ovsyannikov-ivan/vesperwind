@@ -88,3 +88,33 @@ pub async fn media_history(app: tauri::AppHandle, payload: HistoryPayload) -> Va
     .await
     .unwrap_or_else(|_| serde_json::json!({"ok":false}))
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChapterPayload {
+    provider_id: Option<String>,
+    path: String,
+}
+
+#[tauri::command]
+pub async fn media_chapters(app: tauri::AppHandle, payload: ChapterPayload) -> Value {
+    use tauri::Manager;
+    // Optional source metadata: unsupported providers/codecs never break playback.
+    let chapters = tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        crate::provider_content::ContentSource::open(
+            &state.filesystem,
+            &state.ssh,
+            payload.provider_id.as_deref(),
+            &payload.path,
+        )
+        .ok()
+        .and_then(|source| {
+            crate::mpv::chapters::probe(source, std::sync::Arc::clone(&state.ssh)).ok()
+        })
+        .unwrap_or_default()
+    })
+    .await
+    .unwrap_or_default();
+    success("chapters", chapters)
+}

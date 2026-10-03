@@ -1,4 +1,6 @@
 import { backend, backendRuntimeMode } from '../api/backend.js'
+import { media } from '../api/media.js'
+import { normalizeChapters, currentChapterIndex, adjacentChapterIndex } from './chapters.js'
 
 export const PlayerStatus = Object.freeze({
   IDLE: 'idle',
@@ -27,6 +29,9 @@ const initialState = () => ({
   muted: false,
   subtitleDelay: 0,
   tracks: [],
+  chapters: [],
+  currentChapterIndex: null,
+  currentChapter: null,
   diagnostics: null,
   error: null,
   osd: null,
@@ -50,16 +55,33 @@ export class MediaPlayerBackend {
 
   update(next) {
     Object.assign(this.state, next)
+    if (next.chapters !== undefined) this.state.chapters = normalizeChapters(next.chapters)
+    this.state.currentChapterIndex = currentChapterIndex(this.state.chapters, this.state.currentTime)
+    this.state.currentChapter = this.state.chapters.find((chapter) => chapter.index === this.state.currentChapterIndex) ?? null
     const snapshot = this.snapshot()
     for (const listener of this.listeners) listener(snapshot)
+  }
+  selectChapter(index) {
+    const chapter = this.state.chapters.find((entry) => entry.index === index)
+    if (chapter) return this.seek(chapter.startTime)
+  }
+
+  previousChapter() {
+    return this.selectChapter(adjacentChapterIndex(this.state.chapters, this.state.currentChapterIndex, -1))
+  }
+
+  nextChapter() {
+    return this.selectChapter(adjacentChapterIndex(this.state.chapters, this.state.currentChapterIndex, 1))
   }
 }
 
 export class WebMediaPlayerBackend extends MediaPlayerBackend {
-  constructor(element, { autoplay = false, history = backendRuntimeMode === 'tauri' ? backend : null } = {}) {
+  constructor(element, { autoplay = false, history = backendRuntimeMode === 'tauri' ? backend : null,
+    chapterMetadata = backendRuntimeMode === 'tauri' ? media.getChapters : null } = {}) {
     super()
     this.element = element
     this.autoplay = autoplay
+    this.chapterMetadata = chapterMetadata
     this.history = history
     this.historySession = null
     this.historyReady = false
@@ -91,6 +113,7 @@ export class WebMediaPlayerBackend extends MediaPlayerBackend {
         } else this.finishRestore(false)
       },
       seeked: () => {
+        this.update({ currentTime: this.element.currentTime || 0 })
         if (this.pendingResume != null && !this.element.seeking && Math.abs(this.element.currentTime - this.pendingResume) <= 1) this.finishRestore(true)
       },
       play: () => { this.update({ status: PlayerStatus.PLAYING }); this.confirmAction('play') },
@@ -137,6 +160,7 @@ export class WebMediaPlayerBackend extends MediaPlayerBackend {
     this.pendingResume = null
     this.explicitAction = null
     await this.flushHistory('close')
+    if (this.closed || generation !== this.sourceGeneration) return
     this.historyReady = false
     this.historySession = null
     this.element.pause()
@@ -152,7 +176,20 @@ export class WebMediaPlayerBackend extends MediaPlayerBackend {
     this.element.src = source
     this.update({ ...initialState(), source, status: PlayerStatus.LOADING })
     this.element.load()
+    void this.loadChapters(location, generation)
     if (this.autoplay && !this.history) await this.play(false)
+  }
+
+  async loadChapters(location, generation) {
+    if (!this.chapterMetadata || !location?.path) return
+    try {
+      const response = await this.chapterMetadata(location)
+      if (!this.closed && generation === this.sourceGeneration) {
+        this.update({ chapters: response?.ok ? response.chapters : [] })
+      }
+    } catch {
+      // Missing/unsupported metadata must never prevent HTML playback.
+    }
   }
 
   async flushHistory(event) {
@@ -249,6 +286,7 @@ export class NativeMpvPlayerBackend extends MediaPlayerBackend {
         muted: state.muted ?? this.state.muted,
         subtitleDelay: state.subtitleDelay ?? this.state.subtitleDelay,
         tracks: state.tracks || this.state.tracks,
+        chapters: state.chapters ?? this.state.chapters,
         diagnostics: state.diagnostics ?? this.state.diagnostics,
         osd: state.osd ?? this.state.osd,
         error: state.error ? { message: state.error } : null,

@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import ChapterControls from '../components/ChapterControls.vue'
 import MediaOsd from '../components/MediaOsd.vue'
 import { createMediaOsd } from '../player/mediaOsd.js'
 import VideoProgressRange from '../components/VideoProgressRange.vue'
@@ -28,6 +29,8 @@ const state = reactive({
   muted: false,
   subtitleDelay: 0,
   tracks: [],
+  chapters: [],
+  currentChapterIndex: null,
   diagnostics: null,
   error: null,
 })
@@ -103,6 +106,7 @@ const applyState = (snapshot) => {
 const attachToSession = async (sessionId) => {
   if (!sessionId || player?.sessionId === sessionId) return
   osd.reset()
+  activeMenu.value = ''
   seekController.reset()
   progressRange.value?.hidePreview()
   unsubscribeState?.()
@@ -144,6 +148,17 @@ const togglePlay = () => (isPlaying.value ? player?.pause() : player?.play())?.c
 const selectTrack = async (kind, id) => {
   await player?.selectTrack(kind, id).catch(() => {})
   closeMenu()
+}
+const selectChapter = async (index) => {
+  seekController.reset()
+  progressRange.value?.hidePreview()
+  closeMenu()
+  await player?.selectChapter(index)?.catch(() => {})
+}
+const chapterStep = async (direction) => {
+  seekController.reset()
+  progressRange.value?.hidePreview()
+  await (direction < 0 ? player?.previousChapter() : player?.nextChapter())?.catch(() => {})
 }
 const sendAction = (action) => {
   seekController.reset()
@@ -297,6 +312,11 @@ onBeforeUnmount(() => {
           </button>
           <input class="form-range media-overlay-volume" type="range" min="0" max="1" step="0.01" :value="state.volume" aria-label="Volume" @input="player?.setVolume($event.target.value)">
           <span class="media-overlay-spacer" />
+
+          <ChapterControls :chapters="state.chapters" :current-chapter-index="state.currentChapterIndex" :open="activeMenu === 'chapters'"
+            :disabled="![PlayerStatus.READY, PlayerStatus.PLAYING, PlayerStatus.PAUSED].includes(state.status)"
+            control-class="media-overlay-control-button" toggle-class="btn btn-sm btn-dark"
+            @toggle="toggleMenu('chapters')" @close="closeMenu" @select="selectChapter" @previous="chapterStep(-1)" @next="chapterStep(1)" />
 
           <div v-if="audioTracks.length" class="dropup media-overlay-dropdown">
             <button class="btn btn-sm btn-dark dropdown-toggle" type="button" :aria-expanded="activeMenu === 'audio'" @click="toggleMenu('audio')">Audio</button>

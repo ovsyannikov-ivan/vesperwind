@@ -2245,6 +2245,12 @@ body.is-resizing-horizontal {
 	background: transparent;
 	font-size: 22px;
 }
+.custom-media-player .media-control-button {
+	color: var(--media-icon-color);
+}
+.media-control-button:disabled {
+	opacity: 0.35;
+}
 .media-viewer-stage.is-runtime-fullscreen .media-viewer-image,
 .media-viewer-stage.is-runtime-fullscreen .media-viewer-video {
 	max-width: 100vw;

@@ -477,3 +477,124 @@ test('native pending seek stays at clicked target through stale snapshots and re
   assert.equal(player.snapshot().currentTime, 3000)
   player.dispose()
 })
+
+const chapterFixture = [
+  { index: 0, title: 'Вступление 日本語', startTime: 0 },
+  { index: 1, title: '  ', startTime: 25.25 },
+  { index: 2, title: 'Fin — café', startTime: 80.5 },
+]
+const settle = () => new Promise((resolve) => setImmediate(resolve))
+
+test('web/audio chapters use provider metadata, Unicode, exact selection and boundaries', async () => {
+  const element = new FakeMediaElement()
+  const locations = []
+  const player = new WebMediaPlayerBackend(element, { chapterMetadata: async (location) => {
+    locations.push(location); return { ok: true, chapters: chapterFixture }
+  } })
+  await player.setSource('book', { providerId: 'sftp:book', path: '/book.m4b' })
+  await settle()
+  element.duration = 120
+  element.dispatchEvent(new Event('loadedmetadata'))
+  assert.deepEqual(locations, [{ providerId: 'sftp:book', path: '/book.m4b' }])
+  assert.equal(player.snapshot().chapters[0].title, 'Вступление 日本語')
+  assert.equal(player.snapshot().chapters[1].title, 'Chapter 2')
+  assert.equal(player.snapshot().currentChapterIndex, 0)
+  player.previousChapter()
+  assert.equal(element.currentTime, 0)
+  player.nextChapter()
+  assert.equal(element.currentTime, 25.25)
+  element.dispatchEvent(new Event('seeked'))
+  assert.equal(player.snapshot().currentChapterIndex, 1)
+  element.currentTime = 80.49
+  element.dispatchEvent(new Event('timeupdate'))
+  assert.equal(player.snapshot().currentChapterIndex, 1)
+  element.currentTime = 80.5
+  element.dispatchEvent(new Event('timeupdate'))
+  assert.equal(player.snapshot().currentChapterIndex, 2)
+  player.nextChapter()
+  assert.equal(element.currentTime, 80.5)
+  player.previousChapter()
+  assert.equal(element.currentTime, 25.25)
+  player.selectChapter(2)
+  assert.equal(element.currentTime, 80.5)
+  player.selectChapter(99)
+  assert.equal(element.currentTime, 80.5)
+  player.close()
+  assert.deepEqual(player.snapshot().chapters, [])
+})
+
+test('chapter metadata failures, no chapters and stale source/close replies cannot break playback', async () => {
+  let resolveOld
+  const element = new FakeMediaElement()
+  const player = new WebMediaPlayerBackend(element, { autoplay: true, chapterMetadata: (location) => {
+    if (location.path === 'old') return new Promise((resolve) => { resolveOld = resolve })
+    if (location.path === 'failure') throw new Error('Unsupported metadata')
+    return Promise.resolve({ ok: true, chapters: [] })
+  } })
+  await player.setSource('old', { path: 'old' })
+  await player.setSource('new', { path: 'new' })
+  resolveOld({ ok: true, chapters: chapterFixture })
+  await settle()
+  assert.deepEqual(player.snapshot().chapters, [])
+  assert.equal(player.snapshot().status, PlayerStatus.PLAYING)
+  await player.setSource('failure', { path: 'failure' })
+  await settle()
+  assert.equal(player.snapshot().status, PlayerStatus.PLAYING)
+  assert.deepEqual(player.snapshot().chapters, [])
+  await player.setSource('old-again', { path: 'old' })
+  player.close()
+  resolveOld({ ok: true, chapters: chapterFixture })
+  await settle()
+  assert.deepEqual(player.snapshot().chapters, [])
+})
+
+test('M4B web resume keeps an absolute position inside its chapter and uses media:history', async () => {
+  const requests = []
+  const history = { request: async (event, payload) => {
+    assert.equal(event, 'media:history'); requests.push(payload)
+    return { ok: true, position: 47.375 }
+  } }
+  const element = new FakeMediaElement()
+  const player = new WebMediaPlayerBackend(element, { history, autoplay: true,
+    chapterMetadata: async () => ({ ok: true, chapters: chapterFixture }) })
+  await player.setSource('book', { providerId: 'local', path: '/book.m4b' })
+  await settle()
+  element.duration = 120
+  element.dispatchEvent(new Event('loadedmetadata'))
+  assert.equal(element.currentTime, 47.375)
+  assert.equal(element.paused, true)
+  element.dispatchEvent(new Event('seeked'))
+  assert.equal(player.snapshot().currentChapterIndex, 1)
+  assert.equal(player.snapshot().currentChapter.startTime, 25.25)
+  assert.equal(player.snapshot().currentTime, 47.375)
+  player.pause()
+  assert.ok(requests.some((p) => p.event === 'pause' && p.position === 47.375))
+  player.close()
+  assert.ok(requests.some((p) => p.event === 'close' && p.position === 47.375))
+})
+
+test('native chapters use the existing absolute seek and preserve file navigation', async () => {
+  const requests = []
+  let receive
+  const player = new NativeMpvPlayerBackend({ sessionId: 'chapters', transport: {
+    subscribe: (_event, listener) => { receive = listener; return () => {} },
+    request: async (event, payload) => {
+      requests.push({ event, payload })
+      return { ok: true, state: { currentTime: payload.seconds, seeking: false } }
+    },
+  } })
+  receive({ sessionId: 'chapters', status: PlayerStatus.PAUSED, duration: 120,
+    currentTime: 47.375, chapters: chapterFixture })
+  assert.equal(player.snapshot().currentChapterIndex, 1)
+  await player.nextChapter()
+  assert.equal(requests.at(-1).payload.seconds, 80.5)
+  assert.equal(player.snapshot().currentChapterIndex, 2)
+  await player.nextChapter()
+  assert.equal(requests.length, 1)
+  await player.previousChapter()
+  await player.selectChapter(0)
+  await player.previousChapter()
+  assert.equal(requests.length, 3)
+  assert.ok(requests.every(({ event }) => event === 'player:seek'))
+  player.dispose()
+})

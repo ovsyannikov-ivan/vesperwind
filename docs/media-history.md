@@ -61,9 +61,28 @@ replace one shared OSD and reset its timer; closing/switching clears it.
 
 A later migration can add audio/subtitle preferences keyed by language, title and
 codec, with numeric track ID fallback. This schema stores position only. There is
-no watched-library UI, retention cleanup or cross-device sync. Sudden power loss
+no watched-library UI or cross-device sync. Sudden power loss
 can lose time since the latest checkpoint; graceful exit flushes known position.
 Remote replacement with unchanged path/size cannot be detected without remote
 mtime support. Windows/Linux packaged runtime acceptance remains separate.
 
 See [video thumbnail previews](video-thumbnails.md).
+
+## Audiobooks and chapters
+
+M4B and all supported web audio use the same WebHistory RAM mirror, checkpoint
+policy, identity and media_history table as video. Resume is always an absolute
+position; it never snaps to a chapter start. Chapters are source metadata, never
+SQLite data. Native video reads mpv chapter-list at FILE_LOADED. Web audio/video
+queries bundled libmpv in a paused headless session through ContentSource and the
+existing provider stream callbacks. Unsupported metadata returns no chapters.
+No system ffprobe/ffmpeg or container parser is used at runtime for chapters.
+The frontend shares index/title/startTime and resolves the active chapter from
+currentTime, including after resume. Chapter controls use the existing seek.
+
+## Retention
+
+The history worker prunes rows whose updated_at is strictly older than 180 days
+when configuring/opening its existing connection. Successful valid lookups touch
+updated_at even when playback position has not changed. Completed media is still
+deleted immediately. No VACUUM, additional index, schema or connection is added.

@@ -1,3 +1,4 @@
+pub(crate) mod chapters;
 mod dynamic_library;
 mod hdr_policy;
 mod macos_output;

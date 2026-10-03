@@ -212,6 +212,7 @@ pub fn run() {
             commands::media::media_source,
             commands::media::video_thumbnail,
             commands::media::media_history,
+            commands::media::media_chapters,
             commands::player::player_capabilities,
             commands::player::player_open,
             commands::player::player_play,

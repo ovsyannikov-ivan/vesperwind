@@ -8,6 +8,24 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+pub const RETENTION_DAYS: i64 = 180;
+/// UTC seconds; exactly 180 days old survives, only strictly older rows expire.
+pub fn retention_cutoff(now: i64) -> i64 {
+    now.saturating_sub(RETENTION_DAYS * 24 * 60 * 60)
+}
+fn timestamp() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+        .min(i64::MAX as u64) as i64
+}
+fn prune(c: &Connection, now: i64) -> rusqlite::Result<usize> {
+    c.execute(
+        "DELETE FROM media_history WHERE updated_at < ?1",
+        [retention_cutoff(now)],
+    )
+}
 pub const BEGINNING: f64 = 15.0;
 pub const END_REMAINING: f64 = 30.0;
 pub const CHECKPOINT: Duration = Duration::from_secs(120);
@@ -182,6 +200,10 @@ fn open(path: &Path) -> rusqlite::Result<Connection> {
     c.pragma_update(None, "journal_mode", "WAL")?;
     c.pragma_update(None, "synchronous", "FULL")?;
     migrate(&mut c)?;
+    let pruned = prune(&c, timestamp())?;
+    if pruned > 0 {
+        eprintln!("[media-history] pruned={pruned} retention_days={RETENTION_DAYS}");
+    }
     Ok(c)
 }
 fn migrate(c: &mut Connection) -> rusqlite::Result<()> {
@@ -200,6 +222,9 @@ fn migrate(c: &mut Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 fn lookup(c: &Connection, identity: &Identity) -> rusqlite::Result<Option<f64>> {
+    lookup_at(c, identity, timestamp())
+}
+fn lookup_at(c: &Connection, identity: &Identity, now: i64) -> rusqlite::Result<Option<f64>> {
     let row: Option<(i64, Option<String>, f64, f64)> = c.query_row("SELECT file_size, modified_at, position, duration FROM media_history WHERE provider_id=?1 AND path=?2", params![identity.provider, identity.path], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).optional()?;
     let Some((size, modified, position, duration)) = row else {
         return Ok(None);
@@ -211,6 +236,10 @@ fn lookup(c: &Connection, identity: &Identity) -> rusqlite::Result<Option<f64>> 
         )?;
         return Ok(None);
     }
+    c.execute(
+        "UPDATE media_history SET updated_at=?3 WHERE provider_id=?1 AND path=?2",
+        params![identity.provider, identity.path, now],
+    )?;
     Ok(Some(position))
 }
 fn save(
@@ -226,10 +255,7 @@ fn save(
             params![identity.provider, identity.path],
         );
     }
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64;
+    let now = timestamp();
     c.execute("INSERT INTO media_history(provider_id,path,file_size,modified_at,duration,position,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7)
         ON CONFLICT(provider_id,path) DO UPDATE SET file_size=excluded.file_size, modified_at=excluded.modified_at, duration=excluded.duration, position=excluded.position, updated_at=excluded.updated_at
         WHERE file_size IS NOT excluded.file_size OR modified_at IS NOT excluded.modified_at OR duration IS NOT excluded.duration OR abs(position-excluded.position)>=1.0",
@@ -250,6 +276,67 @@ mod tests {
             size: 123,
             modified: Some("100".into()),
         }
+    }
+    #[test]
+    fn retention_is_deterministic_and_lookup_keeps_returning_media_active() {
+        let c = db();
+        let now = 2_000_000_000;
+        let cutoff = retention_cutoff(now);
+        assert_eq!(cutoff, now - 180 * 86400);
+        assert_eq!(retention_cutoff(i64::MIN), i64::MIN);
+        for (name, updated) in [
+            ("old", cutoff - 1),
+            ("boundary", cutoff),
+            ("recent", now),
+            ("active", cutoff - 1),
+        ] {
+            save(&c, &identity(name), 47.375, 120.0, false).unwrap();
+            c.execute(
+                "UPDATE media_history SET updated_at=?2 WHERE path=?1",
+                params![name, updated],
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            lookup_at(&c, &identity("active"), now).unwrap(),
+            Some(47.375)
+        );
+        let refreshed: i64 = c
+            .query_row(
+                "SELECT updated_at FROM media_history WHERE path='active'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(refreshed, now);
+        assert_eq!(prune(&c, now).unwrap(), 1);
+        assert_eq!(lookup_at(&c, &identity("old"), now).unwrap(), None);
+        for name in ["boundary", "recent", "active"] {
+            assert_eq!(lookup_at(&c, &identity(name), now).unwrap(), Some(47.375));
+        }
+        assert_eq!(prune(&c, now).unwrap(), 0);
+        save(&c, &identity("active"), 120.0, 120.0, true).unwrap();
+        assert_eq!(lookup_at(&c, &identity("active"), now).unwrap(), None);
+    }
+    #[test]
+    fn configuration_prunes_on_the_existing_worker_connection() {
+        let root = std::env::temp_dir().join(format!("vw-retention-{}", uuid::Uuid::new_v4()));
+        let path = root.join("history.sqlite3");
+        let c = open(&path).unwrap();
+        save(&c, &identity("abandoned"), 47.375, 120.0, false).unwrap();
+        save(&c, &identity("recent"), 47.375, 120.0, false).unwrap();
+        c.execute(
+            "UPDATE media_history SET updated_at=?1 WHERE path='abandoned'",
+            [retention_cutoff(timestamp()) - 1],
+        )
+        .unwrap();
+        drop(c);
+        let worker = History::default();
+        worker.configure(path);
+        assert_eq!(worker.lookup(identity("abandoned")), None);
+        assert_eq!(worker.lookup(identity("recent")), Some(47.375));
+        drop(worker);
+        std::fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn first_open_reopen_separate_sources_and_invalidation() {

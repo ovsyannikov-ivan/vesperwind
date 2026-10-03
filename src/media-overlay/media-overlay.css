@@ -96,6 +96,10 @@ body,
   font-size: 1.35rem;
 }
 
+.media-overlay-control-button:disabled {
+  opacity: 0.35;
+}
+
 .media-overlay-header-button {
   color: #a7a7ad;
 }

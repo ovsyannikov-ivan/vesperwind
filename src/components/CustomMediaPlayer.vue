@@ -10,6 +10,7 @@ import 'media-chrome/dist/media-time-display.js'
 import 'media-chrome/dist/media-time-range.js'
 import 'media-chrome/dist/media-volume-range.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import ChapterControls from './ChapterControls.vue'
 import MediaOsd from './MediaOsd.vue'
 import { createMediaOsd } from '../player/mediaOsd.js'
 import ThumbnailPreview from './ThumbnailPreview.vue'
@@ -54,9 +55,21 @@ const state = reactive({
   muted: false,
   subtitleDelay: 0,
   tracks: [],
+  chapters: [],
+  currentChapterIndex: null,
   diagnostics: null,
   error: null,
 })
+const chaptersOpen = ref(false)
+const selectChapter = (index) => {
+  seekController.reset()
+  chaptersOpen.value = false
+  return player?.selectChapter(index)?.catch?.((error) => console.warn('Chapter seek failed', error))
+}
+const chapterStep = (direction) => {
+  seekController.reset()
+  return (direction < 0 ? player?.previousChapter() : player?.nextChapter())?.catch?.((error) => console.warn('Chapter seek failed', error))
+}
 const osdMessage = ref(null)
 const osd = createMediaOsd({ onChange: (v) => { osdMessage.value = v } })
 const seekFeedback = ref(null)
@@ -345,6 +358,7 @@ watch(
   () => {
     seekController.reset()
     thumbnail.hide()
+    chaptersOpen.value = false
     if (!player) return
     nativeReady = false
     const activePlayer = player
@@ -428,6 +442,9 @@ defineExpose({ mediaElement, pause, play, seek, stop, coverNativeTransition, rev
       </div>
       <media-mute-button aria-label="Mute or unmute" />
       <media-volume-range aria-label="Volume" />
+      <ChapterControls :chapters="state.chapters" :current-chapter-index="state.currentChapterIndex" :open="chaptersOpen"
+        :disabled="![PlayerStatus.READY, PlayerStatus.PLAYING, PlayerStatus.PAUSED].includes(state.status)"
+        @toggle="chaptersOpen = !chaptersOpen" @close="chaptersOpen = false" @select="selectChapter" @previous="chapterStep(-1)" @next="chapterStep(1)" />
       <media-playback-rate-button v-if="!isAudio" />
       <media-pip-button v-if="!isAudio" />
       <button v-if="!isAudio" class="media-control-button" type="button" title="Enter fullscreen" aria-label="Enter fullscreen" @click="emit('fullscreen')"><i class="mdi mdi-fullscreen" aria-hidden="true" /></button>

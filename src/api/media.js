@@ -18,4 +18,6 @@ const prepare = async (location, options) => {
   return source.ok ? { ...response, source: source.source } : source
 }
 
-export const media = Object.freeze({ getUrl, prepare })
+const getChapters = (location) => backend.request('media:chapters', location)
+
+export const media = Object.freeze({ getUrl, prepare, getChapters })

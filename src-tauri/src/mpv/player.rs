@@ -88,6 +88,8 @@ pub struct PlayerSnapshot {
     pub muted: bool,
     pub subtitle_delay: f64,
     pub tracks: Vec<PlayerTrack>,
+    pub chapters: Vec<super::chapters::Chapter>,
+    pub current_chapter_index: Option<usize>,
     pub diagnostics: PlaybackDiagnostics,
     pub error: Option<String>,
     pub osd: Option<MediaOsdEvent>,
@@ -265,6 +267,8 @@ impl Default for PlayerSnapshot {
             muted: false,
             subtitle_delay: 0.0,
             tracks: Vec::new(),
+            chapters: Vec::new(),
+            current_chapter_index: None,
             diagnostics: PlaybackDiagnostics::default(),
             error: None,
             osd: None,
@@ -1012,6 +1016,8 @@ fn control_loop(
                 eof_handled = false;
                 *lifecycle.lock().unwrap_or_else(|value| value.into_inner()) =
                     PlayerLifecycle::Opening;
+                state.chapters.clear();
+                state.current_chapter_index = None;
                 state.status = "opening".to_string();
                 state.error = None;
                 emit_state(&app, &session_id, &state);
@@ -1163,6 +1169,7 @@ fn control_loop(
             match event.event_id {
                 MPV_EVENT_NONE => break,
                 MPV_EVENT_FILE_LOADED => {
+                    state.chapters = super::chapters::read(&api, handle);
                     #[cfg(target_os = "windows")]
                     if backend == Backend::D3d11 {
                         update_windows_output_policy(&api, handle, &display, &mut output_policy);
@@ -1418,6 +1425,8 @@ fn control_loop(
                     Ok(()) => {
                         state.status = "paused".into();
                         state.current_time = 0.0;
+                        state.current_chapter_index =
+                            super::chapters::current_index(&state.chapters, 0.0);
                         *lifecycle.lock().unwrap_or_else(|value| value.into_inner()) =
                             PlayerLifecycle::Paused;
                         eprintln!("[player={session_id}] EOF rewound to start and paused");
@@ -1683,13 +1692,16 @@ fn read_playback_state(
             "playing".into()
         };
     }
+    let current_time = api
+        .get_double(handle, "time-pos")
+        .unwrap_or(previous.current_time)
+        .max(0.0);
     PlayerSnapshot {
         presentation: previous.presentation.clone(),
         status,
-        current_time: api
-            .get_double(handle, "time-pos")
-            .unwrap_or(previous.current_time)
-            .max(0.0),
+        current_time,
+        chapters: previous.chapters.clone(),
+        current_chapter_index: super::chapters::current_index(&previous.chapters, current_time),
         seeking: api.get_flag(handle, "seeking").unwrap_or(false),
         duration: api
             .get_double(handle, "duration")
