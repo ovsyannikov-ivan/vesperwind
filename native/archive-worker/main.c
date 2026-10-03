@@ -205,6 +205,18 @@ static int extract(const char *source) {
 end:
     archive_read_free(a); archive_write_free(disk); return result;
 }
+static int source_prefix_matches(const char *path, const char *source) {
+    while (*source) {
+        char actual = *path++, expected = *source++;
+#ifdef _WIN32
+        /* archive_read_disk_windows normalizes entry path separators to '/'. */
+        if (actual == '\\') actual = '/';
+        if (expected == '\\') expected = '/';
+#endif
+        if (actual != expected) return 0;
+    }
+    return 1;
+}
 static int create_zip(const char *output, int count, char **sources) {
     struct archive *a = archive_write_new(); uint64_t entries = 0, bytes = 0; int result = 0;
     archive_write_set_format_zip(a);
@@ -230,7 +242,7 @@ static int create_zip(const char *output, int count, char **sources) {
             const char *physical = archive_entry_sourcepath(entry);
             const char *original = archive_entry_pathname(entry);
             size_t prefix = strlen(sources[i]) - strlen(base);
-            if (!original || strncmp(original, sources[i], strlen(sources[i])) || strlen(original) < prefix) {
+            if (!original || !source_prefix_matches(original, sources[i]) || strlen(original) < prefix) {
                 result = fail("EINVAL", "Invalid source traversal"); goto source_end;
             }
             char *relative = strdup(original + prefix);

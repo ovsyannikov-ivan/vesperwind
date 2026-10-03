@@ -24,7 +24,7 @@ endforeach()
 add_subdirectory("${LIBARCHIVE_SOURCE}" libarchive EXCLUDE_FROM_ALL)
 if(WIN32)
   # libarchive uses the OS RNG even with its optional CNG crypto formats disabled.
-  target_link_libraries(archive_static PUBLIC bcrypt)
+  target_link_libraries(archive_static bcrypt)
 endif()
 add_executable(vesperwind-archive main.c)
 target_compile_definitions(vesperwind-archive PRIVATE LIBARCHIVE_STATIC)

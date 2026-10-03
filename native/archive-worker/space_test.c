@@ -20,6 +20,15 @@ static int simulated_space(uint64_t *bytes) {
 int main(int argc, char **argv) {
     CHECK(argc == 3);
     if (!strcmp(argv[1], "limits")) {
+        CHECK(source_prefix_matches("/book/chapter", "/book"));
+        CHECK(!source_prefix_matches("/other/chapter", "/book"));
+        CHECK(!source_prefix_matches("/boo", "/book"));
+#ifdef _WIN32
+        CHECK(source_prefix_matches("//?/C:/book/chapter", "\\\\?\\C:\\book"));
+        CHECK(!source_prefix_matches("//?/D:/book/chapter", "\\\\?\\C:\\book"));
+#else
+        CHECK(!source_prefix_matches("/book/chapter", "\\book"));
+#endif
         CHECK(space_reserve((uint64_t)1 << 30) == MIN_SPACE_RESERVE);
         CHECK(space_reserve((uint64_t)10 << 30) == ((uint64_t)1 << 30));
         CHECK(extraction_limit(MIN_SPACE_RESERVE, MIN_SPACE_RESERVE) == 0);
