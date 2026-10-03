@@ -55,11 +55,23 @@ jobs:
               with:
                   components: rustfmt
 
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+
+            - name: Build bundled archive worker and test disk limits
+              working-directory: .
+              run: npm run build:archives
+
             - name: Check formatting
               run: cargo fmt --check
 
             - name: Run tests
               run: cargo test
+
+            - name: Run real archive workflow
+              run: cargo test real_archive_workflow -- --ignored
 
     rust-windows:
         name: Rust / Windows
@@ -78,5 +90,20 @@ jobs:
               with:
                   components: rustfmt
 
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+
+            - name: Build bundled archive worker and test disk limits
+              working-directory: .
+              run: npm run build:archives
+
+            - name: Check formatting
+              run: cargo fmt --check
+
             - name: Run tests
               run: cargo test
+
+            - name: Run real archive workflow
+              run: cargo test real_archive_workflow -- --ignored

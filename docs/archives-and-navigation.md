@@ -41,6 +41,10 @@ One job runs at a time in Tauri (one per socket in Node). The backend immediatel
 returns a job ID, emits entry/byte progress and cancels by killing/reaping the
 active child. Disconnect, unmount or shutdown cancels outstanding work. Progress
 is throttled to about one event per second; no preliminary full scan is needed.
+In browser/SEA mode, disconnect immediately ends the frontend job with
+ECONNECTION_LOST and clears its busy/cancelling state. Reconnect cannot revive
+the old job or deliver stale progress. Check the destination before retrying:
+publication may have finished just before the connection was lost.
 
 Output is staged in a newly created private directory within the destination.
 An atomic rename publishes the result without replacing existing files, folders
@@ -61,6 +65,15 @@ SECURE_SYMLINKS and NO_OVERWRITE. Ownership, ACLs, xattrs, file flags and privil
 permissions are not restored. Limits are one million entries and 1 TiB, including
 checks for oversized sparse offsets. Creation rejects source links and duplicate
 source basenames. Shell metacharacters are passed as literal argv values.
+Extraction additionally caps cumulative logical file sizes at the initially
+available destination space minus a reserve of 10% or 256 MiB, whichever is
+larger, and still obeys the 1 TiB ceiling. The worker queries available space
+on its actual staging volume (statvfs on POSIX, GetDiskFreeSpaceExW on Windows,
+using space available to the calling user). It rechecks before every entry and
+after each 8 MiB of streamed data, so consumption by other applications also
+stops extraction with EARCHIVE_SPACE. An unavailable space query fails closed.
+Sparse holes count toward the logical-size limit. This is a capacity guard,
+not a disk reservation; concurrent writers can still race the next check.
 These checks prevent archive-controlled escapes; they do not isolate a separate
 hostile process running as the same OS user.
 
@@ -85,7 +98,7 @@ extracts it to a private unique directory without a PATH fallback.
 
 Errors include EARCHIVE_SIDECAR, EARCHIVE_VERSION, EARCHIVE_BUSY,
 EARCHIVE_UNSAFE_PATH, EARCHIVE_UNSAFE_ENTRY, EARCHIVE_LIMIT, EARCHIVE_PUBLISH,
-EARCHIVE_FORMAT and ECANCELLED. Stderr diagnostics are limited to 8 KiB.
+EARCHIVE_SPACE, EARCHIVE_FORMAT and ECANCELLED. Stderr diagnostics are limited to 8 KiB.
 
 ## Validation
 
@@ -99,6 +112,13 @@ run `cargo test --manifest-path src-tauri/Cargo.toml real_archive_workflow -- --
 for a real Rust backend workflow. UI acceptance uses Tauri. Windows/WNet requires
 Windows; actual SMB authentication requires a reachable share. Unit tests do not
 establish those OS/network flows.
+
+Both Rust CI jobs (macOS and Windows) build the bundled C worker with CMake
+before cargo tests and explicitly run the ignored real archive workflow. This
+covers extraction formats, Unicode ZIP creation/extraction/publication,
+unsafe entries, cancellation and cleanup using the platform's real executable.
+The build recipe also runs five native disk-budget scenarios, including shrinking
+available space during streaming, without filling a real disk.
 
 References: [libarchive formats](https://github.com/libarchive/libarchive/blob/master/README.md),
 [extraction flags](https://github.com/libarchive/libarchive/blob/master/libarchive/archive_write_disk.3),

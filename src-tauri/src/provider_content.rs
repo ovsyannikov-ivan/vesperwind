@@ -93,7 +93,9 @@ impl ContentSource {
         })
     }
 
-    pub fn local_path(&self) -> Option<&std::path::Path> { self.local_path.as_deref() }
+    pub fn local_path(&self) -> Option<&std::path::Path> {
+        self.local_path.as_deref()
+    }
 
     pub fn metadata(&self) -> &ContentMetadata {
         &self.metadata

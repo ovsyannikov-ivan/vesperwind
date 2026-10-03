@@ -419,6 +419,43 @@ mod tests {
         ] {
             run(name, &format!("extracted-{name}")).unwrap();
         }
+        let book = root.join("Книга");
+        fs::create_dir(&book).unwrap();
+        fs::write(book.join("Глава.txt"), "Unicode ZIP round trip").unwrap();
+        let mut request = ArchiveRequest {
+            job_id: uuid::Uuid::new_v4().to_string(),
+            action: "create".into(),
+            name: "Книга.zip".into(),
+            sources: vec![Location {
+                provider_id: "local".into(),
+                path: book.to_string_lossy().into_owned(),
+            }],
+            target: Location {
+                provider_id: "local".into(),
+                path: root.to_string_lossy().into_owned(),
+            },
+        };
+        perform(
+            &filesystem,
+            &request,
+            Arc::new(AtomicBool::new(false)),
+            |_| {},
+        )
+        .unwrap();
+        request.action = "extract".into();
+        request.sources[0].path = root.join("Книга.zip").to_string_lossy().into_owned();
+        request.name = "распаковано".into();
+        perform(
+            &filesystem,
+            &request,
+            Arc::new(AtomicBool::new(false)),
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read_to_string(root.join("распаковано/Книга/Глава.txt")).unwrap(),
+            "Unicode ZIP round trip"
+        );
         for name in ["dotdot.zip", "drive.tar", "symlink.tar", "hardlink.tar"] {
             assert!(run(name, &format!("rejected-{name}")).is_err());
             assert!(!root.join(format!("rejected-{name}")).exists());

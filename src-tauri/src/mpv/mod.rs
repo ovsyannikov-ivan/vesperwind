@@ -16,7 +16,7 @@ use std::{
 
 use self::stream::MpvStreamOpenFn;
 use dynamic_library::DynamicLibrary;
-pub use player::{MpvPlayerManager, PlayerGeometry, PlayerSnapshot, PlaybackDiagnostics};
+pub use player::{MpvPlayerManager, PlaybackDiagnostics, PlayerGeometry, PlayerSnapshot};
 #[cfg(target_os = "windows")]
 pub(crate) use surface::set_window_clip;
 

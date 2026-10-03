@@ -145,7 +145,10 @@ pub fn run() {
             archive_jobs: Arc::new(Mutex::new(HashMap::new())),
         })
         .setup(move |app| {
-            app.state::<AppState>().player.history.configure(app.path().app_data_dir()?.join("media-history.sqlite3"));
+            app.state::<AppState>()
+                .player
+                .history
+                .configure(app.path().app_data_dir()?.join("media-history.sqlite3"));
             let window = app
                 .get_window("main")
                 .expect("main window must exist before creating media overlay");
@@ -262,7 +265,14 @@ pub fn run() {
             // Allow cancelled archive workers to kill/reap their child and
             // remove staging before normal application shutdown finishes.
             let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
-            while !app_handle.state::<AppState>().archive_jobs.lock().unwrap().is_empty() && std::time::Instant::now() < until {
+            while !app_handle
+                .state::<AppState>()
+                .archive_jobs
+                .lock()
+                .unwrap()
+                .is_empty()
+                && std::time::Instant::now() < until
+            {
                 std::thread::sleep(std::time::Duration::from_millis(20));
             }
         }

@@ -17,6 +17,8 @@
 #define WORKER_PROTOCOL 1
 #define MAX_ENTRIES 1000000
 #define MAX_BYTES ((uint64_t)1 << 40)
+#define MIN_SPACE_RESERVE ((uint64_t)256 << 20)
+#define SPACE_RECHECK_BYTES ((uint64_t)8 << 20)
 
 static void json_string(const char *s) {
     putchar('"');
@@ -93,6 +95,7 @@ static FILE *open_file(const char *s) {
 #else
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/statvfs.h>
 #ifdef __linux__
 #include <sys/syscall.h>
 #endif
@@ -102,6 +105,38 @@ static FILE *open_file(const char *s) {
     FILE *f = fdopen(fd, "rb"); if (!f) close(fd); return f;
 }
 #endif
+static int available_space(uint64_t *bytes) {
+#ifdef _WIN32
+    ULARGE_INTEGER available;
+    if (!GetDiskFreeSpaceExW(L".", &available, NULL, NULL)) return 0;
+    *bytes = available.QuadPart;
+#else
+    struct statvfs info;
+    if (statvfs(".", &info)) return 0;
+    uint64_t blocks = info.f_bavail, size = info.f_frsize;
+    *bytes = size && blocks > UINT64_MAX / size ? UINT64_MAX : blocks * size;
+#endif
+    return 1;
+}
+/* Compile-time seam for deterministic disk-pressure tests, never a runtime override. */
+#ifndef ARCHIVE_AVAILABLE_SPACE
+#define ARCHIVE_AVAILABLE_SPACE available_space
+#endif
+static uint64_t space_reserve(uint64_t available) {
+    return available / 10 > MIN_SPACE_RESERVE ? available / 10 : MIN_SPACE_RESERVE;
+}
+static uint64_t extraction_limit(uint64_t available, uint64_t reserve) {
+    if (available <= reserve) return 0;
+    return available - reserve < MAX_BYTES ? available - reserve : MAX_BYTES;
+}
+static int check_space(uint64_t reserve, uint64_t needed, uint64_t *remaining) {
+    uint64_t available;
+    if (!ARCHIVE_AVAILABLE_SPACE(&available)) return fail("EARCHIVE_SPACE", "Unable to query available space on the destination volume");
+    if (available <= reserve || needed > available - reserve)
+        return fail("EARCHIVE_SPACE", "Insufficient destination space while preserving the extraction reserve");
+    *remaining = available - reserve;
+    return 0;
+}
 static struct archive *reader(void) {
     struct archive *a = archive_read_new();
     /* Explicitly registered built-in readers/filters; no support_filter_program or *_all. */
@@ -115,8 +150,12 @@ static struct archive *reader(void) {
 }
 static int extract(const char *source) {
     struct archive *a = reader(), *disk = archive_write_disk_new();
-    struct archive_entry *entry; uint64_t entries = 0, bytes = 0;
+    struct archive_entry *entry; uint64_t entries = 0, bytes = 0, logical_bytes = 0;
+    uint64_t available, reserve, limit, remaining = 0, since_space_check = 0;
     int result = 0, status;
+    if (!ARCHIVE_AVAILABLE_SPACE(&available)) { result = fail("EARCHIVE_SPACE", "Unable to query available space on the destination volume"); goto end; }
+    reserve = space_reserve(available); limit = extraction_limit(available, reserve);
+    if (!limit) { result = fail("EARCHIVE_SPACE", "Insufficient destination space while preserving the extraction reserve"); goto end; }
     archive_write_disk_set_options(disk, ARCHIVE_EXTRACT_SECURE_NODOTDOT |
         ARCHIVE_EXTRACT_SECURE_NOABSOLUTEPATHS | ARCHIVE_EXTRACT_SECURE_SYMLINKS |
         ARCHIVE_EXTRACT_NO_OVERWRITE | ARCHIVE_EXTRACT_TIME);
@@ -130,9 +169,12 @@ static int extract(const char *source) {
             result = fail("EARCHIVE_UNSAFE_ENTRY", "Links and special files are not allowed in extracted archives"); goto end;
         }
         if (++entries > MAX_ENTRIES || archive_entry_size(entry) < 0 ||
-            (uint64_t)archive_entry_size(entry) > MAX_BYTES - bytes) {
+            (uint64_t)archive_entry_size(entry) > limit - logical_bytes) {
             result = fail("EARCHIVE_LIMIT", "Archive exceeds extraction limits"); goto end;
         }
+        uint64_t extent = (uint64_t)archive_entry_size(entry);
+        if ((result = check_space(reserve, extent, &remaining))) goto end;
+        since_space_check = 0;
         /* A tar root-directory record must not change the private staging root. */
         if (archive_entry_filetype(entry) == AE_IFDIR && strspn(name, "./") == strlen(name)) {
             if (archive_read_data_skip(a) != ARCHIVE_OK) { result = archive_fail(a); goto end; }
@@ -144,12 +186,19 @@ static int extract(const char *source) {
         const void *block; size_t size; la_int64_t offset;
         while ((status = archive_read_data_block(a, &block, &size, &offset)) != ARCHIVE_EOF) {
             if (status != ARCHIVE_OK) { result = archive_fail(a); goto end; }
-            if (offset < 0 || (uint64_t)offset > MAX_BYTES || size > MAX_BYTES - bytes ||
-                size > MAX_BYTES - (uint64_t)offset) { result = fail("EARCHIVE_LIMIT", "Archive exceeds extraction limits"); goto end; }
+            if (offset < 0 || (uint64_t)offset > limit - logical_bytes || size > MAX_BYTES - bytes ||
+                size > limit - logical_bytes - (uint64_t)offset) { result = fail("EARCHIVE_LIMIT", "Archive exceeds extraction limits"); goto end; }
+            if ((uint64_t)offset + size > extent) extent = (uint64_t)offset + size;
+            if (since_space_check >= SPACE_RECHECK_BYTES || size > remaining) {
+                if ((result = check_space(reserve, size, &remaining))) goto end;
+                since_space_check = 0;
+            }
             if (archive_write_data_block(disk, block, size, offset) != ARCHIVE_OK) { result = archive_fail(disk); goto end; }
+            remaining -= size; since_space_check += size;
             bytes += size; progress(entries, bytes, 0);
         }
         if (archive_write_finish_entry(disk) != ARCHIVE_OK) { result = archive_fail(disk); goto end; }
+        logical_bytes += extent;
     }
     if (archive_write_close(disk) != ARCHIVE_OK) result = archive_fail(disk);
     if (!result) progress(entries, bytes, 1);

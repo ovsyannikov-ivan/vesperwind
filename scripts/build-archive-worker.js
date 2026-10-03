@@ -8,8 +8,8 @@ import { fileURLToPath } from 'node:url'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const work = process.env.VESPERWIND_ARCHIVE_BUILD_DIR || path.join(os.tmpdir(), 'vesperwind-archive-sources')
 const sources = JSON.parse(await fs.readFile(new URL('./archive-sources.json', import.meta.url)))
-const run = (command, args) => {
-  const result = spawnSync(command, args, { stdio: 'inherit', shell: false })
+const run = (command, args, options = {}) => {
+  const result = spawnSync(command, args, { ...options, stdio: 'inherit', shell: false })
   if (result.error || result.status !== 0) throw result.error || new Error(`${command} failed (${result.status})`)
 }
 await fs.mkdir(work, { recursive: true })
@@ -31,9 +31,15 @@ const build = path.join(work, `build-${host}`)
 run('cmake', ['-S', path.join(root, 'native/archive-worker'), '-B', build,
   `-DLIBARCHIVE_SOURCE=${path.join(work, `libarchive-${sources.libarchive.version}`)}`,
   `-DZLIB_SOURCE=${path.join(work, `zlib-${sources.zlib.version}`)}`, '-DCMAKE_BUILD_TYPE=Release'])
-run('cmake', ['--build', build, '--config', 'Release', '--target', 'vesperwind-archive', '--parallel', '8'])
+run('cmake', ['--build', build, '--config', 'Release', '--target', 'vesperwind-archive', 'archive-space-test', '--parallel', '8'])
 const suffix = process.platform === 'win32' ? '.exe' : ''
 const binary = path.join(build, process.platform === 'win32' ? 'Release' : '', `vesperwind-archive${suffix}`)
+const spaceTest = path.join(build, process.platform === 'win32' ? 'Release' : '', `archive-space-test${suffix}`)
+for (const scenario of ['limits', 'low', 'unknown', 'pressure', 'stream']) {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'vesperwind-archive-space-test-'))
+  try { run(spaceTest, [scenario, path.join(root, 'test/fixtures/archives/safe.tar')], { cwd }) }
+  finally { await fs.rm(cwd, { recursive: true, force: true }) }
+}
 const destination = path.join(root, 'src-tauri/binaries')
 await fs.mkdir(destination, { recursive: true })
 await fs.copyFile(binary, path.join(destination, `vesperwind-archive-${host}${suffix}`))

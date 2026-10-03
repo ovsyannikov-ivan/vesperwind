@@ -6,7 +6,15 @@ use super::{
     MpvApi, MpvHandle, MPV_EVENT_END_FILE, MPV_EVENT_FILE_LOADED, MPV_EVENT_NONE,
     MPV_EVENT_SHUTDOWN,
 };
-use crate::{filesystem::Filesystem, provider_content::ContentSource, ssh::SshManager, media::{history::{History, Identity, Checkpoints, SaveReason, resumable}, thumbnail::ThumbnailManager}};
+use crate::{
+    filesystem::Filesystem,
+    media::{
+        history::{resumable, Checkpoints, History, Identity, SaveReason},
+        thumbnail::ThumbnailManager,
+    },
+    provider_content::ContentSource,
+    ssh::SshManager,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -88,14 +96,28 @@ pub struct PlayerSnapshot {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MediaOsdEvent {
-    pub id: String, pub kind: String, pub current_time: f64, pub duration: f64,
-    pub track: Option<PlayerTrack>, pub created_at: u64,
+    pub id: String,
+    pub kind: String,
+    pub current_time: f64,
+    pub duration: f64,
+    pub track: Option<PlayerTrack>,
+    pub created_at: u64,
 }
 fn osd(state: &mut PlayerSnapshot, kind: &str) {
     state.osd = Some(MediaOsdEvent {
-        id: uuid::Uuid::new_v4().to_string(), kind: kind.into(), current_time: state.current_time, duration: state.duration,
-        track: state.tracks.iter().find(|t| t.kind == kind && t.selected).cloned(),
-        created_at: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64,
+        id: uuid::Uuid::new_v4().to_string(),
+        kind: kind.into(),
+        current_time: state.current_time,
+        duration: state.duration,
+        track: state
+            .tracks
+            .iter()
+            .find(|t| t.kind == kind && t.selected)
+            .cloned(),
+        created_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64,
     });
 }
 
@@ -523,7 +545,8 @@ impl MpvPlayerManager {
                     control_lifecycle,
                     backend,
                     fallback_reason,
-                    history, thumbnails,
+                    history,
+                    thumbnails,
                 )
             })
             .map_err(|error| error.to_string())?;
@@ -636,8 +659,19 @@ impl MpvPlayerManager {
                 }
             }
             if let Ok(snapshot) = &result {
-                if let Err(error) = self.thumbnails.start(filesystem, session_id, provider_id, path, &snapshot.diagnostics, snapshot.duration, Arc::clone(&cancelled)) {
-                    eprintln!("[player={session_id}] thumbnail start failed: {}", error.message);
+                if let Err(error) = self.thumbnails.start(
+                    filesystem,
+                    session_id,
+                    provider_id,
+                    path,
+                    &snapshot.diagnostics,
+                    snapshot.duration,
+                    Arc::clone(&cancelled),
+                ) {
+                    eprintln!(
+                        "[player={session_id}] thumbnail start failed: {}",
+                        error.message
+                    );
                 }
             }
             return result;
@@ -937,7 +971,12 @@ fn control_loop(
     let mut resume_target: Option<f64> = None;
     let mut restoring: Option<Instant> = None;
     let mut pending_seek: Option<PendingSeek> = None;
-    let mut pending_track: Option<(String, Option<i64>, mpsc::SyncSender<Result<PlayerSnapshot, String>>, Instant)> = None;
+    let mut pending_track: Option<(
+        String,
+        Option<i64>,
+        mpsc::SyncSender<Result<PlayerSnapshot, String>>,
+        Instant,
+    )> = None;
     let mut checkpoints = Checkpoints::new();
     #[cfg(target_os = "windows")]
     let mut output_policy = Some(WindowsOutputPolicy::Sdr);
@@ -948,14 +987,28 @@ fn control_loop(
         String,
     )> = None;
     'running: loop {
-        match receiver.recv_timeout(Duration::from_millis(if pending_seek.is_some() { 5 } else { 20 })) {
+        match receiver.recv_timeout(Duration::from_millis(if pending_seek.is_some() {
+            5
+        } else {
+            20
+        })) {
             Ok(Control::Load {
                 uri,
-                autoplay, identity: next_identity, resume,
+                autoplay,
+                identity: next_identity,
+                resume,
                 reply,
             }) => {
-                persist(&history, &identity, &mut checkpoints, &state, SaveReason::Switch);
-                identity = Some(next_identity); resume_target = resume; checkpoints = Checkpoints::new();
+                persist(
+                    &history,
+                    &identity,
+                    &mut checkpoints,
+                    &state,
+                    SaveReason::Switch,
+                );
+                identity = Some(next_identity);
+                resume_target = resume;
+                checkpoints = Checkpoints::new();
                 eof_handled = false;
                 *lifecycle.lock().unwrap_or_else(|value| value.into_inner()) =
                     PlayerLifecycle::Opening;
@@ -974,35 +1027,65 @@ fn control_loop(
                 }
             }
             Ok(Control::Play(reply)) => {
-                reply_with(&api, handle, &mut state, reply, Some("play"), |api, handle| {
-                    api.set_property(handle, "pause", "no")
-                });
+                reply_with(
+                    &api,
+                    handle,
+                    &mut state,
+                    reply,
+                    Some("play"),
+                    |api, handle| api.set_property(handle, "pause", "no"),
+                );
                 *lifecycle.lock().unwrap_or_else(|value| value.into_inner()) =
                     PlayerLifecycle::Playing;
             }
             Ok(Control::Pause(reply)) => {
-                reply_with(&api, handle, &mut state, reply, Some("pause"), |api, handle| {
-                    api.set_property(handle, "pause", "yes")
-                });
+                reply_with(
+                    &api,
+                    handle,
+                    &mut state,
+                    reply,
+                    Some("pause"),
+                    |api, handle| api.set_property(handle, "pause", "yes"),
+                );
                 *lifecycle.lock().unwrap_or_else(|value| value.into_inner()) =
                     PlayerLifecycle::Paused;
-                if state.status == "paused" { persist(&history, &identity, &mut checkpoints, &state, SaveReason::Pause); }
+                if state.status == "paused" {
+                    persist(
+                        &history,
+                        &identity,
+                        &mut checkpoints,
+                        &state,
+                        SaveReason::Pause,
+                    );
+                }
             }
             Ok(Control::Seek { seconds, reply }) => {
                 let start_gain = pending_seek.as_ref().map(|s| s.gain).unwrap_or(1.0);
-                if let Some(old) = pending_seek.take() { let _ = old.reply.send(Err("Seek superseded".into())); }
+                if let Some(old) = pending_seek.take() {
+                    let _ = old.reply.send(Err("Seek superseded".into()));
+                }
                 state = read_playback_state(&api, handle, &state);
                 state.seek_volume = Some(state.volume);
                 let silent = state.status == "paused" || state.muted;
                 pending_seek = Some(PendingSeek {
-                    target: seconds.max(0.0).min(state.duration), reply, phase: SeekPhase::FadeOut,
-                    started: Instant::now() - if silent { Duration::from_millis(40) } else { Duration::ZERO },
-                    gain: start_gain, start_gain,
+                    target: seconds.max(0.0).min(state.duration),
+                    reply,
+                    phase: SeekPhase::FadeOut,
+                    started: Instant::now()
+                        - if silent {
+                            Duration::from_millis(40)
+                        } else {
+                            Duration::ZERO
+                        },
+                    gain: start_gain,
+                    start_gain,
                 });
             }
             Ok(Control::SetVolume { volume, reply }) => {
                 let gain = pending_seek.as_ref().map(|s| s.gain).unwrap_or(1.0);
-                if state.seek_volume.is_some() { state.seek_volume = Some(volume.clamp(0.0, 1.0)); }
+                if state.seek_volume.is_some() {
+                    state.seek_volume = Some(volume.clamp(0.0, 1.0));
+                }
                 reply_with(&api, handle, &mut state, reply, None, |api, handle| {
                     api.set_property(
                         handle,
@@ -1017,11 +1100,26 @@ fn control_loop(
                 })
             }
             Ok(Control::SelectTrack { kind, id, reply }) => {
-                let property = match kind.as_str() { "audio" => "aid", "subtitle" => "sid", _ => { let _ = reply.send(Err("Unknown track type".into())); continue; } };
-                if let Some((_, _, old, _)) = pending_track.take() { let _ = old.send(Err("Track change superseded".into())); }
-                match api.set_property(handle, property, &id.map(|v|v.to_string()).unwrap_or_else(||"no".into())) {
+                let property = match kind.as_str() {
+                    "audio" => "aid",
+                    "subtitle" => "sid",
+                    _ => {
+                        let _ = reply.send(Err("Unknown track type".into()));
+                        continue;
+                    }
+                };
+                if let Some((_, _, old, _)) = pending_track.take() {
+                    let _ = old.send(Err("Track change superseded".into()));
+                }
+                match api.set_property(
+                    handle,
+                    property,
+                    &id.map(|v| v.to_string()).unwrap_or_else(|| "no".into()),
+                ) {
                     Ok(()) => pending_track = Some((kind, id, reply, Instant::now())),
-                    Err(error) => { let _ = reply.send(Err(error)); }
+                    Err(error) => {
+                        let _ = reply.send(Err(error));
+                    }
                 }
             }
             Ok(Control::SetSubtitleDelay { seconds, reply }) => {
@@ -1112,13 +1210,32 @@ fn control_loop(
                     eprintln!("[player={session_id}] ready");
                     emit_state(&app, &session_id, &state);
                     if let Some(target) = resume_target.filter(|p| resumable(*p, state.duration)) {
-                        match api.command(handle, &["seek", &target.to_string(), "absolute+exact"]) {
-                            Ok(()) => { restoring = Some(Instant::now()); }
-                            Err(error) => { eprintln!("[player={session_id}] resume seek failed: {error}"); resume_target = None; }
+                        match api.command(handle, &["seek", &target.to_string(), "absolute+exact"])
+                        {
+                            Ok(()) => {
+                                restoring = Some(Instant::now());
+                            }
+                            Err(error) => {
+                                eprintln!("[player={session_id}] resume seek failed: {error}");
+                                resume_target = None;
+                            }
                         }
-                    } else { resume_target = None; }
+                    } else {
+                        resume_target = None;
+                    }
                     if restoring.is_none() {
-                        finish_load(&api, handle, &mut state, &display, &lifecycle, &app, &session_id, &registry, &mut pending_load, &mut current_uri);
+                        finish_load(
+                            &api,
+                            handle,
+                            &mut state,
+                            &display,
+                            &lifecycle,
+                            &app,
+                            &session_id,
+                            &registry,
+                            &mut pending_load,
+                            &mut current_uri,
+                        );
                     }
                     event_changed = true;
                 }
@@ -1173,10 +1290,20 @@ fn control_loop(
             match seek.phase {
                 SeekPhase::FadeOut => {
                     seek.gain = seek_gain(seek.start_gain, false, seek.started.elapsed());
-                    let _ = api.set_property(handle, "volume", &(state.volume * seek.gain * 100.0).to_string());
+                    let _ = api.set_property(
+                        handle,
+                        "volume",
+                        &(state.volume * seek.gain * 100.0).to_string(),
+                    );
                     if seek.gain == 0.0 {
-                        match api.command(handle, &["seek", &seek.target.to_string(), "absolute+exact"]) {
-                            Ok(()) => { seek.phase = SeekPhase::Waiting; seek.started = Instant::now(); }
+                        match api.command(
+                            handle,
+                            &["seek", &seek.target.to_string(), "absolute+exact"],
+                        ) {
+                            Ok(()) => {
+                                seek.phase = SeekPhase::Waiting;
+                                seek.started = Instant::now();
+                            }
                             Err(error) => failure = Some(error),
                         }
                     }
@@ -1184,13 +1311,22 @@ fn control_loop(
                 SeekPhase::Waiting => {
                     let position = api.get_double(handle, "time-pos");
                     let eof = api.get_flag(handle, "eof-reached") == Some(true);
-                    if api.get_flag(handle, "seeking") == Some(false) && (eof || position.is_some_and(|p| (p - seek.target).abs() <= 1.0)) {
-                        seek.phase = SeekPhase::FadeIn; seek.started = Instant::now();
-                    } else if seek.started.elapsed() > Duration::from_secs(10) { failure = Some("Seek was not confirmed".into()); }
+                    if api.get_flag(handle, "seeking") == Some(false)
+                        && (eof || position.is_some_and(|p| (p - seek.target).abs() <= 1.0))
+                    {
+                        seek.phase = SeekPhase::FadeIn;
+                        seek.started = Instant::now();
+                    } else if seek.started.elapsed() > Duration::from_secs(10) {
+                        failure = Some("Seek was not confirmed".into());
+                    }
                 }
                 SeekPhase::FadeIn => {
                     seek.gain = seek_gain(0.0, true, seek.started.elapsed());
-                    let _ = api.set_property(handle, "volume", &(state.volume * seek.gain * 100.0).to_string());
+                    let _ = api.set_property(
+                        handle,
+                        "volume",
+                        &(state.volume * seek.gain * 100.0).to_string(),
+                    );
                     finished = seek.gain == 1.0;
                 }
             }
@@ -1199,16 +1335,22 @@ fn control_loop(
                 restore_seek_volume(&api, handle, &mut state);
                 state = read_playback_state(&api, handle, &state);
                 emit_state(&app, &session_id, &state);
-                let _ = seek.reply.send(failure.map_or_else(|| Ok(state.clone()), Err));
+                let _ = seek
+                    .reply
+                    .send(failure.map_or_else(|| Ok(state.clone()), Err));
             }
         }
         if let Some((kind, id, _, started)) = &pending_track {
             let tracks = read_tracks(&api, handle);
-            let selected = tracks.iter().find(|t| t.kind == *kind && t.selected).map(|t|t.id);
+            let selected = tracks
+                .iter()
+                .find(|t| t.kind == *kind && t.selected)
+                .map(|t| t.id);
             if selected == *id {
                 let (kind, _, reply, _) = pending_track.take().unwrap();
                 state = read_snapshot(&api, handle, &state, &display);
-                osd(&mut state, &kind); emit_state(&app, &session_id, &state);
+                osd(&mut state, &kind);
+                emit_state(&app, &session_id, &state);
                 let _ = reply.send(Ok(state.clone()));
             } else if started.elapsed() > Duration::from_secs(5) {
                 let (_, _, reply, _) = pending_track.take().unwrap();
@@ -1218,14 +1360,45 @@ fn control_loop(
         if let Some(started) = restoring {
             let target = resume_target.unwrap_or(0.0);
             let position = api.get_double(handle, "time-pos");
-            if api.get_flag(handle, "seeking") == Some(false) && position.is_some_and(|p| (p - target).abs() <= 1.0) {
+            if api.get_flag(handle, "seeking") == Some(false)
+                && position.is_some_and(|p| (p - target).abs() <= 1.0)
+            {
                 state = read_snapshot(&api, handle, &state, &display);
-                osd(&mut state, "resume"); restoring = None; resume_target = None;
-                eprintln!("[player={session_id}] resume confirmed time={:.3}", state.current_time);
-                finish_load(&api, handle, &mut state, &display, &lifecycle, &app, &session_id, &registry, &mut pending_load, &mut current_uri);
+                osd(&mut state, "resume");
+                restoring = None;
+                resume_target = None;
+                eprintln!(
+                    "[player={session_id}] resume confirmed time={:.3}",
+                    state.current_time
+                );
+                finish_load(
+                    &api,
+                    handle,
+                    &mut state,
+                    &display,
+                    &lifecycle,
+                    &app,
+                    &session_id,
+                    &registry,
+                    &mut pending_load,
+                    &mut current_uri,
+                );
             } else if started.elapsed() > Duration::from_secs(10) {
-                eprintln!("[player={session_id}] resume confirmation timed out"); restoring = None; resume_target = None;
-                finish_load(&api, handle, &mut state, &display, &lifecycle, &app, &session_id, &registry, &mut pending_load, &mut current_uri);
+                eprintln!("[player={session_id}] resume confirmation timed out");
+                restoring = None;
+                resume_target = None;
+                finish_load(
+                    &api,
+                    handle,
+                    &mut state,
+                    &display,
+                    &lifecycle,
+                    &app,
+                    &session_id,
+                    &registry,
+                    &mut pending_load,
+                    &mut current_uri,
+                );
             }
         }
         if last_emit.elapsed() >= Duration::from_millis(100) {
@@ -1234,7 +1407,13 @@ fn control_loop(
             let at_eof = api.get_flag(handle, "eof-reached") == Some(true);
             if at_eof && !eof_handled && pending_load.is_none() && current_uri.is_some() {
                 eof_handled = true;
-                persist(&history, &identity, &mut checkpoints, &state, SaveReason::Eof);
+                persist(
+                    &history,
+                    &identity,
+                    &mut checkpoints,
+                    &state,
+                    SaveReason::Eof,
+                );
                 match rewind_after_eof(&api, handle) {
                     Ok(()) => {
                         state.status = "paused".into();
@@ -1286,7 +1465,15 @@ fn control_loop(
                 state = next;
                 emit_state(&app, &session_id, &state);
             }
-            if pending_load.is_none() && restoring.is_none() && state.status == "playing" { persist(&history, &identity, &mut checkpoints, &state, SaveReason::Checkpoint); }
+            if pending_load.is_none() && restoring.is_none() && state.status == "playing" {
+                persist(
+                    &history,
+                    &identity,
+                    &mut checkpoints,
+                    &state,
+                    SaveReason::Checkpoint,
+                );
+            }
             last_emit = Instant::now();
             if std::env::var_os("VESPERWIND_MPV_LOG").is_some()
                 && last_performance_log.elapsed() >= Duration::from_secs(5)
@@ -1308,11 +1495,21 @@ fn control_loop(
     // Capture while the handle is alive; a failed/opening load must not overwrite a saved record with zero.
     if pending_load.is_none() && current_uri.is_some() {
         state = read_playback_state(&api, handle, &state);
-        persist(&history, &identity, &mut checkpoints, &state, SaveReason::Close);
+        persist(
+            &history,
+            &identity,
+            &mut checkpoints,
+            &state,
+            SaveReason::Close,
+        );
     }
-    if let Some(seek) = pending_seek { let _ = seek.reply.send(Err("Player closed during seek".into())); }
+    if let Some(seek) = pending_seek {
+        let _ = seek.reply.send(Err("Player closed during seek".into()));
+    }
     restore_seek_volume(&api, handle, &mut state);
-    if let Some((_, _, reply, _)) = pending_track { let _ = reply.send(Err("Player closed during track change".into())); }
+    if let Some((_, _, reply, _)) = pending_track {
+        let _ = reply.send(Err("Player closed during track change".into()));
+    }
     thumbnails.cancel(&session_id);
     let _ = api.command(handle, &["stop"]);
     if let Some((reply, _, uri)) = pending_load {
@@ -1336,24 +1533,56 @@ fn control_loop(
     }
 }
 
-fn persist(history: &History, identity: &Option<Identity>, gate: &mut Checkpoints, state: &PlayerSnapshot, reason: SaveReason) {
+fn persist(
+    history: &History,
+    identity: &Option<Identity>,
+    gate: &mut Checkpoints,
+    state: &PlayerSnapshot,
+    reason: SaveReason,
+) {
     if let Some(identity) = identity {
-        if let Some((position, duration, completed)) = gate.capture(state.current_time, state.duration, reason, Instant::now()) {
+        if let Some((position, duration, completed)) =
+            gate.capture(state.current_time, state.duration, reason, Instant::now())
+        {
             history.save(identity, position, duration, completed, reason);
         }
     }
 }
-fn finish_load(api: &MpvApi, handle: *mut MpvHandle, state: &mut PlayerSnapshot, display: &DisplayCapabilities,
-    lifecycle: &Mutex<PlayerLifecycle>, app: &AppHandle, session: &str, registry: &MpvStreamRegistry,
-    pending: &mut Option<(mpsc::SyncSender<Result<PlayerSnapshot, String>>, bool, String)>, current: &mut Option<String>) {
+fn finish_load(
+    api: &MpvApi,
+    handle: *mut MpvHandle,
+    state: &mut PlayerSnapshot,
+    display: &DisplayCapabilities,
+    lifecycle: &Mutex<PlayerLifecycle>,
+    app: &AppHandle,
+    session: &str,
+    registry: &MpvStreamRegistry,
+    pending: &mut Option<(
+        mpsc::SyncSender<Result<PlayerSnapshot, String>>,
+        bool,
+        String,
+    )>,
+    current: &mut Option<String>,
+) {
     if let Some((reply, autoplay, uri)) = pending.take() {
-        if let Some(previous) = current.replace(uri) { registry.remove(&previous); }
-        let result = if autoplay { api.set_property(handle, "pause", "no") } else { Ok(()) };
+        if let Some(previous) = current.replace(uri) {
+            registry.remove(&previous);
+        }
+        let result = if autoplay {
+            api.set_property(handle, "pause", "no")
+        } else {
+            Ok(())
+        };
         let result = result.map(|_| {
             state.status = if autoplay { "playing" } else { "paused" }.into();
             *state = read_snapshot(api, handle, state, display);
-            *lifecycle.lock().unwrap_or_else(|v| v.into_inner()) = if autoplay { PlayerLifecycle::Playing } else { PlayerLifecycle::Paused };
-            emit_state(app, session, state); state.clone()
+            *lifecycle.lock().unwrap_or_else(|v| v.into_inner()) = if autoplay {
+                PlayerLifecycle::Playing
+            } else {
+                PlayerLifecycle::Paused
+            };
+            emit_state(app, session, state);
+            state.clone()
         });
         let _ = reply.send(result);
     }
@@ -1365,7 +1594,11 @@ pub(super) fn rewind_after_eof(api: &MpvApi, handle: *mut MpvHandle) -> Result<(
 }
 
 #[derive(Clone, Copy)]
-enum SeekPhase { FadeOut, Waiting, FadeIn }
+enum SeekPhase {
+    FadeOut,
+    Waiting,
+    FadeIn,
+}
 struct PendingSeek {
     target: f64,
     reply: mpsc::SyncSender<Result<PlayerSnapshot, String>>,
@@ -1378,10 +1611,16 @@ fn seek_gain(start: f64, fade_in: bool, elapsed: Duration) -> f64 {
     let length = if fade_in { 0.060 } else { 0.040 };
     let t = (elapsed.as_secs_f64() / length).clamp(0.0, 1.0);
     let eased = t * t * (3.0 - 2.0 * t);
-    if fade_in { eased } else { start * (1.0 - eased) }
+    if fade_in {
+        eased
+    } else {
+        start * (1.0 - eased)
+    }
 }
 fn restore_seek_volume(api: &MpvApi, handle: *mut MpvHandle, state: &mut PlayerSnapshot) {
-    if let Some(volume) = state.seek_volume.take() { let _ = api.set_property(handle, "volume", &(volume * 100.0).to_string()); }
+    if let Some(volume) = state.seek_volume.take() {
+        let _ = api.set_property(handle, "volume", &(volume * 100.0).to_string());
+    }
 }
 
 fn reply_with(
@@ -1397,10 +1636,14 @@ fn reply_with(
         let mut next = read_snapshot(api, handle, state, &display);
         if let Some(kind) = osd_kind {
             let confirmed = match kind {
-                "play" => next.status == "playing", "pause" => next.status == "paused",
-                "audio" | "subtitle" => true, _ => false,
+                "play" => next.status == "playing",
+                "pause" => next.status == "paused",
+                "audio" | "subtitle" => true,
+                _ => false,
             };
-            if confirmed { osd(&mut next, kind); }
+            if confirmed {
+                osd(&mut next, kind);
+            }
         }
         next
     });
@@ -1453,11 +1696,12 @@ fn read_playback_state(
             .unwrap_or(previous.duration)
             .max(0.0),
         seek_volume: previous.seek_volume,
-        volume: previous.seek_volume.unwrap_or_else(|| (api
-            .get_double(handle, "volume")
-            .unwrap_or(previous.volume * 100.0)
-            / 100.0)
-            .clamp(0.0, 1.0)),
+        volume: previous.seek_volume.unwrap_or_else(|| {
+            (api.get_double(handle, "volume")
+                .unwrap_or(previous.volume * 100.0)
+                / 100.0)
+                .clamp(0.0, 1.0)
+        }),
         muted: api.get_flag(handle, "mute").unwrap_or(previous.muted),
         subtitle_delay: api
             .get_double(handle, "sub-delay")
@@ -2152,7 +2396,9 @@ fn read_tracks(api: &MpvApi, handle: *mut MpvHandle) -> Vec<PlayerTrack> {
                 external: api
                     .get_flag(handle, &format!("{prefix}/external"))
                     .unwrap_or(false),
-                channels: api.get_i64(handle, &format!("{prefix}/demux-channel-count")).map(|n| n.to_string()),
+                channels: api
+                    .get_i64(handle, &format!("{prefix}/demux-channel-count"))
+                    .map(|n| n.to_string()),
                 channel_layout: api.get_string(handle, &format!("{prefix}/demux-channels")),
                 sample_rate: api.get_i64(handle, &format!("{prefix}/demux-samplerate")),
             })
@@ -2300,8 +2546,14 @@ mod tests {
 
     #[test]
     fn exposes_friendly_codec_names_outside_the_vue_layer() {
-        assert_eq!(friendly_audio_codec_name("dts", Some("DTS-HD MA")), "DTS-HD MA");
-        assert_eq!(friendly_audio_codec_name("dts", Some("DTS-HD HRA")), "DTS-HD HRA");
+        assert_eq!(
+            friendly_audio_codec_name("dts", Some("DTS-HD MA")),
+            "DTS-HD MA"
+        );
+        assert_eq!(
+            friendly_audio_codec_name("dts", Some("DTS-HD HRA")),
+            "DTS-HD HRA"
+        );
         assert_eq!(friendly_audio_codec_name("dts", None), "DTS");
         assert_eq!(friendly_audio_codec_name("aac", Some("LC")), "AAC");
         assert_eq!(friendly_codec_name("eac3"), "Dolby Digital Plus");

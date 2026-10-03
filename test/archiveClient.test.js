@@ -22,3 +22,35 @@ test('cancel before readiness prevents launch; pending acknowledgement repeats c
   const pending = client(request, () => {}); await Promise.resolve(); pending.cancel(); ack.resolve({ ok: true }); await pending.started
   assert.deepEqual(calls, ['archive:start', 'archive:cancel', 'archive:cancel']); pending.dispose()
 })
+test('disconnect finishes busy UI once, detaches listeners and ignores stale events after reconnect', async () => {
+  const events = [], calls = []; let progress, connection, progressStops = 0, connectionStops = 0
+  const client = createArchiveClient({
+    subscribe: (_, cb) => { progress = cb; return () => { progressStops++ } },
+    subscribeToConnection: (cb) => { connection = cb; return () => { connectionStops++ } },
+    request: async (event) => { calls.push(event); return { ok: true } },
+  })
+  let busy = true, error
+  const job = client(request, (event) => { events.push(event); if (event.done) { busy = false; error = event.error } })
+  await job.started
+  connection(false)
+  assert.equal(busy, false); assert.equal(error.code, 'ECONNECTION_LOST')
+  assert.equal(progressStops, 1); assert.equal(connectionStops, 1)
+  connection(true); progress({ jobId: job.jobId, done: true, result: {} }); connection(false)
+  job.cancel(); job.dispose()
+  assert.equal(events.length, 1); assert.deepEqual(calls, ['archive:start'])
+})
+test('disconnect during listener setup or pending start acknowledgement cannot relaunch or enqueue cancellation', async () => {
+  for (const beforeReady of [true, false]) {
+    const ready = deferred(), ack = deferred(), calls = [], events = []; let connection
+    const client = createArchiveClient({
+      subscribe: () => { const stop = () => {}; stop.ready = ready.promise; return stop },
+      subscribeToConnection: (cb) => { connection = cb; return () => {} },
+      request: (event) => { calls.push(event); return ack.promise },
+    })
+    const job = client(request, (event) => events.push(event))
+    if (!beforeReady) { ready.resolve(true); await Promise.resolve(); await Promise.resolve() }
+    connection(false); ready.resolve(true); ack.resolve({ ok: true }); await job.started
+    assert.deepEqual(calls, beforeReady ? [] : ['archive:start'])
+    assert.equal(events.length, 1); assert.equal(events[0].error.code, 'ECONNECTION_LOST')
+  }
+})
