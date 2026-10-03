@@ -33,6 +33,8 @@ Archive operations require LocalProvider, including mounted network shares.
 SFTP archive commands are unavailable.
 
 Creation writes ZIP with deflate and UTF-8 filename headers on every platform.
+Windows opens physical archive/source paths through libarchive's wide APIs;
+Unicode archive filenames do not depend on the system ANSI code page.
 Extraction explicitly registers ZIP, TAR,
 RAR/RAR5 and built-in gzip. No external filter, system tar, shell or PATH search
 is used. 7z is not enabled. Encrypted, multipart or unsupported compression

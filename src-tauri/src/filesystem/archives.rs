@@ -422,6 +422,8 @@ mod tests {
         let book = root.join("Книга");
         fs::create_dir(&book).unwrap();
         fs::write(book.join("Глава.txt"), "Unicode ZIP round trip").unwrap();
+        let destination = root.join("Архивы");
+        fs::create_dir(&destination).unwrap();
         let mut request = ArchiveRequest {
             job_id: uuid::Uuid::new_v4().to_string(),
             action: "create".into(),
@@ -432,7 +434,7 @@ mod tests {
             }],
             target: Location {
                 provider_id: "local".into(),
-                path: root.to_string_lossy().into_owned(),
+                path: destination.to_string_lossy().into_owned(),
             },
         };
         perform(
@@ -443,7 +445,7 @@ mod tests {
         )
         .unwrap();
         request.action = "extract".into();
-        request.sources[0].path = root.join("Книга.zip").to_string_lossy().into_owned();
+        request.sources[0].path = destination.join("Книга.zip").to_string_lossy().into_owned();
         request.name = "распаковано".into();
         perform(
             &filesystem,
@@ -453,7 +455,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            fs::read_to_string(root.join("распаковано/Книга/Глава.txt")).unwrap(),
+            fs::read_to_string(destination.join("распаковано/Книга/Глава.txt")).unwrap(),
             "Unicode ZIP round trip"
         );
         for name in ["dotdot.zip", "drive.tar", "symlink.tar", "hardlink.tar"] {

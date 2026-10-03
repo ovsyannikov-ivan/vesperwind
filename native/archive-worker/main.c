@@ -2,6 +2,7 @@
 #include <archive.h>
 #include <archive_entry.h>
 #include <ctype.h>
+#include <errno.h>
 #include <locale.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -105,6 +106,20 @@ static FILE *open_file(const char *s) {
     FILE *f = fdopen(fd, "rb"); if (!f) close(fd); return f;
 }
 #endif
+enum path_operation { PATH_READ_ARCHIVE, PATH_WRITE_ARCHIVE, PATH_READ_DISK };
+static int archive_open_path(struct archive *a, const char *path, enum path_operation operation) {
+#ifdef _WIN32
+    /* The narrow read-open API calls _open(), which still uses the system ACP. */
+    wchar_t *name = wide(path);
+    if (!name) { archive_set_error(a, EINVAL, "Invalid UTF-8 filesystem path"); return ARCHIVE_FATAL; }
+    int status = operation == PATH_READ_ARCHIVE ? archive_read_open_filename_w(a, name, 65536) :
+        operation == PATH_WRITE_ARCHIVE ? archive_write_open_filename_w(a, name) : archive_read_disk_open_w(a, name);
+    free(name); return status;
+#else
+    return operation == PATH_READ_ARCHIVE ? archive_read_open_filename(a, path, 65536) :
+        operation == PATH_WRITE_ARCHIVE ? archive_write_open_filename(a, path) : archive_read_disk_open(a, path);
+#endif
+}
 static int available_space(uint64_t *bytes) {
 #ifdef _WIN32
     ULARGE_INTEGER available;
@@ -159,7 +174,7 @@ static int extract(const char *source) {
     archive_write_disk_set_options(disk, ARCHIVE_EXTRACT_SECURE_NODOTDOT |
         ARCHIVE_EXTRACT_SECURE_NOABSOLUTEPATHS | ARCHIVE_EXTRACT_SECURE_SYMLINKS |
         ARCHIVE_EXTRACT_NO_OVERWRITE | ARCHIVE_EXTRACT_TIME);
-    if (archive_read_open_filename(a, source, 65536) != ARCHIVE_OK) { result = archive_fail(a); goto end; }
+    if (archive_open_path(a, source, PATH_READ_ARCHIVE) != ARCHIVE_OK) { result = archive_fail(a); goto end; }
     while ((status = archive_read_next_header(a, &entry)) != ARCHIVE_EOF) {
         if (status != ARCHIVE_OK) { result = archive_fail(a); goto end; }
         const char *name = archive_entry_pathname(entry);
@@ -223,7 +238,7 @@ static int create_zip(const char *output, int count, char **sources) {
         archive_write_set_options(a, "zip:compression=deflate,zip:hdrcharset=UTF-8") != ARCHIVE_OK) {
         result = archive_fail(a); goto end;
     }
-    if (archive_write_open_filename(a, output) != ARCHIVE_OK) { result = archive_fail(a); goto end; }
+    if (archive_open_path(a, output, PATH_WRITE_ARCHIVE) != ARCHIVE_OK) { result = archive_fail(a); goto end; }
     for (int i = 0; i < count; i++) {
         struct archive *disk = archive_read_disk_new(); struct archive_entry *entry = archive_entry_new();
         archive_read_disk_set_symlink_physical(disk);
@@ -237,7 +252,7 @@ static int create_zip(const char *output, int count, char **sources) {
         if (!safe_path(base) || !strcmp(base, ".") || !strcmp(base, "..")) {
             result = fail("EINVAL", "Invalid source name"); goto source_end;
         }
-        if (archive_read_disk_open(disk, sources[i]) != ARCHIVE_OK) { result = archive_fail(disk); goto source_end; }
+        if (archive_open_path(disk, sources[i], PATH_READ_DISK) != ARCHIVE_OK) { result = archive_fail(disk); goto source_end; }
         int status;
         while ((status = archive_read_next_header2(disk, entry)) != ARCHIVE_EOF) {
             if (status != ARCHIVE_OK) { result = archive_fail(disk); goto source_end; }
