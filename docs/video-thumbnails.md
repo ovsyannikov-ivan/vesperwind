@@ -99,7 +99,7 @@ staged binaries still build and show the lightweight fallback:
 npm run build:tauri -- --config src-tauri/tauri.ffmpeg.conf.json
 ```
 
-The overlay config adds Tauri `externalBin: ["binaries/ffmpeg"]` and includes the
+The overlay config adds Tauri `externalBin: ["binaries/vesperwind-archive", "binaries/ffmpeg"]` and includes the
 license/build information while preserving libmpv resources. Stage a binary for
 each requested target triple before bundling. Tauri renames the target-specific
 sidecar to `ffmpeg` in the installed bundle.

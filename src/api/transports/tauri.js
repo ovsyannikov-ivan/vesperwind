@@ -3,6 +3,9 @@ import { listen } from '@tauri-apps/api/event'
 
 const requestCommands = Object.freeze({
   'filesystem:root': 'filesystem_root',
+  'filesystem:resolve-location': 'filesystem_resolve_location',
+  'archive:start': 'archive_start',
+  'archive:cancel': 'archive_cancel',
   'filesystem:list': 'filesystem_list',
   'filesystem:search': 'filesystem_search',
   'filesystem:search-cancel': 'filesystem_search_cancel',
@@ -53,7 +56,7 @@ const sendCommands = Object.freeze({
   'terminal:close': 'terminal_close',
 })
 
-const pushEvents = new Set(['terminal:output', 'terminal:exit', 'ssh:status', 'player:state', 'filesystem:changed', 'filesystem:search-results'])
+const pushEvents = new Set(['terminal:output', 'terminal:exit', 'ssh:status', 'player:state', 'filesystem:changed', 'filesystem:search-results', 'archive:progress'])
 
 const normalizeInvokeError = (error) => ({
   ok: false,

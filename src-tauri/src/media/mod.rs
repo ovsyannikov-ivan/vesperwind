@@ -251,6 +251,8 @@ fn can_serve(path: &str) -> bool {
             | "m2ts"
             | "mp3"
             | "m4a"
+            | "m4b"
+            | "m4r"
             | "aac"
             | "wav"
             | "wave"
@@ -282,7 +284,7 @@ fn content_type(path: &str) -> &'static str {
         "mkv" => "video/x-matroska",
         "ts" | "m2ts" => "video/mp2t",
         "mp3" => "audio/mpeg",
-        "m4a" => "audio/mp4",
+        "m4a" | "m4b" | "m4r" => "audio/mp4",
         "aac" => "audio/aac",
         "wav" | "wave" => "audio/wav",
         "ogg" | "oga" => "audio/ogg",
@@ -303,6 +305,13 @@ fn content_type(path: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn audiobook_and_ringtone_containers_use_existing_audio_delivery() {
+        for name in ["book.m4b", "BOOK.M4B", "ringtone.m4r"] {
+            assert!(super::can_serve(name));
+            assert_eq!(super::content_type(name), "audio/mp4");
+        }
+    }
     use super::{parse_range, serve, MAX_RANGE_RESPONSE_LENGTH};
     use crate::{filesystem::Filesystem, ssh::SshManager};
     use std::{

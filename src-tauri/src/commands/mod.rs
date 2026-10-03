@@ -1,3 +1,4 @@
+pub mod archive;
 pub mod content;
 pub mod desktop;
 pub mod document;

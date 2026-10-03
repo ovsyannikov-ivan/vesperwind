@@ -15,6 +15,15 @@ requires an additional media toolchain, including Python 3 and CMake; see
 
 ## Run locally
 
+Build the pinned archive sidecar once before native dev/build:
+
+```bash
+npm run build:archives
+```
+
+This requires CMake and the native C toolchain. See [archives and navigation](archives-and-navigation.md)
+for source pins, bundling, supported formats and operation diagnostics.
+
 Install the dependency versions recorded in the lockfile:
 
 ```bash

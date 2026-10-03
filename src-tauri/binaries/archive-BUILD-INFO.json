@@ -1,0 +1,16 @@
+{
+  "host": "aarch64-apple-darwin",
+  "protocol": 1,
+  "sources": {
+    "libarchive": {
+      "version": "3.8.9",
+      "url": "https://www.libarchive.org/downloads/libarchive-3.8.9.tar.xz",
+      "sha256": "888c934f9d95648ecb9163dc8e23ab80a476ecb81a8f1154704a227b5b676dde"
+    },
+    "zlib": {
+      "version": "1.3.1",
+      "url": "https://zlib.net/fossils/zlib-1.3.1.tar.gz",
+      "sha256": "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
+    }
+  }
+}

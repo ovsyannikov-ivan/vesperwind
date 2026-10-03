@@ -32,6 +32,57 @@ pub struct FilesystemPathPayload {
 }
 
 #[tauri::command]
+pub async fn filesystem_resolve_location(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    payload: FilesystemPathPayload,
+) -> Result<Value, String> {
+    let filesystem = Arc::clone(&state.filesystem);
+    let ssh = Arc::clone(&state.ssh);
+    let provider = payload.filesystem_id.unwrap_or_else(|| "local".into());
+    let path = payload.path.unwrap_or_default();
+    let owner: isize = 0;
+    #[cfg(windows)]
+    let owner = {
+        use tauri::Manager;
+        app.get_window("main")
+            .and_then(|w| w.hwnd().ok())
+            .map(|h| h.0 as isize)
+            .unwrap_or(0)
+    };
+    let _ = app;
+    Ok(
+        match tauri::async_runtime::spawn_blocking(move || {
+            let mut resolved = if provider == "local" {
+                filesystem::network::connect_if_network(&path, owner)?
+            } else {
+                ssh.resolve_path(&provider, &path)?
+            };
+            if provider == "local" {
+                if !filesystem.is_computer_root(&resolved) {
+                    let logical = filesystem::paths::resolve_inside_root(&filesystem, &resolved)?;
+                    let physical =
+                        filesystem::paths::verify_existing_inside_root(&filesystem, &logical)?;
+                    if !physical.is_dir() {
+                        return Err(NativeError::new("ENOTDIR", "This path is not a folder"));
+                    }
+                    resolved = logical.to_string_lossy().into_owned();
+                }
+            } else {
+                ssh.list(&provider, &resolved)?;
+            }
+            Ok(json!({"ok":true,"location":{"providerId":provider,"path":resolved}}))
+        })
+        .await
+        {
+            Ok(Ok(value)) => value,
+            Ok(Err(error)) => failure(error),
+            Err(error) => failure(NativeError::new("EFILESYSTEM", error.to_string())),
+        },
+    )
+}
+
+#[tauri::command]
 pub fn filesystem_watch(
     state: State<'_, AppState>,
     app: AppHandle,

@@ -79,7 +79,8 @@ test('file panels and the editor tree open the folder menu from breadcrumbs thro
   }
 
   // The placeholder belongs to the breadcrumbs; it must not become the menu's v-else.
-  assert.match(panel, /<\/nav>\s*<span v-else class="panel-path">Loading…<\/span>/u)
+  assert.match(panel, /<\/nav>\s*<form v-else-if="address.editing"/u)
+  assert.match(panel, /<span v-else class="panel-path">Loading…<\/span>/u)
 
   // Left click keeps its existing navigation in file panels.
   assert.match(panel, /@click\.stop="navigateToBreadcrumb\(crumb\)"/u)

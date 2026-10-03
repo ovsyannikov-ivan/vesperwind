@@ -28,6 +28,8 @@ export const videoExtensions = new Set([
 export const audioExtensions = new Set([
   'mp3',
   'm4a',
+  'm4b',
+  'm4r',
   'aac',
   'wav',
   'wave',
@@ -69,6 +71,8 @@ const previewableVideoExtensions = new Set([
 const previewableAudioExtensions = new Set([
   'mp3',
   'm4a',
+  'm4b',
+  'm4r',
   'aac',
   'wav',
   'wave',
@@ -101,6 +105,8 @@ const contentTypes = {
   m2ts: 'video/mp2t',
   mp3: 'audio/mpeg',
   m4a: 'audio/mp4',
+  m4b: 'audio/mp4',
+  m4r: 'audio/mp4',
   aac: 'audio/aac',
   wav: 'audio/wav',
   wave: 'audio/wav',

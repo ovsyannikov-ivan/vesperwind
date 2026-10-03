@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { build as esbuild } from 'esbuild'
 import { build as viteBuild } from 'vite'
 import { APP_VERSION } from '../shared/appMetadata.js'
+import { checkArchiveWorker } from './check-archive-worker.js'
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const distDirectory = path.join(projectRoot, 'dist')
@@ -77,6 +78,11 @@ const copyNativeAssets = async () => {
     ),
   ])
   await fs.chmod(path.join(nativeAssetsDirectory, 'spawn-helper'), 0o755)
+  await fs.copyFile(checkArchiveWorker(), path.join(nativeAssetsDirectory, 'vesperwind-archive'))
+  await fs.chmod(path.join(nativeAssetsDirectory, 'vesperwind-archive'), 0o755)
+  for (const name of ['libarchive-LICENSE.txt', 'zlib-LICENSE.txt', 'archive-BUILD-INFO.json']) {
+    await fs.copyFile(path.join(projectRoot, 'src-tauri/binaries', name), path.join(nativeAssetsDirectory, name))
+  }
 }
 
 const createWebManifest = async () => {

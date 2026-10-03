@@ -146,6 +146,16 @@ export const serializeFilesystemError = (error, requestedPath) => ({
 })
 
 export const registerFilesystemHandlers = (socket, { ssh } = {}) => {
+  socket.on('filesystem:resolve-location', async (payload, acknowledge) => {
+    const providerId = payload?.filesystemId || 'local'
+    try {
+      if (/^smb:\/\//iu.test(payload?.path || '')) throw Object.assign(new Error('Connect this share in the native app, then use its mounted path'), { code: 'ENOTSUPPORTED' })
+      let requested = providerId === 'local' && !isComputerRoot(payload?.path) ? resolveInsideRoot(payload?.path) : payload?.path
+      if (providerId === 'local') await listDirectory(requested)
+      else { const provider = await ssh.ensure(providerId); requested = provider.resolve(requested); await provider.list(requested) }
+      acknowledge?.({ ok: true, location: { providerId, path: requested } })
+    } catch (error) { acknowledge?.({ ok: false, error: serializeFilesystemError(error, payload?.path) }) }
+  })
   socket.on('filesystem:root', async (payload, acknowledge) => {
     try {
       if (payload?.filesystemId && payload.filesystemId !== 'local') {

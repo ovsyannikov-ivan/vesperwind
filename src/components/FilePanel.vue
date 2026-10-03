@@ -1,5 +1,7 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { filesystem } from '../api/filesystem.js'
+import { createAddressNavigation } from '../utils/addressNavigation.js'
 import { isComputerPath, isFilesystemRootEntry } from '../../shared/localFilesystem.js'
 import { useFilesystem } from '../composables/useFilesystem.js'
 import { useSettings } from '../composables/useSettings.js'
@@ -116,6 +118,17 @@ let renameRequestSequence = 0
 const loading = ref(true)
 const error = ref(null)
 const breadcrumbsRef = ref(null)
+const addressInput = ref(null)
+const address = reactive({ editing: false, draft: '', busy: false, error: '' })
+const addressNavigation = createAddressNavigation({ state: address,
+  getLocation: () => ({ providerId: props.providerId, path: root.value?.path }),
+  resolve: filesystem.resolveLocation,
+  navigate: (location) => openDirectory({ name: getFilesystemPathName(location.path), path: location.path, type: 'directory', isDirectory: true }),
+})
+const editAddress = async () => {
+  emit('activate'); folderMenu.value = null; addressNavigation.edit()
+  await nextTick(); addressInput.value?.focus(); addressInput.value?.select()
+}
 const rootDropTarget = ref(false)
 const breadcrumbs = computed(() =>
   buildPathBreadcrumbs(filesystemRoot.value, root.value?.path),
@@ -462,8 +475,8 @@ watch(
   },
 )
 
-watch(() => props.providerId, () => { cancelSearch(); search.open = false; folderMenu.value = null })
-watch(() => root.value?.path, () => { folderMenu.value = null })
+watch(() => props.providerId, () => { addressNavigation.cancel(); cancelSearch(); search.open = false; folderMenu.value = null })
+watch(() => root.value?.path, () => { addressNavigation.cancel(); folderMenu.value = null })
 watch(
   panelState,
   (state) => emit('state-change', state),
@@ -478,12 +491,13 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  addressNavigation.dispose()
   window.removeEventListener('dragend', clearRootDropTarget)
   window.removeEventListener('drop', clearRootDropTarget)
   document.removeEventListener('pointerdown', closeFilterOnOutsidePointer, true)
 })
 
-defineExpose({ openNode, requestRename, removeSelectedPaths })
+defineExpose({ openNode, requestRename, removeSelectedPaths, editAddress })
 
 watch(entryChange, (change) => {
   if (change?.action !== 'rename' || change.providerId !== props.providerId) return
@@ -526,7 +540,7 @@ watch(entryChange, (change) => {
         <strong>{{ side === 'left' ? 'Left' : 'Right' }}</strong>
         <span class="badge text-bg-secondary panel-provider-label">{{ providerLabel }}</span>
         <nav
-          v-if="breadcrumbs.length"
+          v-if="breadcrumbs.length && !address.editing"
           ref="breadcrumbsRef"
           class="panel-breadcrumbs"
           :aria-label="`${side} panel path`"
@@ -552,7 +566,11 @@ watch(entryChange, (change) => {
             </button>
           </template>
         </nav>
+        <form v-else-if="address.editing" class="panel-address-form" @submit.prevent="addressNavigation.submit" @keydown.esc.prevent.stop="addressNavigation.cancel">
+          <input ref="addressInput" v-model="address.draft" class="form-control form-control-sm" :aria-label="`${side} panel full path`" :aria-invalid="Boolean(address.error)" :aria-describedby="address.error ? `${panelId}-address-error` : undefined" :readonly="address.busy" autocomplete="off" spellcheck="false">
+        </form>
         <span v-else class="panel-path">Loading…</span>
+        <button v-if="root && !address.editing" class="compact-icon-button" type="button" title="Edit path (Ctrl/Cmd+L)" :aria-label="`Edit ${side} panel path`" @click.stop="editAddress"><i class="mdi mdi-pencil-outline" aria-hidden="true" /></button>
         <FolderPathMenu
           v-if="folderMenu"
           :key="folderMenu.id"
@@ -577,6 +595,7 @@ watch(entryChange, (change) => {
         />
       </button>
     </header>
+    <div v-if="address.error" :id="`${panelId}-address-error`" class="alert alert-danger py-1 px-2 m-1 small" role="alert">{{ address.error }}</div>
 
     <form v-if="search.open" class="search-controls" role="search" @submit.prevent="runSearch" @keydown.esc.prevent="closeSearch">
       <input v-model="search.query" class="form-control form-control-sm" aria-label="Search file or path" placeholder="Search names and paths" @input="cancelSearch">

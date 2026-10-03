@@ -10,6 +10,8 @@ between applications.
 
 - **File management:** two independent panels, copy/move/rename/delete,
   drag-and-drop, keyboard shortcuts and context menus.
+- **Archives & navigation:** create ZIP and extract ZIP/TAR/TGZ/RAR/RAR5 with a
+  bundled worker; edit panel paths with Ctrl/Cmd+L or browse breadcrumbs.
 - **SSH & SFTP:** saved connection profiles, host-key verification, remote browsing,
   and file transfers between local and remote panels.
 - **Search & filtering:** recursive name/path search, per-panel filters and sorting,
@@ -19,7 +21,7 @@ between applications.
 - **Documents:** edit DOCX and XLSX/XLS; import DOC and RTF through LibreOffice.
 - **PDFs:** thumbnails, page navigation, zoom, text selection and search.
 - **Media:** view images and play local or remote audio/video with seeking,
-  track selection and fullscreen controls.
+  track selection and fullscreen controls, including M4B audiobooks and M4R ringtones.
 - **Terminals:** multiple local PTY and SSH terminal tabs.
 - **Desktop integration:** open local files with other applications and reveal them
   in Finder or Explorer.
@@ -36,6 +38,7 @@ For setup and build instructions, see the [development guide](docs/development.m
 
 - [Word documents](docs/word-documents.md) and [spreadsheets](docs/spreadsheets.md)
 - [Video seeking and thumbnail previews](docs/video-thumbnails.md)
+- [Archives, address bar and mounted network shares](docs/archives-and-navigation.md)
 - [Native playback, HDR and Dolby Vision details](docs/libmpv.md#hdr-and-color-pipeline)
   for media enthusiasts, including current limitations and verification results
 

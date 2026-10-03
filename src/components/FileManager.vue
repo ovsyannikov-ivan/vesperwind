@@ -33,6 +33,11 @@ import RemoteConnectionsModal from './RemoteConnectionsModal.vue'
 import Splitter from './Splitter.vue'
 import TerminalPanel from './TerminalPanel.vue'
 import Toolbar from './Toolbar.vue'
+import ArchiveOperationModal from './ArchiveOperationModal.vue'
+import { startArchiveOperation } from '../api/archives.js'
+import { archiveName, extractionFolderName } from '../../shared/archivePolicy.js'
+import { notifyEntryChange } from '../composables/useEntryChanges.js'
+import { isAddressShortcut } from '../utils/addressNavigation.js'
 
 const EditorWorkspace = defineAsyncComponent(() => import('./EditorWorkspace.vue'))
 
@@ -134,6 +139,39 @@ const panelStates = reactive({
   },
 })
 let unsubscribeConnection = null
+const archiveRequest = ref(null), archiveBusy = ref(false), archiveCancelling = ref(false)
+const archiveError = ref(null), archiveProgress = ref(null)
+let archiveJob = null
+const openArchive = (action, context = false) => {
+  if (archiveBusy.value || archiveRequest.value) return
+  const state = panelStates[activePanel.value]
+  const sources = context && action === 'extract' ? [entryContextRequest.value?.node] : transferSources(state.selectedEntries)
+  if (!sources?.length || sources.some((s) => !s || s.providerId !== 'local')) return
+  const other = oppositePanelSide(activePanel.value)
+  const otherVisible = other === 'left' ? layout.leftVisible : layout.rightVisible
+  const alternate = otherVisible ? panelStates[other].currentDirectory : null
+  const target = alternate?.providerId === 'local' && !isComputerPath(alternate.path) ? alternate : state.currentDirectory
+  if (!target || target.providerId !== 'local' || isComputerPath(target.path)) return
+  archiveError.value = null; archiveProgress.value = null; archiveCancelling.value = false
+  archiveRequest.value = { action, sources, target, name: action === 'create' ? `${sources.length === 1 ? sources[0].name : 'Archive'}.zip` : extractionFolderName(sources[0].name) }
+  entryContextRequest.value = null
+}
+const cancelArchive = () => {
+  if (archiveBusy.value) { archiveCancelling.value = true; archiveJob?.cancel() }
+  else archiveRequest.value = null
+}
+const submitArchive = ({ name, targetPath }) => {
+  if (!archiveRequest.value || archiveBusy.value) return
+  archiveBusy.value = true; archiveError.value = null; archiveCancelling.value = false
+  const request = { ...archiveRequest.value, name, target: { providerId: 'local', path: targetPath } }
+  archiveJob = startArchiveOperation(request, (event) => {
+    if (!event.done) { archiveProgress.value = event; return }
+    archiveBusy.value = false; archiveCancelling.value = false; archiveJob = null
+    if (event.result) { notifyEntryChange({ ok: true, result: event.result }, 'local'); archiveRequest.value = null }
+    else if (event.error?.code === 'ECANCELLED') archiveRequest.value = null
+    else archiveError.value = event.error
+  })
+}
 
 const bothPanelsVisible = computed(() => layout.leftVisible && layout.rightVisible)
 const terminalStyle = computed(() =>
@@ -164,6 +202,7 @@ const commandAvailability = computed(() => {
     !connected.value ||
       settingsOpen.value ||
       createRequest.value ||
+      archiveRequest.value ||
       dropRequest.value ||
       confirmationRequest.value ||
       entryContextRequest.value ||
@@ -183,6 +222,9 @@ const commandAvailability = computed(() => {
   )
 
   return {
+    archiveCreate: canUseSource && !interactionBlocked && source.selectedEntries.every((s) => s.providerId === 'local'),
+    archiveExtract: canUseSource && !interactionBlocked && source.selectedEntries.length === 1 &&
+      source.selectedEntries[0].providerId === 'local' && !source.selectedEntries[0].isDirectory && archiveName(source.selectedEntries[0].name),
     create: Boolean(activePanelVisible && source?.currentDirectory?.isDirectory &&
       !isComputerPath(source.currentDirectory.path) && !interactionBlocked),
     copy: canTransfer && !interactionBlocked,
@@ -645,6 +687,11 @@ const executeCommanderOperation = async () => {
 }
 
 const handleCommanderKeydown = (event) => {
+  if (isAddressShortcut(event) && !event.target.closest?.('.xterm') && workspaceMode.value === 'files' && !settingsOpen.value && !remoteConnectionsOpen.value && !createRequest.value && !confirmationRequest.value && !archiveRequest.value && !viewer.value && !dropRequest.value && !entryContextRequest.value) {
+    const panel = activePanel.value === 'left' ? leftPanel.value : rightPanel.value
+    if (panel) { event.preventDefault(); void panel.editAddress() }
+    return
+  }
   if (workspaceMode.value !== 'files' || event.target.closest?.('input, textarea, [contenteditable="true"]')) {
     return
   }
@@ -680,6 +727,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  archiveJob?.dispose()
   clearPanelDrag()
   unsubscribeNativeSettings?.()
   unsubscribeConnection?.()
@@ -705,6 +753,8 @@ onBeforeUnmount(() => {
       @move="openCommanderConfirmation('move')"
       @delete="openCommanderConfirmation('delete')"
       @create="openCreate"
+      @archive-create="openArchive('create')"
+      @archive-extract="openArchive('extract')"
       @show-files="showFiles"
       @show-editor="showEditor"
       @open-remote="remoteConnectionsOpen = true"
@@ -820,6 +870,7 @@ onBeforeUnmount(() => {
       @next="showNext"
       @retry="retryMedia"
     />
+    <ArchiveOperationModal :open="Boolean(archiveRequest)" :request="archiveRequest" :busy="archiveBusy" :cancelling="archiveCancelling" :progress="archiveProgress" :error="archiveError" @submit="submitArchive" @cancel="cancelArchive" />
     <FileOperationConfirmModal
       :open="Boolean(confirmationRequest)"
       :request="confirmationRequest"
@@ -846,6 +897,7 @@ onBeforeUnmount(() => {
       :native-actions="desktop.available && entryContextRequest.node.providerId === 'local'"
       :open-with-available="desktop.canOpenWith"
       :reveal-label="desktop.revealLabel"
+      :archive-actions="entryContextRequest.node.providerId === 'local' && !archiveBusy"
       :busy="entryContextBusy"
       :error="entryContextError"
       @open="executeEntryContextOpen"
@@ -854,6 +906,8 @@ onBeforeUnmount(() => {
       @reveal="executeDesktopAction('reveal')"
       @rename="executeEntryContextRename"
       @delete="executeEntryContextDelete"
+      @archive-create="openArchive('create', true)"
+      @archive-extract="openArchive('extract', true)"
       @cancel="closeEntryContextMenu"
     />
   </main>

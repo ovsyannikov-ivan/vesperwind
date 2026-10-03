@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { isFilesystemRootEntry } from '../../shared/localFilesystem.js'
 import { navigateDropdown } from '../utils/dropdownNavigation.js'
+import { archiveName } from '../../shared/archivePolicy.js'
 
 const props = defineProps({
   request: {
@@ -14,18 +15,19 @@ const props = defineProps({
     validator: (value) => value === null || ['open', 'edit', 'view'].includes(value),
   },
   nativeActions: { type: Boolean, default: false },
+  archiveActions: { type: Boolean, default: false },
   openWithAvailable: { type: Boolean, default: false },
   revealLabel: { type: String, default: 'Show in File Manager' },
   busy: { type: Boolean, default: false },
   error: { type: String, default: '' },
 })
 
-const emit = defineEmits(['open', 'system-open', 'open-with', 'reveal', 'rename', 'delete', 'cancel'])
+const emit = defineEmits(['open', 'system-open', 'open-with', 'reveal', 'rename', 'delete', 'cancel', 'archive-create', 'archive-extract'])
 const menuRef = ref(null)
 const menuStyle = computed(() => {
   const width = 208
   const nativeFile = props.nativeActions && !props.request.node.isDirectory
-  const rows = 2 + Number(Boolean(props.openAction)) + 2 * Number(props.nativeActions) +
+  const rows = 2 + Number(Boolean(props.openAction)) + Number(props.archiveActions) + Number(props.archiveActions && archiveName(props.request.node.name) && !props.request.node.isDirectory) + 2 * Number(props.nativeActions) +
     Number(nativeFile && props.openWithAvailable)
   const height = 16 + rows * 33 + (props.openAction || props.nativeActions ? 9 : 0) +
     (props.error ? 52 : 0)
@@ -127,6 +129,8 @@ onBeforeUnmount(() => {
       </button>
       <div v-if="openAction || nativeActions" class="dropdown-divider" />
       <div v-if="error" class="px-3 py-2 small text-danger" role="alert">{{ error }}</div>
+      <button v-if="archiveActions" class="dropdown-item" type="button" role="menuitem" :disabled="busy || isFilesystemRootEntry(request.node)" @click="$emit('archive-create')"><i class="mdi mdi-folder-zip-outline" aria-hidden="true" /> Create ZIP…</button>
+      <button v-if="archiveActions && !request.node.isDirectory && archiveName(request.node.name)" class="dropdown-item" type="button" role="menuitem" :disabled="busy" @click="$emit('archive-extract')"><i class="mdi mdi-archive-arrow-down-outline" aria-hidden="true" /> Extract archive…</button>
       <button
         class="dropdown-item"
         type="button"

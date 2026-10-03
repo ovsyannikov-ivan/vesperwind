@@ -125,6 +125,9 @@ const operate = async ({ action, source, target = null, name }) => {
 }
 
 export const filesystem = Object.freeze({
+  resolveLocation: async (location) => normalizeApiResponse(await backend.request('filesystem:resolve-location', {
+    filesystemId: providerIdOf(location), path: location?.path,
+  }, { timeout: 120_000 }), 'EFILESYSTEM_LOCATION', 'Unable to open this folder'),
   getRoot,
   readDir,
   search: startFilesystemSearch,

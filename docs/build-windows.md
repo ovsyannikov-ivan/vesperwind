@@ -11,6 +11,7 @@ build. Use the MSVC toolchain for the same architecture as your Node.js install.
 | Rust stable with `x86_64-pc-windows-msvc` | Tauri's Rust backend on 64-bit Windows |
 | Microsoft Edge WebView2 Runtime | Tauri's Windows webview; it may already be installed |
 | Strawberry Perl | Compiling vendored OpenSSL for the SSH/SFTP backend |
+| CMake 3.20+ | Building the pinned libarchive/zlib archive sidecar |
 
 The [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) explain the
 C++ Build Tools, WebView2, and Rust setup. Follow the
@@ -49,6 +50,7 @@ describe the C compiler, Perl, and make requirements for vendored OpenSSL.
 
 ```powershell
 npm ci
+npm run build:archives
 ```
 
 Then run `npm run dev:tauri` for development or `npm run build:tauri` for a

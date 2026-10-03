@@ -59,6 +59,8 @@ const emit = defineEmits([
   'move',
   'delete',
   'create',
+  'archive-create',
+  'archive-extract',
   'show-files',
   'show-editor',
   'open-remote',
@@ -160,6 +162,8 @@ const selectCreate = (kind) => {
     <div v-if="workspaceMode === 'files'" class="toolbar-divider" />
 
     <div v-if="workspaceMode === 'files'" class="btn-group btn-group-sm" role="group" aria-label="File operations">
+      <button class="btn toolbar-button toolbar-command" type="button" :disabled="!commandAvailability.archiveCreate" title="Create ZIP from selected items" @click="$emit('archive-create')"><i class="mdi mdi-folder-zip-outline" aria-hidden="true" /> ZIP</button>
+      <button class="btn toolbar-button toolbar-command" type="button" :disabled="!commandAvailability.archiveExtract" title="Extract selected archive" @click="$emit('archive-extract')"><i class="mdi mdi-archive-arrow-down-outline" aria-hidden="true" /> Extract</button>
       <div class="btn-group btn-group-sm">
         <button ref="createButton" class="btn toolbar-button toolbar-command dropdown-toggle" data-bs-toggle="dropdown" type="button" :disabled="!commandAvailability.create" aria-expanded="false">
           <i class="mdi mdi-plus" aria-hidden="true" /> Create

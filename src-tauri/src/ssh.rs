@@ -294,6 +294,13 @@ impl SshManager {
             Err(error) => Err(error),
         }
     }
+    pub fn resolve_path(
+        self: &Arc<Self>,
+        provider_id: &str,
+        requested: &str,
+    ) -> Result<String, NativeError> {
+        self.ensure(provider_id)?.resolve(requested)
+    }
     pub fn read_text(
         self: &Arc<Self>,
         provider_id: &str,

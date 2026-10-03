@@ -30,9 +30,13 @@
     ]
   },
   "bundle": {
+    "externalBin": ["binaries/vesperwind-archive"],
     "active": true,
     "targets": "all",
     "resources": [
+      "binaries/libarchive-LICENSE.txt",
+      "binaries/zlib-LICENSE.txt",
+      "binaries/archive-BUILD-INFO.json",
       "vendor/libmpv/**/*"
     ],
     "icon": [

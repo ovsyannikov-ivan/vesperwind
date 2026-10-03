@@ -1,5 +1,7 @@
 pub mod alias;
+pub mod archives;
 pub mod availability;
+pub mod network;
 pub mod operations;
 pub mod paths;
 pub mod search;

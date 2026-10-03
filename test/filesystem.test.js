@@ -7,7 +7,7 @@ import test from 'node:test'
 const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'vesperwind-filesystem-'))
 process.env.FILE_MANAGER_ROOT = fixtureRoot
 
-const { fileManagerRoot, getRootEntry, listDirectory } = await import(
+const { fileManagerRoot, getRootEntry, listDirectory, registerFilesystemHandlers } = await import(
   '../server/filesystem.js'
 )
 
@@ -54,4 +54,17 @@ test('rejects paths above FILE_MANAGER_ROOT', async () => {
   await assert.rejects(() => listDirectory(path.dirname(fixtureRoot)), {
     code: 'EOUTSIDE_ROOT',
   })
+})
+
+test('address resolution validates folders and normalizes provider paths without mounting in browser mode', async () => {
+  const handlers = new Map()
+  registerFilesystemHandlers({ on: (event, handler) => handlers.set(event, handler) }, {
+    ssh: { ensure: async () => ({ resolve: () => '/home/server', list: async () => [] }) },
+  })
+  const resolve = (payload) => new Promise((done) => handlers.get('filesystem:resolve-location')(payload, done))
+  const local = await resolve({ filesystemId: 'local', path: fixtureRoot })
+  assert.deepEqual(local.location, { providerId: 'local', path: fixtureRoot })
+  assert.equal((await resolve({ filesystemId: 'local', path: path.join(fixtureRoot, 'File2.txt') })).error.code, 'ENOTDIR')
+  assert.equal((await resolve({ filesystemId: 'local', path: 'smb://server/share' })).error.code, 'ENOTSUPPORTED')
+  assert.deepEqual((await resolve({ filesystemId: 'sftp:a', path: '/home/server/.' })).location, { providerId: 'sftp:a', path: '/home/server' })
 })

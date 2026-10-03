@@ -18,6 +18,15 @@ The generated theme data retains the resolved `2026-dark.json` include chain
 and is converted to Monaco's `IStandaloneThemeData` format by
 `scripts/update-monaco-dark-2026.js`.
 
+## Archive worker
+
+The bundled archive worker statically links libarchive 3.8.9 and zlib 1.3.1.
+Libarchive retains its BSD-family upstream notices; zlib uses the zlib license.
+Full notices and source/build pins are distributed as
+`binaries/libarchive-LICENSE.txt`, `binaries/zlib-LICENSE.txt` and
+`binaries/archive-BUILD-INFO.json`. Sources and hashes are recorded in
+`scripts/archive-sources.json`. See `docs/archives-and-navigation.md`.
+
 ## Native media runtime
 
 The Tauri macOS and Windows bundles vendor a dynamically linked, LGPL-compatible libmpv

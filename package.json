@@ -8,17 +8,18 @@
     "dev": "node scripts/dev.js",
     "dev:backend": "node server/index.js",
     "dev:frontend": "vite --host 127.0.0.1",
-    "predev:tauri": "node scripts/check-native-prereqs.mjs",
+    "predev:tauri": "node scripts/check-native-prereqs.mjs && node scripts/check-archive-worker.js",
     "dev:tauri": "tauri dev",
     "build": "vite build",
-    "prebuild:tauri": "node scripts/check-native-prereqs.mjs",
+    "prebuild:tauri": "node scripts/check-native-prereqs.mjs && node scripts/check-archive-worker.js",
     "build:tauri": "node scripts/build-tauri.js",
     "build:staging": "node scripts/build-staging.js",
     "build:sea": "node scripts/build-sea.js",
     "postinstall": "node scripts/ensure-node-pty-helper.js",
     "start": "node server/index.js",
     "test": "node --test",
-    "test:smoke": "node scripts/runtime-smoke.js"
+    "test:smoke": "node scripts/runtime-smoke.js",
+    "build:archives": "node scripts/build-archive-worker.js"
   },
   "dependencies": {
     "@docx-editor.dev/core": "2.22.0",

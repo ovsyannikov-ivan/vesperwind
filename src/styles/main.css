@@ -419,6 +419,9 @@ button:focus-visible,
 
 /* Shared neutral action (Cancel, Clear, secondary Save): the toolbar command
    surface for dialogs and menus. Pair with `btn btn-sm`. */
+.panel-address-form { flex: 1; min-width: 0; }
+.panel-address-form .form-control { height: 24px; padding-block: 0; }
+
 .btn-neutral {
 	--bs-btn-color: var(--text);
 	--bs-btn-bg: var(--toolbar-control-active-bg);

@@ -7,6 +7,14 @@ import {
   getMediaKind,
 } from '../shared/mediaTypes.js'
 import { parseByteRange } from '../server/media.js'
+import { getFileOpenType } from '../src/utils/fileTypes.js'
+
+test('audiobooks and ringtones open in the existing audio player', () => {
+  for (const name of ['book.m4b', 'BOOK.M4B', 'ringtone.m4r']) {
+    assert.equal(getMediaKind(name), 'audio'); assert.equal(canPreviewMedia(name), true)
+    assert.equal(getMediaContentType(name), 'audio/mp4'); assert.equal(getFileOpenType(name), 'audio')
+  }
+})
 
 test('classifies common browser media including Matroska fallback', () => {
   assert.equal(getMediaKind('clip.MP4'), 'video')

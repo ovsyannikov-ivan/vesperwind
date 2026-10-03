@@ -1,6 +1,6 @@
 {
   "bundle": {
-    "externalBin": ["binaries/ffmpeg"],
-    "resources": ["vendor/libmpv/**/*", "binaries/FFmpeg-LGPL-2.1.txt", "binaries/FFmpeg-BUILD-INFO.txt"]
+    "externalBin": ["binaries/vesperwind-archive", "binaries/ffmpeg"],
+    "resources": ["vendor/libmpv/**/*", "binaries/libarchive-LICENSE.txt", "binaries/zlib-LICENSE.txt", "binaries/archive-BUILD-INFO.json", "binaries/FFmpeg-LGPL-2.1.txt", "binaries/FFmpeg-BUILD-INFO.txt"]
   }
 }

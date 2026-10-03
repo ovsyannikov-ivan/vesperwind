@@ -38,6 +38,7 @@ pub struct AppState {
     web_history: Arc<media::history::WebHistory>,
     directory_watches: filesystem::watch::DirectoryWatches,
     search_jobs: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
+    archive_jobs: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -141,6 +142,7 @@ pub fn run() {
             web_history,
             directory_watches: filesystem::watch::DirectoryWatches::default(),
             search_jobs: Arc::new(Mutex::new(HashMap::new())),
+            archive_jobs: Arc::new(Mutex::new(HashMap::new())),
         })
         .setup(move |app| {
             app.state::<AppState>().player.history.configure(app.path().app_data_dir()?.join("media-history.sqlite3"));
@@ -185,6 +187,9 @@ pub fn run() {
         )
         .invoke_handler(tauri::generate_handler![
             commands::filesystem::filesystem_root,
+            commands::archive::archive_start,
+            commands::archive::archive_cancel,
+            commands::filesystem::filesystem_resolve_location,
             commands::filesystem::filesystem_list,
             commands::filesystem::filesystem_search,
             commands::filesystem::filesystem_search_cancel,
@@ -234,17 +239,32 @@ pub fn run() {
         .build(context)
         .expect("error while running Vesperwind");
 
-    app.run(move |_app_handle, event| {
+    app.run(move |app_handle, event| {
         if matches!(
             event,
             tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }
         ) {
+            for cancel in app_handle
+                .state::<AppState>()
+                .archive_jobs
+                .lock()
+                .unwrap()
+                .values()
+            {
+                cancel.store(true, std::sync::atomic::Ordering::Release);
+            }
             shutdown_terminal.shutdown();
             shutdown_player.close_all();
             shutdown_thumbnails.shutdown();
             shutdown_web_history.close_all();
             shutdown_history.flush();
             ssh.shutdown();
+            // Allow cancelled archive workers to kill/reap their child and
+            // remove staging before normal application shutdown finishes.
+            let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
+            while !app_handle.state::<AppState>().archive_jobs.lock().unwrap().is_empty() && std::time::Instant::now() < until {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
         }
     });
 }
