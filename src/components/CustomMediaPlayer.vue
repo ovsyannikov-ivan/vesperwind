@@ -433,7 +433,7 @@ defineExpose({ mediaElement, pause, play, seek, stop, coverNativeTransition, rev
     <span v-if="seekFeedback" slot="centered-chrome" class="video-seek-feedback" role="status">{{ seekFeedback.delta > 0 ? '+' : '' }}{{ Math.round(seekFeedback.delta) }} s</span>
     <media-loading-indicator v-if="!isAudio" slot="centered-chrome" noautohide />
     <media-play-button v-if="!isAudio" slot="centered-chrome" class="custom-media-player-centered-play" aria-label="Play or pause video" />
-    <media-control-bar class="custom-media-player-controls">
+    <media-control-bar class="custom-media-player-controls" :noautohide="chaptersOpen || undefined">
       <media-play-button aria-label="Play or pause" />
       <media-time-display showduration />
       <div class="video-preview-track">
