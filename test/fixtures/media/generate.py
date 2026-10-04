@@ -22,3 +22,12 @@ for filename in ["chapters.mkv", "chapters.mp4"]:
     subprocess.run(common + ["-f", "lavfi", "-i", "color=c=black:s=32x32:r=1", "-f", "ffmetadata", "-i", str(metadata),
         "-map", "0:v", "-map_chapters", "1", "-t", "120", "-c:v", "mpeg4", "-q:v", "31",
         "-fflags", "+bitexact", "-flags:v", "+bitexact", str(root / filename)], check=True)
+
+# Synthetic audio codec fixtures; checked-in files need only bundled libmpv at test time.
+for filename, codec in [("native.flac", "flac"), ("native.ac3", "ac3"), ("native.eac3", "eac3")]:
+    subprocess.run(common + ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", "2",
+        "-c:a", codec, "-fflags", "+bitexact", "-flags:a", "+bitexact", str(root / filename)], check=True)
+
+subprocess.run(common + audio + ["-f", "ffmetadata", "-i", str(root / "long-chapters.ffmetadata"),
+    "-map", "0:a", "-map_chapters", "1", "-t", "20000", "-c:a", "aac", "-b:a", "8k",
+    "-fflags", "+bitexact", "-flags:a", "+bitexact", "-f", "mp4", str(root / "long.m4b")], check=True)

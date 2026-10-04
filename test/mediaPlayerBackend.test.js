@@ -142,6 +142,8 @@ test('native player routes provider sources and releases the active player', asy
     filesystemId: 'sftp:demo',
     path: '/video/one.mkv',
     autoplay: true,
+    kind: 'video',
+    historyEnabled: true,
     geometry,
   })
   assert.deepEqual(requests[1].payload, { sessionId: firstSessionId })
@@ -150,6 +152,8 @@ test('native player routes provider sources and releases the active player', asy
     filesystemId: 'local',
     path: '/video/two.mp4',
     autoplay: true,
+    kind: 'video',
+    historyEnabled: true,
     geometry,
   })
   assert.equal(player.snapshot().source, 'local:/video/two.mp4')
@@ -597,4 +601,73 @@ test('native chapters use the existing absolute seek and preserve file navigatio
   assert.equal(requests.length, 3)
   assert.ok(requests.every(({ event }) => event === 'player:seek'))
   player.dispose()
+})
+
+test('audio backend selection uses bundled mpv in Tauri without render API and preserves browser/SEA web fallback', async () => {
+  const { selectPlayerBackend } = await import('../src/player/mediaPlayerBackend.js')
+  const capabilities = async () => ({ available: true, renderApi: false })
+  assert.equal(await selectPlayerBackend('audio', { runtimeMode: 'tauri', capabilities }), 'mpv')
+  assert.equal(await selectPlayerBackend('video', { runtimeMode: 'tauri', capabilities }), 'web')
+  for (const runtimeMode of ['browser', 'sea']) {
+    assert.equal(await selectPlayerBackend('audio', { runtimeMode, capabilities: () => { throw Error('must not ask native') } }), 'web')
+  }
+  assert.equal(await selectPlayerBackend('audio', { runtimeMode: 'tauri', capabilities: async () => ({ available: false }) }), 'web')
+})
+
+test('native audio opens local/provider sources without geometry or overlay and preserves explicit history opt-out', async () => {
+  for (const historyEnabled of [true, false]) for (const providerId of ['local', 'sftp:book']) {
+    const commands = [], listeners = new Map()
+    const transport = {
+      subscribe: (event, fn) => { listeners.set(event, fn); return () => listeners.delete(event) },
+      request: async (event, payload) => {
+        commands.push({ event, payload })
+        return { ok: true, sessionId: payload.sessionId, state: { status: PlayerStatus.PAUSED, duration: 20000 } }
+      },
+    }
+    const player = new NativeMpvPlayerBackend({ kind: 'audio', autoplay: true, historyEnabled, transport })
+    await player.setSource({ providerId, path: '/books/long.m4b' })
+    assert.deepEqual(commands[0].payload, { sessionId: player.sessionId, filesystemId: providerId,
+      path: '/books/long.m4b', kind: 'audio', autoplay: true, historyEnabled })
+    assert.equal(Object.hasOwn(commands[0].payload, 'geometry'), false)
+    await player.setGeometry({}); await player.setVisible(true); await player.setOverlay(true, {})
+    await player.play(); await player.pause(); await player.seek(16638); await player.setVolume(0.4)
+    assert.deepEqual(commands.slice(1).map((cmd) => cmd.event), ['player:play', 'player:pause', 'player:seek', 'player:set-volume'])
+    assert.equal(commands[3].payload.seconds, 16638)
+    player.close()
+  }
+})
+
+test('native EOF revisions survive duplicate/out-of-order snapshots without duplicate progression and reset per session', async () => {
+  let listener
+  const transport = { subscribe: (_, fn) => { listener = fn; return () => {} },
+    request: async (_, payload) => ({ ok: true, sessionId: payload.sessionId, state: { status: PlayerStatus.PAUSED, duration: 120 } }) }
+  const player = new NativeMpvPlayerBackend({ kind: 'audio', transport })
+  await player.setSource({ path: '/one.flac' })
+  let revision = 0, count = 0
+  player.subscribe((state) => { if (state.endedRevision > revision) { revision = state.endedRevision; count++ } })
+  for (const endedRevision of [1, 1, 0, 1]) listener({ sessionId: player.sessionId, endedRevision, status: 'paused' })
+  assert.equal(count, 1)
+  await player.setSource({ path: '/two.flac' })
+  assert.equal(player.snapshot().endedRevision, 0)
+  revision = 0
+  listener({ sessionId: player.sessionId, endedRevision: 1, status: 'paused' })
+  assert.equal(count, 2)
+  player.close()
+})
+
+test('web natural EOF notifies once after history completion and preserves synchronous rewind', async () => {
+  const element = new FakeMediaElement()
+  let finishHistory
+  const history = { request: async (_, payload) => payload.event === 'open' ? { ok: true } : payload.event === 'eof' ? new Promise((resolve) => { finishHistory = resolve }) : { ok: true } }
+  const player = new WebMediaPlayerBackend(element, { history })
+  await player.setSource('/one.m4b', { path: '/one.m4b' })
+  element.duration = 120; element.dispatchEvent(new Event('loadedmetadata'))
+  element.currentTime = 120
+  element.dispatchEvent(new Event('ended')); element.dispatchEvent(new Event('ended'))
+  assert.equal(element.currentTime, 0)
+  assert.equal(player.snapshot().endedRevision, 0)
+  finishHistory({ ok: true })
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(player.snapshot().endedRevision, 1)
+  player.close()
 })

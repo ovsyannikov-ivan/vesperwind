@@ -249,7 +249,7 @@ test('component contracts preserve existing viewer, audio autoplay/history opt-o
   assert.match(word, /DocxEditorRoot[^>]*mode="view"/)
   assert.doesNotMatch(word, /attachDocumentRuntime|@change|@save|DocxEditorMenu|DocxEditorToolbar/)
   assert.doesNotMatch(sheet, /[Uu]niver|attachSpreadsheetRuntime|contenteditable|@save|@change/)
-  assert.match(bar, /autoplayAllowed.value = false/)
+  assert.match(bar, /props.audio.state.autoplay = false/)
   assert.match(bar, /player.value\?\.pause\(\)/)
   assert.match(manager, /openCoordinatedMedia\(context\)/)
   assert.match(manager, /<MediaViewerModal/)
@@ -260,4 +260,16 @@ test('the existing media modal honors an immediate close after its Bootstrap ope
   assert.match(modal, /const handleShown = \(\) => \{\s*if \(!props.open\) modal\?\.hide\(\)/u)
   assert.match(modal, /addEventListener\('shown.bs.modal', handleShown\)/u)
   assert.match(modal, /removeEventListener\('shown.bs.modal', handleShown\)/u)
+})
+
+test('native Quick Look audio bypasses HTTP preparation while remaining outside the persistent queue', async () => {
+  const calls = []
+  const q = useQuickLook({ openMedia: () => { throw Error('must not insert into normal player') }, closeMedia: () => {},
+    beforePlayback: async (kind) => calls.push(kind), selectBackend: async () => 'mpv',
+    prepareMedia: () => { throw Error('native does not need HTML source') } })
+  await q.open({ node: { name: 'book.m4b', path: '/book.m4b', isDirectory: false }, filesystemId: 'sftp:home' })
+  assert.equal(q.preview.value.sourceUrl, 'native-audio')
+  assert.equal(q.preview.value.loading, false)
+  assert.deepEqual(calls, ['audio'])
+  q.close()
 })

@@ -37,6 +37,7 @@ const props = defineProps({
     validator: (value) => ['audio', 'video'].includes(value),
   },
   autoplay: { type: Boolean, default: false },
+  preserveLocationPlayback: { type: Boolean, default: false },
   historyEnabled: { type: Boolean, default: true },
   fullscreen: { type: Boolean, default: false },
   title: { type: String, default: '' },
@@ -44,7 +45,7 @@ const props = defineProps({
   total: { type: Number, default: 0 },
 })
 
-const emit = defineEmits(['error', 'fullscreen', 'backend'])
+const emit = defineEmits(['error', 'fullscreen', 'backend', 'state', 'ended'])
 const mediaElement = ref(null)
 const nativeSurface = ref(null)
 const backendMode = ref('loading')
@@ -93,6 +94,10 @@ const handlePreview = (event) => {
   if (isAudio.value || event.detail == null) { thumbnail.hide(); return }
   thumbnail.show(event.detail, state.duration > 0 ? event.detail / state.duration : 0)
 }
+const formatTime = (seconds) => {
+  const total = Math.max(0, Math.floor(Number(seconds) || 0))
+  return total >= 3600 ? `${Math.floor(total / 3600)}:${String(Math.floor(total / 60) % 60).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}` : `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
+}
 const isAudio = computed(() => props.kind === 'audio')
 const isNative = computed(() => backendMode.value === 'mpv')
 let player = null
@@ -100,7 +105,7 @@ let unsubscribeState = null
 let resizeObserver = null
 let geometryFrame = 0
 let generation = 0
-let nativeReady = false
+const nativeReady = ref(false)
 let nativeTransitioning = false
 let nativeTransitionGeneration = 0
 // The current transition is hidden by the native window cover instead of the
@@ -114,7 +119,7 @@ const trackGeometryUpdate = (request) => {
 }
 const layoutQueue = createLayoutQueue({
   apply: async ({ sessionId, video, overlay, context }) => {
-    if (!nativeReady || !player || player.sessionId !== sessionId) return
+    if (!nativeReady.value || !player || player.sessionId !== sessionId) return
     await player.setGeometry(video)
     await player.setOverlay(true, overlay, context)
   },
@@ -179,7 +184,7 @@ const overlayContext = () => ({
 })
 
 const syncGeometry = () => {
-  if (!isNative.value || !player || !nativeSurface.value || !nativeReady || nativeTransitioning) return
+  if (!isNative.value || !player || !nativeSurface.value || !nativeReady.value || nativeTransitioning) return
   cancelAnimationFrame(geometryFrame)
   geometryFrame = requestAnimationFrame(() => {
     if (nativeTransitioning) return
@@ -189,7 +194,7 @@ const syncGeometry = () => {
 }
 
 const syncOverlayContext = () => {
-  if (!isNative.value || !player || !nativeReady || nativeTransitioning) return
+  if (!isNative.value || !player || !nativeReady.value || nativeTransitioning) return
   syncGeometry()
 }
 
@@ -205,8 +210,14 @@ const attachNativeGeometry = () => {
   syncGeometry()
 }
 
+let endedRevision = 0
 const applyState = (snapshot) => {
   Object.assign(state, snapshot)
+  emit('state', snapshot)
+  if ((snapshot.endedRevision || 0) > endedRevision) {
+    endedRevision = snapshot.endedRevision
+    emit('ended')
+  }
   if ([PlayerStatus.ERROR, PlayerStatus.CLOSED, PlayerStatus.LOADING, PlayerStatus.OPENING].includes(snapshot.status)) osd.reset()
   else osd.accept(snapshot.osd)
   if ([PlayerStatus.ERROR, PlayerStatus.CLOSED, PlayerStatus.LOADING, PlayerStatus.ENDED].includes(snapshot.status)) seekController.reset()
@@ -216,25 +227,28 @@ const applyState = (snapshot) => {
 
 const createPlayer = async () => {
   const currentGeneration = ++generation
-  const mode = props.kind === 'video' ? await selectPlayerBackend() : 'web'
+  const mode = await selectPlayerBackend(props.kind)
   if (currentGeneration !== generation) return
   backendMode.value = mode
   emit('backend', mode)
   await nextTick()
   if (currentGeneration !== generation) return
   if (mode === 'mpv') {
-    const bounds = await waitForNativeGeometry({ measure: geometry,
+    const bounds = isAudio.value ? undefined : await waitForNativeGeometry({ measure: geometry,
       cancelled: () => currentGeneration !== generation })
-    if (!bounds || currentGeneration !== generation) return
-    player = new NativeMpvPlayerBackend({ autoplay: props.autoplay })
+    if ((!isAudio.value && !bounds) || currentGeneration !== generation) return
+    player = new NativeMpvPlayerBackend({ kind: props.kind, autoplay: props.autoplay, historyEnabled: props.historyEnabled })
     console.info(`[player=${player.sessionId}] viewer mounted`)
     console.info(`[player=${player.sessionId}] backend selected: ${mode}`)
     unsubscribeState = player.subscribe(applyState)
     await player.setSource(sourceLocation(), bounds)
     if (currentGeneration !== generation) return
-    nativeReady = true
-    attachNativeGeometry()
-    await player.setOverlay(true, overlayGeometry(), overlayContext())
+    nativeReady.value = true
+    if (!props.autoplay) await player.pause()
+    if (!isAudio.value) {
+      attachNativeGeometry()
+      await player.setOverlay(true, overlayGeometry(), overlayContext())
+    }
   } else {
     player = new WebMediaPlayerBackend(mediaElement.value, { autoplay: props.autoplay, historyEnabled: props.historyEnabled })
     unsubscribeState = player.subscribe(applyState)
@@ -265,12 +279,12 @@ const coverNativeTransition = async () => {
   })
   if (current !== nativeTransitionGeneration) return
   if (nativeCover) {
-    if (nativeReady && player) await player.setVisible(false)
+    if (nativeReady.value && player) await player.setVisible(false)
     return
   }
   await mediaOverlay.fade(true)
   if (current !== nativeTransitionGeneration) return
-  if (!nativeReady || !player) return
+  if (!nativeReady.value || !player) return
   // A WebView paint acknowledgement cannot fence native sibling composition.
   // Remove video from composition before either sibling changes its bounds.
   await player.setVisible(false)
@@ -290,7 +304,7 @@ const uncoverNative = async () => {
 }
 const revealUnderNativeCover = async (current) => {
   try {
-    if (nativeReady && player) {
+    if (nativeReady.value && player) {
       // Final layout happens under the cover. The overlay WebView repaints
       // after its resize, so wait until it presents the new size.
       const bounds = overlayGeometry()
@@ -317,7 +331,7 @@ const revealNativeTransition = async () => {
   nativeTransitioning = false
   if (nativeCover) return revealUnderNativeCover(current)
   try {
-    if (nativeReady && player) {
+    if (nativeReady.value && player) {
       const bounds = overlayGeometry()
       await player.setOverlay(true, bounds, overlayContext())
       if (current !== nativeTransitionGeneration) return
@@ -338,7 +352,7 @@ const revealNativeTransition = async () => {
 }
 const settleNativePresentation = async () => {
   // Under the native cover the layout is applied once, when revealing.
-  if (nativeCover || !nativeReady || !player) return
+  if (nativeCover || !nativeReady.value || !player) return
   const current = nativeTransitionGeneration
   await nextTick()
   cancelAnimationFrame(geometryFrame)
@@ -357,23 +371,47 @@ onMounted(() => {
 })
 
 watch(
-  () => [props.src, props.providerId, props.path],
+  () => isNative.value ? [props.providerId, props.path] : [props.src],
   () => {
     seekController.reset()
     thumbnail.hide()
     chaptersOpen.value = false
     if (!player) return
-    nativeReady = false
+    const position = props.preserveLocationPlayback ? state.currentTime : null
+    const wasPlaying = state.status === PlayerStatus.PLAYING
+    nativeReady.value = false
+    endedRevision = 0
     const activePlayer = player
     const currentGeneration = ++generation
+    if (position != null) activePlayer.autoplay = false
     const request = isNative.value
-      ? activePlayer.setSource(sourceLocation(), geometry()).then(async () => {
+      ? activePlayer.setSource(sourceLocation(), isAudio.value ? undefined : geometry()).then(async () => {
           if (currentGeneration !== generation || activePlayer !== player) return
-          nativeReady = true
-          attachNativeGeometry()
-          await player.setOverlay(true, overlayGeometry(), overlayContext())
+          nativeReady.value = true
+          if (position != null && position > 0) {
+            await activePlayer.seek(position)
+            if (currentGeneration !== generation || activePlayer !== player) return
+            if (wasPlaying && props.autoplay) await activePlayer.play()
+          }
+          activePlayer.autoplay = props.autoplay
+          if (!props.autoplay) await player.pause()
+          if (!isAudio.value) {
+            attachNativeGeometry()
+            await player.setOverlay(true, overlayGeometry(), overlayContext())
+          }
         })
-      : player.setSource(props.src, sourceLocation())
+      : player.setSource(props.src, sourceLocation()).then(() => {
+          if (position == null || !mediaElement.value) return
+          const element = mediaElement.value
+          const restore = () => {
+            if (currentGeneration !== generation || activePlayer !== player) return
+            activePlayer.seek(position)
+            activePlayer.autoplay = props.autoplay
+            if (wasPlaying && props.autoplay) void activePlayer.play()
+          }
+          if (element.readyState >= 1) restore()
+          else element.addEventListener('loadedmetadata', restore, { once: true })
+        })
     void request.catch((error) => emit('error', error))
   },
 )
@@ -407,7 +445,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('transitionend', handleLayoutSettled)
   unsubscribeState?.()
   player?.close()
-  nativeReady = false
+  nativeReady.value = false
   player = null
 })
 
@@ -415,11 +453,22 @@ defineExpose({ mediaElement, pause, play, seek, stop, coverNativeTransition, rev
 </script>
 
 <template>
-  <div v-if="isNative" class="custom-media-player native-mpv-player is-video">
+  <div v-if="isNative && !isAudio" class="custom-media-player native-mpv-player is-video">
     <div ref="nativeSurface" class="native-mpv-surface" aria-label="Native video surface">
       <span v-if="[PlayerStatus.OPENING, PlayerStatus.LOADING].includes(state.status)" class="spinner-border text-light" aria-label="Loading video" />
     </div>
   </div>
+
+  <div v-else-if="isNative && isAudio" class="custom-media-player is-audio native-audio-controls">
+    <button class="compact-icon-button" type="button" :disabled="!nativeReady" :title="state.status === PlayerStatus.PLAYING ? 'Pause' : 'Play'" :aria-label="state.status === PlayerStatus.PLAYING ? 'Pause' : 'Play'" @click="state.status === PlayerStatus.PLAYING ? pause() : play()"><i :class="['mdi', state.status === PlayerStatus.PLAYING ? 'mdi-pause' : 'mdi-play']" aria-hidden="true" /></button>
+    <span class="audio-time">{{ formatTime(state.currentTime) }} / {{ formatTime(state.duration) }}</span>
+    <input class="audio-progress" type="range" min="0" :max="state.duration || 0" step="0.1" :value="state.pendingSeekTime ?? state.currentTime" :disabled="!nativeReady || !state.duration" aria-label="Playback position" @change="seek(Number($event.target.value))" />
+    <button class="compact-icon-button" type="button" :disabled="!nativeReady" :title="state.muted ? 'Unmute' : 'Mute'" :aria-label="state.muted ? 'Unmute' : 'Mute'" @click="player?.setMuted(!state.muted)"><i :class="['mdi', state.muted ? 'mdi-volume-off' : 'mdi-volume-high']" aria-hidden="true" /></button>
+    <input class="audio-volume" type="range" min="0" max="1" step="0.01" :value="state.volume" :disabled="!nativeReady" aria-label="Volume" @input="player?.setVolume(Number($event.target.value))" />
+    <ChapterControls :chapters="state.chapters" :current-chapter-index="state.currentChapterIndex" :open="chaptersOpen" :disabled="!nativeReady" @toggle="chaptersOpen = !chaptersOpen" @close="chaptersOpen = false" @select="selectChapter" @previous="chapterStep(-1)" @next="chapterStep(1)" />
+  </div>
+
+  <span v-else-if="backendMode === 'loading'" class="spinner-border spinner-border-sm" aria-label="Loading player" />
 
   <media-controller
     v-else

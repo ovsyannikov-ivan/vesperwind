@@ -1,5 +1,5 @@
 <script setup>
-import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { isComputerPath } from '../../shared/localFilesystem.js'
 import { connection } from '../api/connection.js'
 import { useEditorWorkspace } from '../composables/useEditorWorkspace.js'
@@ -24,6 +24,9 @@ import {
 } from '../utils/panelSwap.js'
 import { transferSources } from '../utils/fileSelection.js'
 import AudioPlayerBar from './AudioPlayerBar.vue'
+import AudioPlaylist from './AudioPlaylist.vue'
+import { useAudioPlayer } from '../composables/useAudioPlayer.js'
+import { verticalWorkspaceSizes } from '../player/workspaceSizing.js'
 import CreateEntryModal from './CreateEntryModal.vue'
 import FilePanel from './FilePanel.vue'
 import FileOperationConfirmModal from './FileOperationConfirmModal.vue'
@@ -45,7 +48,7 @@ import { isAddressShortcut } from '../utils/addressNavigation.js'
 
 const EditorWorkspace = defineAsyncComponent(() => import('./EditorWorkspace.vue'))
 
-const { layout, toggleLeft, toggleRight, toggleTerminal, setLeftRatio, setTerminalHeight } =
+const { layout, toggleLeft, toggleRight, toggleTerminal, setLeftRatio, setTerminalHeight, setAudioPlaylistHeight } =
   useLayout()
 const { settings, loadSettings } = useSettings()
 const { tabs: editorTabs, openFile: openEditorFile } = useEditorWorkspace()
@@ -56,21 +59,21 @@ const {
   deleteEntry,
   createEntry,
 } = useFileOperations()
+const audioPlayerBar = ref(null)
+const audio = useAudioPlayer({ onStop: () => audioPlayerBar.value?.pause() })
+const audioVisible = computed(() => audio.state.visible)
 const {
-  activeAudio,
   viewer,
   currentViewerMedia,
   viewerPosition,
   viewerCount,
   openMedia,
-  closeAudio,
   closeViewer,
   showPrevious,
   showNext,
   retryMedia,
   syncAfterFileOperation,
-} = useMediaViewer()
-const audioPlayerBar = ref(null)
+} = useMediaViewer({ audio })
 const playback = createPlaybackCoordinator({ pauseBackgroundAudio: () => audioPlayerBar.value?.pause() })
 const openCoordinatedMedia = (context, canOpen) => playback.openMedia(context, openMedia, canOpen)
 const quickLook = useQuickLook({ openMedia: openCoordinatedMedia, closeMedia: closeViewer, beforePlayback: playback.beforePlayback })
@@ -187,9 +190,14 @@ const submitArchive = ({ name, targetPath }) => {
 }
 
 const bothPanelsVisible = computed(() => layout.leftVisible && layout.rightVisible)
-const terminalStyle = computed(() =>
-  layout.terminalVisible ? { height: `${layout.terminalHeight}px` } : { height: '31px' },
-)
+const workspaceHeight = ref(window.innerHeight - 100)
+const playlistVisible = computed(() => audioVisible.value && layout.audioPlaylistExpanded)
+const effectiveSizes = computed(() => verticalWorkspaceSizes({ availableHeight: workspaceHeight.value,
+  terminalVisible: layout.terminalVisible, playlistVisible: playlistVisible.value,
+  terminalHeight: layout.terminalHeight, playlistHeight: layout.audioPlaylistHeight }))
+const terminalStyle = computed(() => ({ height: `${effectiveSizes.value.terminal}px`, minHeight: 0 }))
+const playlistStyle = computed(() => ({ height: `${effectiveSizes.value.playlist}px` }))
+
 const leftPanelStyle = computed(() => {
   if (!bothPanelsVisible.value) {
     return { flex: '1 1 auto' }
@@ -372,15 +380,14 @@ const resizePanels = (delta) => {
   setLeftRatio(layout.leftRatio + (delta / width) * 100)
 }
 
-const resizeTerminal = (delta) => {
-  const availableHeight = workspace.value?.clientHeight || window.innerHeight
-  setTerminalHeight(layout.terminalHeight - delta, availableHeight)
-}
-
-const clampTerminalToViewport = () => {
-  const availableHeight = workspace.value?.clientHeight || window.innerHeight
-  setTerminalHeight(layout.terminalHeight, availableHeight)
-}
+const resizeTerminal = (delta) => setTerminalHeight(effectiveSizes.value.terminal - delta, workspaceHeight.value, playlistVisible.value)
+const resizePlaylist = (delta) => setAudioPlaylistHeight(effectiveSizes.value.playlist + delta, workspaceHeight.value, playlistVisible.value)
+const clampTerminalToViewport = () => { workspaceHeight.value = workspace.value?.clientHeight || window.innerHeight - 100 }
+let workspaceObserver = null
+watch(workspace, (element) => {
+  workspaceObserver?.disconnect()
+  if (element) { workspaceObserver = new ResizeObserver(clampTerminalToViewport); workspaceObserver.observe(element); clampTerminalToViewport() }
+})
 
 const handleConnect = () => {
   connected.value = true
@@ -474,7 +481,7 @@ const runFileOperations = async (action, sources, targetDirectory, requestDetail
         error: { message: `${source.name}: ${response?.error?.message || 'The file operation failed'} (${processedSources.length} completed)` },
       }
     }
-    syncAfterFileOperation({ ...requestDetails, action, source }, response)
+    syncAfterFileOperation({ ...requestDetails, action, source, target: targetDirectory }, response)
     processedSources.push(source)
   }
   return { ok: true, processedSources }
@@ -753,6 +760,7 @@ onBeforeUnmount(() => {
   clearPanelDrag()
   unsubscribeNativeSettings?.()
   unsubscribeConnection?.()
+  workspaceObserver?.disconnect()
   window.removeEventListener('resize', clampTerminalToViewport)
   window.removeEventListener('keydown', handleCommanderKeydown)
 })
@@ -762,6 +770,7 @@ onBeforeUnmount(() => {
   <main class="app-shell">
     <Toolbar
       :layout="layout"
+      :audio-visible="audioVisible"
       :active-panel="activePanel"
       :connected="connected"
       :command-availability="commandAvailability"
@@ -770,6 +779,7 @@ onBeforeUnmount(() => {
       @toggle-left="toggleLeftPanel"
       @toggle-right="toggleRightPanel"
       @toggle-terminal="toggleTerminal"
+      @toggle-audio="audio.toggleVisible()"
       @open-settings="openSettings"
       @copy="openCommanderConfirmation('copy')"
       @move="openCommanderConfirmation('move')"
@@ -782,15 +792,12 @@ onBeforeUnmount(() => {
       @open-remote="remoteConnectionsOpen = true"
     />
 
-    <AudioPlayerBar
-      ref="audioPlayerBar"
-      v-if="activeAudio"
-      :media="activeAudio"
-      @close="closeAudio"
-      @retry="retryMedia"
-    />
+    <AudioPlayerBar ref="audioPlayerBar" v-show="audioVisible" :audio="audio" :expanded="layout.audioPlaylistExpanded"
+      @toggle-playlist="layout.audioPlaylistExpanded = !layout.audioPlaylistExpanded" />
 
     <div ref="workspace" class="workspace">
+      <AudioPlaylist v-if="playlistVisible" :audio="audio" :style="playlistStyle" />
+      <Splitter v-if="playlistVisible" orientation="horizontal" @resize="resizePlaylist" />
       <div v-show="workspaceMode === 'files'" ref="filesContainer" class="files-container">
         <FilePanel
           :key="`${panelSlots.left.id}:${panelSlots.left.providerId}`"

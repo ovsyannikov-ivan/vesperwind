@@ -162,20 +162,6 @@ pub fn run() {
             if let Some(webview) = app.get_webview("main") {
                 webview.set_background_color(Some(background))?;
             }
-            let overlay = window.add_child(
-                tauri::webview::WebviewBuilder::new(
-                    "media-overlay",
-                    tauri::WebviewUrl::App("media-overlay.html".into()),
-                )
-                .transparent(true)
-                .focused(false),
-                tauri::LogicalPosition::new(-10_000.0, -10_000.0),
-                tauri::LogicalSize::new(1.0, 1.0),
-            )?;
-            // Do not call Webview::hide for a child webview here. On macOS/Wry
-            // that operation can hide the parent native window as well. An
-            // inactive transparent overlay is parked outside the content area.
-            drop(overlay);
             Ok(())
         })
         .register_asynchronous_uri_scheme_protocol(
@@ -213,6 +199,7 @@ pub fn run() {
             commands::media::video_thumbnail,
             commands::media::media_history,
             commands::media::media_chapters,
+            commands::media::media_metadata,
             commands::player::player_capabilities,
             commands::player::player_open,
             commands::player::player_play,
@@ -278,4 +265,29 @@ pub fn run() {
             }
         }
     });
+}
+
+/// Video alone creates the child controls WebView. Audio never calls this.
+pub(crate) fn ensure_media_overlay(app: &tauri::AppHandle) -> Result<(), String> {
+    if app.get_webview("media-overlay").is_some() {
+        return Ok(());
+    }
+    let window = app.get_window("main").ok_or("Main window is unavailable")?;
+    let overlay = window
+        .add_child(
+            tauri::webview::WebviewBuilder::new(
+                "media-overlay",
+                tauri::WebviewUrl::App("media-overlay.html".into()),
+            )
+            .transparent(true)
+            .focused(false),
+            tauri::LogicalPosition::new(-10_000.0, -10_000.0),
+            tauri::LogicalSize::new(1.0, 1.0),
+        )
+        .map_err(|error| error.to_string())?;
+    // Do not call Webview::hide for a child webview here. On macOS/Wry
+    // that operation can hide the parent native window as well. An
+    // inactive transparent overlay is parked outside the content area.
+    drop(overlay);
+    Ok(())
 }

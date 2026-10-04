@@ -26,6 +26,7 @@ const requestCommands = Object.freeze({
   'video:thumbnail': 'video_thumbnail',
   'media:history': 'media_history',
   'media:chapters': 'media_chapters',
+  'media:metadata': 'media_metadata',
   'player:capabilities': 'player_capabilities',
   'player:open': 'player_open',
   'player:play': 'player_play',

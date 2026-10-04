@@ -16,3 +16,14 @@ UI verification: with Vite running, open
 component is shown with the audio and overlay styles. Check zero/three/100 chapters,
 Previous/Next boundaries, Unicode, direct selection and keyboard scrolling.
 This preview does not establish native Tauri presentation acceptance.
+
+`native.flac`, `native.ac3` and `native.eac3` are two-second synthetic stereo
+silence fixtures at 48 kHz. Native audio tests decode these through the production
+bundled-libmpv audio initializer and shared control loop, without a surface or
+external executable. Tests also exercise one-shot EOF and replay. The optional
+regenerator uses the existing application-owned FFmpeg only to produce fixtures.
+
+`long.m4b` is 20,000 seconds of compact AAC silence with chapter boundaries at
+0, 15,720 and 17,340 seconds. Native resume tests restore exactly 16,638 seconds
+(04:37:18), then exercise ephemeral Quick Look playback without changing that
+normal record. No long wall-clock playback is needed.

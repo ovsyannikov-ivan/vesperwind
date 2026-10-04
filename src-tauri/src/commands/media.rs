@@ -96,11 +96,35 @@ pub struct ChapterPayload {
     path: String,
 }
 
-#[tauri::command]
-pub async fn media_chapters(app: tauri::AppHandle, payload: ChapterPayload) -> Value {
+// Bound probes across all WebViews, including Quick Look and the playlist.
+static METADATA_PROBES: (std::sync::Mutex<usize>, std::sync::Condvar) =
+    (std::sync::Mutex::new(0), std::sync::Condvar::new());
+struct ProbePermit;
+impl ProbePermit {
+    fn acquire() -> Self {
+        let (mutex, ready) = &METADATA_PROBES;
+        let mut active = mutex.lock().unwrap_or_else(|v| v.into_inner());
+        while *active >= 2 {
+            active = ready.wait(active).unwrap_or_else(|v| v.into_inner());
+        }
+        *active += 1;
+        Self
+    }
+}
+impl Drop for ProbePermit {
+    fn drop(&mut self) {
+        *METADATA_PROBES.0.lock().unwrap_or_else(|v| v.into_inner()) -= 1;
+        METADATA_PROBES.1.notify_one();
+    }
+}
+
+async fn source_metadata(
+    app: tauri::AppHandle,
+    payload: ChapterPayload,
+) -> crate::mpv::chapters::SourceMetadata {
     use tauri::Manager;
-    // Optional source metadata: unsupported providers/codecs never break playback.
-    let chapters = tauri::async_runtime::spawn_blocking(move || {
+    let metadata = tauri::async_runtime::spawn_blocking(move || {
+        let _permit = ProbePermit::acquire();
         let state = app.state::<AppState>();
         crate::provider_content::ContentSource::open(
             &state.filesystem,
@@ -110,11 +134,22 @@ pub async fn media_chapters(app: tauri::AppHandle, payload: ChapterPayload) -> V
         )
         .ok()
         .and_then(|source| {
-            crate::mpv::chapters::probe(source, std::sync::Arc::clone(&state.ssh)).ok()
+            crate::mpv::chapters::probe_metadata(source, std::sync::Arc::clone(&state.ssh)).ok()
         })
         .unwrap_or_default()
     })
     .await
     .unwrap_or_default();
-    success("chapters", chapters)
+    metadata
+}
+
+#[tauri::command]
+pub async fn media_metadata(app: tauri::AppHandle, payload: ChapterPayload) -> Value {
+    let metadata = source_metadata(app, payload).await;
+    serde_json::json!({"ok":true,"duration":metadata.duration,"chapters":metadata.chapters})
+}
+
+#[tauri::command]
+pub async fn media_chapters(app: tauri::AppHandle, payload: ChapterPayload) -> Value {
+    success("chapters", source_metadata(app, payload).await.chapters)
 }

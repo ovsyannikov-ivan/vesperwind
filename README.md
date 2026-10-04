@@ -24,6 +24,8 @@ between applications.
 - **PDFs:** thumbnails, page navigation, zoom, text selection and search.
 - **Media:** view images and play local or remote audio/video with seeking,
   track selection and fullscreen controls, including M4B audiobooks and M4R ringtones.
+  The persistent audio player includes a resizable queue, repeat and shuffle; Tauri
+  audio uses bundled libmpv, including FLAC, AC-3 and E-AC-3.
 - **Terminals:** multiple local PTY and SSH terminal tabs.
 - **Desktop integration:** open local files with other applications and reveal them
   in Finder or Explorer.

@@ -24,6 +24,7 @@ const visibilityButtonClass = (visible) => ({
 })
 
 defineProps({
+  audioVisible: { type: Boolean, default: false },
   layout: {
     type: Object,
     required: true,
@@ -54,6 +55,7 @@ const emit = defineEmits([
   'toggle-left',
   'toggle-right',
   'toggle-terminal',
+  'toggle-audio',
   'open-settings',
   'copy',
   'move',
@@ -157,6 +159,10 @@ const selectCreate = (kind) => {
     >
       <i class="mdi mdi-console-line" aria-hidden="true" />
       Terminal
+    </button>
+
+    <button class="btn btn-sm toolbar-button toolbar-toggle" :class="visibilityButtonClass(audioVisible)" type="button" :aria-pressed="audioVisible" title="Show or hide audio player" @click="$emit('toggle-audio')">
+      <i class="mdi mdi-playlist-music" aria-hidden="true" /> Player
     </button>
 
     <div v-if="workspaceMode === 'files'" class="toolbar-divider" />

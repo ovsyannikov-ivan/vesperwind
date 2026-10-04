@@ -1,5 +1,8 @@
 use super::success;
-use crate::{mpv::PlayerGeometry, AppState};
+use crate::{
+    mpv::{MediaKind, PlayerGeometry},
+    AppState,
+};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -19,7 +22,15 @@ pub struct OpenPayload {
     path: String,
     #[serde(default)]
     autoplay: bool,
-    geometry: PlayerGeometry,
+    geometry: Option<PlayerGeometry>,
+    #[serde(default)]
+    kind: MediaKind,
+    #[serde(default = "history_enabled_default")]
+    history_enabled: bool,
+}
+
+fn history_enabled_default() -> bool {
+    true
 }
 
 #[derive(Debug, Deserialize)]
@@ -144,15 +155,9 @@ pub async fn player_open(app: AppHandle, payload: OpenPayload) -> Value {
         let Some(window) = app.get_window("main") else {
             return json!({"ok":false,"error":{"code":"EMPV_WINDOW","message":"The main native window is unavailable"}});
         };
-        eprintln!(
-            "[player={}] command open received provider={} path={:?} geometry={}x{}@{}",
-            payload.session_id,
-            payload.filesystem_id.as_deref().unwrap_or("local"),
-            payload.path,
-            payload.geometry.width,
-            payload.geometry.height,
-            payload.geometry.scale_factor,
-        );
+        if payload.kind == MediaKind::Video {
+            if let Err(message) = crate::ensure_media_overlay(&app) { return json!({"ok":false,"error":{"code":"EMPV_OVERLAY","message":message}}); }
+        }
         response(
             &payload.session_id,
             state.player.open(
@@ -164,6 +169,8 @@ pub async fn player_open(app: AppHandle, payload: OpenPayload) -> Value {
                 &payload.path,
                 payload.autoplay,
                 payload.geometry,
+                payload.kind,
+                payload.history_enabled,
             ),
         )
 
@@ -303,6 +310,8 @@ pub async fn player_set_transition_cover(app: AppHandle, payload: TransitionCove
 pub async fn player_set_overlay(app: AppHandle, payload: OverlayPayload) -> Value {
     player_task(move || {
         let state = app.state::<AppState>();
+        if !state.player.is_video(&payload.session_id) { return json!({"ok":false,"error":{"message":"Audio playback has no overlay"}}); }
+
         if let Err(message) = state.player.assert_session(&payload.session_id) {
             return json!({"ok":false,"error":{"code":"EMPV","message":message}});
         }
@@ -568,8 +577,9 @@ pub async fn player_snapshot(app: AppHandle, payload: SessionPayload) -> Value {
 pub async fn player_close(app: AppHandle, payload: SessionPayload) -> Value {
     player_task(move || {
         let state = app.state::<AppState>();
+        let video = state.player.is_video(&payload.session_id);
         let closed = state.player.close(&payload.session_id);
-        if closed {
+        if closed && video {
             if let Some(overlay) = app.get_webview("media-overlay") {
                 let _ = overlay.set_auto_resize(false);
                 let _ = overlay.set_position(tauri::LogicalPosition::new(-10_000.0, -10_000.0));
@@ -579,4 +589,30 @@ pub async fn player_close(app: AppHandle, payload: SessionPayload) -> Value {
         json!({"ok":true,"sessionId":payload.session_id,"closed":closed})
     })
     .await
+}
+
+#[cfg(test)]
+mod audio_contract_tests {
+    use super::*;
+    #[test]
+    fn audio_open_has_semantic_kind_optional_geometry_and_history_opt_out() {
+        let audio: OpenPayload = serde_json::from_value(json!({
+            "sessionId":"audio", "kind":"audio", "path":"/book.m4b", "historyEnabled":false, "autoplay":true
+        })).unwrap();
+        assert_eq!(audio.kind, MediaKind::Audio);
+        assert!(audio.geometry.is_none());
+        assert!(!audio.history_enabled);
+        let normal: OpenPayload = serde_json::from_value(
+            json!({"sessionId":"audio", "kind":"audio", "path":"/song.ac3"}),
+        )
+        .unwrap();
+        assert!(normal.history_enabled);
+        let video: OpenPayload =
+            serde_json::from_value(json!({"sessionId":"video", "path":"/video.mkv"})).unwrap();
+        assert_eq!(video.kind, MediaKind::Video);
+        assert!(serde_json::from_value::<OpenPayload>(
+            json!({"sessionId":"bad", "kind":"guess", "path":"/unknown"})
+        )
+        .is_err());
+    }
 }

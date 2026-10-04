@@ -1,72 +1,48 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import CustomMediaPlayer from './CustomMediaPlayer.vue'
-
-const props = defineProps({
-  media: {
-    type: Object,
-    required: true,
-  },
-})
-
-defineEmits(['close', 'retry'])
-const playbackError = ref('')
+const props = defineProps({ audio: { type: Object, required: true }, expanded: { type: Boolean, default: false } })
+const emit = defineEmits(['toggle-playlist'])
 const player = ref(null)
-const autoplayAllowed = ref(true)
+const playbackError = ref('')
+const media = computed(() => props.audio.current.value)
+const state = computed(() => props.audio.state)
 const pause = () => {
-  autoplayAllowed.value = false
+  props.audio.state.autoplay = false
   return player.value?.pause()
 }
 defineExpose({ pause })
-
-watch(
-  () => props.media,
-  () => {
-    playbackError.value = ''
-    autoplayAllowed.value = true
-  },
-)
+watch(() => media.value?.id, () => { playbackError.value = '' })
+watch(() => [media.value?.key, state.value.playRevision], async ([key], [previousKey]) => {
+  // Only explicit replay of the same logical track drives the existing session.
+  if (key === previousKey && player.value && media.value?.url && state.value.autoplay) await player.value.play()
+}, { flush: 'post' })
+const repeatTitle = computed(() => ({ off: 'Repeat off', all: 'Repeat all', one: 'Repeat current track' })[state.value.repeat])
 </script>
 
 <template>
   <section class="audio-player-bar" aria-label="Audio player">
     <i class="mdi mdi-music-circle-outline audio-player-icon" aria-hidden="true" />
     <div class="audio-player-details">
-      <strong :title="media.path">{{ media.name }}</strong>
-      <span v-if="media.error" class="text-danger">{{ media.error.message }}</span>
-      <span v-else-if="playbackError" class="text-danger">{{ playbackError }}</span>
-      <span v-else-if="media.loading" class="text-body-secondary">{{ media.statusMessage || 'Preparing file…' }}</span>
-      <span v-else class="text-body-secondary">Audio</span>
+      <strong :title="media?.path">{{ media?.name || 'No track selected' }}</strong>
+      <span v-if="media?.error || playbackError" class="text-danger" role="alert">{{ media?.error?.message || playbackError }}</span>
+      <span v-else-if="media?.loading" class="text-body-secondary">Preparing file…</span>
+      <span v-else class="text-body-secondary">{{ state.items.length }} {{ state.items.length === 1 ? 'track' : 'tracks' }}</span>
     </div>
-    <CustomMediaPlayer
-      ref="player"
-      v-if="media.url"
-      :key="media.path"
-      class="audio-player-control"
-      kind="audio"
-      :src="media.url"
-      :provider-id="media.providerId"
-      :path="media.path"
-      :autoplay="autoplayAllowed"
-      @error="playbackError = 'This audio codec could not be played'"
-    />
-    <span v-else-if="media.loading" class="spinner-border spinner-border-sm" aria-hidden="true" />
-    <button
-      v-else-if="media.error"
-      class="btn btn-sm btn-outline-secondary"
-      type="button"
-      @click="$emit('retry')"
-    >
-      Retry
-    </button>
-    <button
-      class="btn btn-sm toolbar-button audio-player-close"
-      type="button"
-      aria-label="Close audio player"
-      title="Close audio player"
-      @click="$emit('close')"
-    >
-      <i class="mdi mdi-close" aria-hidden="true" />
-    </button>
+    <div class="audio-track-controls">
+      <button class="compact-icon-button" type="button" title="Previous track" aria-label="Previous track" :disabled="!audio.target(-1)" @click="audio.step(-1)"><i class="mdi mdi-skip-previous" aria-hidden="true" /></button>
+      <button class="compact-icon-button" type="button" title="Next track" aria-label="Next track" :disabled="!audio.target(1)" @click="audio.step(1)"><i class="mdi mdi-skip-next" aria-hidden="true" /></button>
+    </div>
+    <CustomMediaPlayer v-if="media?.url" ref="player" :key="media.key" class="audio-player-control" kind="audio"
+      :preserve-location-playback="true" :src="media.url" :provider-id="media.providerId" :path="media.path" :autoplay="state.autoplay"
+      @state="audio.acceptState(media.id, $event)" @ended="audio.ended()" @error="playbackError = 'This audio could not be played'" />
+    <div v-else class="audio-player-control audio-player-empty-controls">
+      <span v-if="media?.loading" class="spinner-border spinner-border-sm" aria-label="Preparing audio" />
+      <button v-else-if="media?.error" class="btn btn-sm btn-neutral" type="button" @click="audio.retry()">Retry</button>
+    </div>
+    <button class="compact-icon-button" :class="{ 'is-active': state.repeat !== 'off' }" type="button" :aria-pressed="state.repeat !== 'off'" :title="repeatTitle" :aria-label="repeatTitle" @click="audio.cycleRepeat()"><i :class="['mdi', state.repeat === 'one' ? 'mdi-repeat-once' : 'mdi-repeat']" aria-hidden="true" /></button>
+    <button class="compact-icon-button" :class="{ 'is-active': state.shuffle }" type="button" title="Shuffle" aria-label="Shuffle" :aria-pressed="state.shuffle" @click="audio.setShuffle(!state.shuffle)"><i class="mdi mdi-shuffle" aria-hidden="true" /></button>
+    <button class="compact-button" :class="{ 'is-active': expanded }" type="button" title="Show or hide playlist" :aria-expanded="expanded" @click="emit('toggle-playlist')"><i class="mdi mdi-playlist-music" aria-hidden="true" /> Playlist</button>
+    <button class="compact-icon-button audio-player-close" type="button" aria-label="Close audio player" title="Close audio player" @click="audio.hide()"><i class="mdi mdi-close" aria-hidden="true" /></button>
   </section>
 </template>

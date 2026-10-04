@@ -1,4 +1,5 @@
 import { reactive, watch } from 'vue'
+import { verticalWorkspaceSizes } from '../player/workspaceSizing.js'
 
 const STORAGE_KEY = 'vesperwind:layout:v1'
 
@@ -8,6 +9,8 @@ const defaults = {
   terminalVisible: true,
   leftRatio: 50,
   terminalHeight: 260,
+  audioPlaylistExpanded: false,
+  audioPlaylistHeight: 220,
 }
 
 const clamp = (value, minimum, maximum) =>
@@ -37,6 +40,8 @@ export const useLayout = () => {
         ? stored.terminalVisible
         : defaults.terminalVisible,
     leftRatio: clamp(Number(stored.leftRatio) || defaults.leftRatio, 20, 80),
+    audioPlaylistExpanded: typeof stored.audioPlaylistExpanded === 'boolean' ? stored.audioPlaylistExpanded : defaults.audioPlaylistExpanded,
+    audioPlaylistHeight: clamp(Number(stored.audioPlaylistHeight) || defaults.audioPlaylistHeight, 80, 800),
     terminalHeight: clamp(
       Number(stored.terminalHeight) || defaults.terminalHeight,
       120,
@@ -68,9 +73,17 @@ export const useLayout = () => {
     layout.leftRatio = clamp(ratio, 20, 80)
   }
 
-  const setTerminalHeight = (height, availableHeight = Number.POSITIVE_INFINITY) => {
-    const maximum = Math.max(120, Math.min(800, availableHeight - 140))
-    layout.terminalHeight = clamp(height, 120, maximum)
+  const sizes = (availableHeight, playlistVisible) => verticalWorkspaceSizes({ availableHeight,
+    terminalVisible: layout.terminalVisible, playlistVisible, terminalHeight: layout.terminalHeight,
+    playlistHeight: layout.audioPlaylistHeight })
+  const setTerminalHeight = (height, availableHeight = Infinity, playlistVisible = false) => {
+    const effective = sizes(availableHeight, playlistVisible)
+    layout.terminalHeight = clamp(height, Math.min(120, effective.budget - effective.playlist), Math.min(800, effective.budget - effective.playlist))
+  }
+  const setAudioPlaylistHeight = (height, availableHeight, playlistVisible = true) => {
+    const effective = sizes(availableHeight, playlistVisible)
+    const maximum = Math.max(0, effective.budget - (layout.terminalVisible ? effective.terminal : 0))
+    layout.audioPlaylistHeight = clamp(height, Math.min(80, maximum), Math.min(800, maximum))
   }
 
   return {
@@ -80,5 +93,6 @@ export const useLayout = () => {
     toggleTerminal,
     setLeftRatio,
     setTerminalHeight,
+    setAudioPlaylistHeight,
   }
 }

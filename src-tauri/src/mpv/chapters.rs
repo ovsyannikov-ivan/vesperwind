@@ -55,9 +55,24 @@ pub(crate) fn current_index(chapters: &[Chapter], seconds: f64) -> Option<usize>
         .map(|c| c.index)
 }
 
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceMetadata {
+    pub duration: Option<f64>,
+    pub chapters: Vec<Chapter>,
+}
+
+#[cfg(test)]
+pub(crate) fn probe(source: ContentSource, ssh: Arc<SshManager>) -> Result<Vec<Chapter>, String> {
+    probe_metadata(source, ssh).map(|metadata| metadata.chapters)
+}
+
 /// No rendering surface, audio device, watch-later files, or system executable.
 /// The registry must outlive mpv_destroy (stream callbacks run on mpv threads).
-pub(crate) fn probe(source: ContentSource, ssh: Arc<SshManager>) -> Result<Vec<Chapter>, String> {
+pub(crate) fn probe_metadata(
+    source: ContentSource,
+    ssh: Arc<SshManager>,
+) -> Result<SourceMetadata, String> {
     let registry = MpvStreamRegistry::new(ssh);
     let uri = registry.register(source);
     let api = MpvApi::load_bundled()?;
@@ -97,12 +112,19 @@ pub(crate) fn probe(source: ContentSource, ssh: Arc<SshManager>) -> Result<Vec<C
         let deadline = Instant::now() + Duration::from_secs(10);
         while Instant::now() < deadline {
             match api.wait_event_details(handle, 0.05).event_id {
-                MPV_EVENT_FILE_LOADED => return Ok(read(&api, handle)),
-                MPV_EVENT_END_FILE | MPV_EVENT_SHUTDOWN => return Ok(Vec::new()),
+                MPV_EVENT_FILE_LOADED => {
+                    return Ok(SourceMetadata {
+                        duration: api
+                            .get_double(handle, "duration")
+                            .filter(|d| d.is_finite() && *d > 0.0),
+                        chapters: read(&api, handle),
+                    })
+                }
+                MPV_EVENT_END_FILE | MPV_EVENT_SHUTDOWN => return Ok(SourceMetadata::default()),
                 _ => {}
             }
         }
-        Err("Chapter metadata load timed out".into())
+        Err("Source metadata load timed out".into())
     })();
     api.destroy(handle);
     result

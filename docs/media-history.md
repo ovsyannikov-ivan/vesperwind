@@ -1,7 +1,7 @@
 # Media position history
 
 Vesperwind owns its resume history in SQLite; it does not use mpv watch-later files
-or web localStorage. Native video and the existing browser-backed audio/video
+or web localStorage. Native audio/video and the Tauri web fallback
 share the same serialized Rust history worker.
 
 ## Location, schema and identity
@@ -70,12 +70,15 @@ See [video thumbnail previews](video-thumbnails.md).
 
 ## Audiobooks and chapters
 
-M4B and all supported web audio use the same WebHistory RAM mirror, checkpoint
-policy, identity and media_history table as video. Resume is always an absolute
+Tauri M4B and other supported audio use the native player History worker,
+checkpoint policy, identity and media_history table shared with video. The web
+fallback retains the existing WebHistory RAM mirror. Resume is always an absolute
 position; it never snaps to a chapter start. Chapters are source metadata, never
-SQLite data. Native video reads mpv chapter-list at FILE_LOADED. Web audio/video
-queries bundled libmpv in a paused headless session through ContentSource and the
-existing provider stream callbacks. Unsupported metadata returns no chapters.
+SQLite data. Native audio/video reads duration and chapter-list from the active session at
+FILE_LOADED. Queued items and Tauri web fallback query a single paused headless
+libmpv probe through ContentSource, returning duration and chapters together.
+Probe concurrency is bounded at two in both the playlist and native command
+layer. Unsupported metadata returns unknown duration and no chapters.
 No system ffprobe/ffmpeg or container parser is used at runtime for chapters.
 The frontend shares index/title/startTime and resolves the active chapter from
 currentTime, including after resume. Chapter controls use the existing seek.
@@ -86,3 +89,32 @@ The history worker prunes rows whose updated_at is strictly older than 180 days
 when configuring/opening its existing connection. Successful valid lookups touch
 updated_at even when playback position has not changed. Completed media is still
 deleted immediately. No VACUUM, additional index, schema or connection is added.
+
+## Persistent audio and Quick Look
+
+`player:open` carries `kind` and `historyEnabled`. Audio sessions initialize normal
+mpv audio output with `vid=no`, `vo=null` and `audio-display=no`. They create no
+native surface, renderer, overlay or geometry. Independent session IDs share the
+stream registry and History worker; native audible ownership is serialized so
+opening/playing a foreground session pauses other sessions. Paused persistent
+audio stays alive when video or Quick Look opens and does not resume on close.
+
+Quick Look uses `historyEnabled=false`: no identity lookup, checkpoint, touch,
+completion deletion or close write occurs. It starts at zero. Normal playlist
+progression waits for `endedRevision`, incremented once after native EOF history
+completion and rewind. The web backend exposes the same revision after its ended
+history operation. Repeated snapshots cannot advance the queue twice.
+
+Queue items, current/selected row, repeat mode and shuffle traversal live only in
+application memory. Closing pauses and hides the UI while retaining the queue.
+Repeat off stops at the final track, all wraps, and one repeats only natural EOF.
+Shuffle uses Fisher-Yates with injectable randomness, stable upcoming order and
+actual playback history; a new repeat-all cycle avoids the previous final item
+as its first choice. The visible table retains insertion order.
+
+Only playlist expanded state and preferred height are layout preferences. One
+height budget reserves 140 px for Files/Editor while allocating both playlist and
+terminal; effective heights scale together when the window shrinks. The playlist
+uses the established provider-backed file drag payload and never performs a
+filesystem transfer. Rename/move updates queue identities and preserves current
+position; deletion/removal stops the current track without autoplaying another.

@@ -18,6 +18,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
+    collections::HashMap,
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc, Arc, Mutex,
@@ -26,6 +27,14 @@ use std::{
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Emitter, Window};
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MediaKind {
+    #[default]
+    Video,
+    Audio,
+}
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -77,8 +86,10 @@ pub struct PlayerTrack {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayerSnapshot {
+    pub kind: MediaKind,
     pub presentation: super::render::FramePresentation,
     pub status: String,
+    pub ended_revision: u64,
     pub current_time: f64,
     pub seeking: bool,
     pub duration: f64,
@@ -257,8 +268,10 @@ pub struct SubtitleDiagnostics {
 impl Default for PlayerSnapshot {
     fn default() -> Self {
         Self {
+            kind: MediaKind::Video,
             presentation: Default::default(),
             status: "idle".to_string(),
+            ended_revision: 0,
             current_time: 0.0,
             seeking: false,
             duration: 0.0,
@@ -280,7 +293,7 @@ enum Control {
     Load {
         uri: String,
         autoplay: bool,
-        identity: Identity,
+        identity: Option<Identity>,
         resume: Option<f64>,
         reply: mpsc::SyncSender<Result<PlayerSnapshot, String>>,
     },
@@ -329,6 +342,7 @@ impl PlayerLifecycle {
     }
 }
 
+#[cfg(test)]
 fn is_target_session(active: Option<&str>, requested: &str) -> bool {
     active == Some(requested)
 }
@@ -336,7 +350,7 @@ fn is_target_session(active: Option<&str>, requested: &str) -> bool {
 struct RunningPlayer {
     session_id: String,
     sender: mpsc::Sender<Control>,
-    surface: NativeSurface,
+    surface: Option<NativeSurface>,
     thread: Option<JoinHandle<()>>,
     lifecycle: Arc<Mutex<PlayerLifecycle>>,
     cancelled: Arc<AtomicBool>,
@@ -344,16 +358,18 @@ struct RunningPlayer {
 
 struct PlayerAccess {
     sender: mpsc::Sender<Control>,
-    surface: NativeSurface,
+    surface: Option<NativeSurface>,
 }
 
 struct OpeningPlayer {
     session_id: String,
+    kind: MediaKind,
     cancelled: Arc<AtomicBool>,
 }
 
 struct OpeningGuard<'a> {
-    registry: &'a Mutex<Option<OpeningPlayer>>,
+    registry: &'a Mutex<HashMap<String, OpeningPlayer>>,
+    session_id: String,
     cancelled: Arc<AtomicBool>,
 }
 
@@ -361,10 +377,10 @@ impl Drop for OpeningGuard<'_> {
     fn drop(&mut self) {
         let mut guard = self.registry.lock().unwrap_or_else(|v| v.into_inner());
         if guard
-            .as_ref()
+            .get(&self.session_id)
             .is_some_and(|opening| Arc::ptr_eq(&opening.cancelled, &self.cancelled))
         {
-            *guard = None;
+            guard.remove(&self.session_id);
         }
     }
 }
@@ -375,7 +391,7 @@ struct PlayerRuntime {
     api: Arc<MpvApi>,
     handle_address: usize,
     presentation: Option<Presentation>,
-    _host: NativeSurface,
+    _host: Option<NativeSurface>,
     _registry: Arc<MpvStreamRegistry>,
 }
 
@@ -424,11 +440,12 @@ fn windows_backends(mode: &str) -> Result<Vec<Backend>, String> {
 pub struct MpvPlayerManager {
     ssh: Arc<SshManager>,
     registry: Arc<MpvStreamRegistry>,
-    running: Mutex<Option<RunningPlayer>>,
-    opening: Mutex<Option<OpeningPlayer>>,
+    running: Mutex<HashMap<String, RunningPlayer>>,
+    opening: Mutex<HashMap<String, OpeningPlayer>>,
     overlay_context: Mutex<Option<(String, Value)>>,
     pub history: Arc<History>,
     thumbnails: Arc<ThumbnailManager>,
+    audibility: Mutex<()>,
 }
 
 impl MpvPlayerManager {
@@ -436,11 +453,12 @@ impl MpvPlayerManager {
         Arc::new(Self {
             registry: MpvStreamRegistry::new(Arc::clone(&ssh)),
             ssh,
-            running: Mutex::new(None),
-            opening: Mutex::new(None),
+            running: Mutex::new(HashMap::new()),
+            opening: Mutex::new(HashMap::new()),
             overlay_context: Mutex::new(None),
             history: Arc::new(History::default()),
             thumbnails,
+            audibility: Mutex::new(()),
         })
     }
 
@@ -452,12 +470,13 @@ impl MpvPlayerManager {
         backend: Backend,
         fallback_reason: Option<String>,
         cancelled: &Arc<AtomicBool>,
+        kind: MediaKind,
     ) -> Result<(), String> {
         let running = self
             .running
             .lock()
             .unwrap_or_else(|value| value.into_inner());
-        if let Some(active) = running.as_ref() {
+        if let Some(active) = running.get(session_id) {
             return Err(format!(
                 "Cannot open native player session {session_id}; session {} is still active",
                 active.session_id
@@ -469,52 +488,64 @@ impl MpvPlayerManager {
         }
         eprintln!("[player={session_id}] create requested");
         let api = Arc::new(MpvApi::load_bundled()?);
-        let surface = match backend {
-            Backend::RenderApi => NativeSurface::create(window)?,
-            #[cfg(target_os = "windows")]
-            Backend::D3d11 => NativeSurface::create_video_host(window)?,
-            #[cfg(target_os = "macos")]
-            Backend::MacVk => NativeSurface::create_video_host(window)?,
+        let surface = if kind == MediaKind::Audio {
+            None
+        } else {
+            Some(match backend {
+                Backend::RenderApi => NativeSurface::create(window)?,
+                #[cfg(target_os = "windows")]
+                Backend::D3d11 => NativeSurface::create_video_host(window)?,
+                #[cfg(target_os = "macos")]
+                Backend::MacVk => NativeSurface::create_video_host(window)?,
+            })
         };
         let host = match backend {
             Backend::RenderApi => None,
             #[cfg(target_os = "windows")]
-            Backend::D3d11 => Some(surface.host_address()),
+            Backend::D3d11 => surface.as_ref().map(|surface| surface.host_address()),
             #[cfg(target_os = "macos")]
-            Backend::MacVk => Some(surface.host_address()),
+            Backend::MacVk => surface.as_ref().map(|surface| surface.host_address()),
         };
         let registry = Arc::as_ptr(&self.registry).cast_mut().cast();
-        let handle = match host {
-            Some(host) => api.initialize_for_host(registry, Some(host))?,
-            None => api.initialize_for_streams(registry)?,
+        let handle = if kind == MediaKind::Audio {
+            api.initialize_for_audio(registry)?
+        } else {
+            match host {
+                Some(host) => api.initialize_for_host(registry, Some(host))?,
+                None => api.initialize_for_streams(registry)?,
+            }
         };
         eprintln!(
             "[player={session_id}] mpv handle created backend={}",
             backend.name()
         );
-        surface.refresh_display_capabilities();
-        let display = surface.display_capabilities();
-        if let Err(error) = configure_display_output(&api, handle, &display) {
-            api.destroy(handle);
-            return Err(error);
-        }
-        let presentation = match Presentation::start(
-            Arc::clone(&api),
-            handle,
-            surface.clone(),
-            session_id,
-            backend,
-        ) {
-            Ok(presentation) => presentation,
-            Err(error) => {
+        let presentation = if let Some(surface) = &surface {
+            surface.refresh_display_capabilities();
+            let display = surface.display_capabilities();
+            if let Err(error) = configure_display_output(&api, handle, &display) {
                 api.destroy(handle);
                 return Err(error);
             }
+            match Presentation::start(
+                Arc::clone(&api),
+                handle,
+                surface.clone(),
+                session_id,
+                backend,
+            ) {
+                Ok(presentation) => Some(presentation),
+                Err(error) => {
+                    api.destroy(handle);
+                    return Err(error);
+                }
+            }
+        } else {
+            None
         };
         let runtime = PlayerRuntime {
             api,
             handle_address: handle as usize,
-            presentation: Some(presentation),
+            presentation,
             _host: surface.clone(),
             _registry: Arc::clone(&self.registry),
         };
@@ -524,13 +555,14 @@ impl MpvPlayerManager {
         if cancelled.load(Ordering::Acquire) {
             return Err("Native player opening was cancelled".into());
         }
-        if running.is_some() {
+        if running.contains_key(session_id) {
             return Err("Another native player session is already active".into());
         }
         let (sender, receiver) = mpsc::channel();
         let registry = Arc::clone(&self.registry);
         let control_surface = surface.clone();
         let app = app.clone();
+        let events: PlayerEvents = Arc::new(move |id, state| emit_state(&app, id, state));
         let control_session_id = session_id.to_string();
         let lifecycle = Arc::new(Mutex::new(PlayerLifecycle::Opening));
         let control_lifecycle = Arc::clone(&lifecycle);
@@ -544,7 +576,7 @@ impl MpvPlayerManager {
                     registry,
                     control_surface,
                     receiver,
-                    app,
+                    events,
                     control_session_id,
                     control_lifecycle,
                     backend,
@@ -554,14 +586,17 @@ impl MpvPlayerManager {
                 )
             })
             .map_err(|error| error.to_string())?;
-        *running = Some(RunningPlayer {
-            session_id: session_id.to_string(),
-            sender,
-            surface,
-            thread: Some(thread),
-            lifecycle,
-            cancelled: Arc::clone(cancelled),
-        });
+        running.insert(
+            session_id.to_string(),
+            RunningPlayer {
+                session_id: session_id.to_string(),
+                sender,
+                surface,
+                thread: Some(thread),
+                lifecycle,
+                cancelled: Arc::clone(cancelled),
+            },
+        );
         eprintln!("[player={session_id}] inserted into registry");
         Ok(())
     }
@@ -575,14 +610,23 @@ impl MpvPlayerManager {
         provider_id: Option<&str>,
         path: &str,
         autoplay: bool,
-        geometry: PlayerGeometry,
+        geometry: Option<PlayerGeometry>,
+        kind: MediaKind,
+        history_enabled: bool,
     ) -> Result<PlayerSnapshot, String> {
         eprintln!("[player={session_id}] open requested source={path}");
-        let backends = requested_backends()?;
+        let backends = if kind == MediaKind::Audio {
+            vec![Backend::RenderApi]
+        } else {
+            if geometry.is_none() {
+                return Err("Video playback requires geometry".into());
+            }
+            requested_backends()?
+        };
         let cancelled = Arc::new(AtomicBool::new(false));
         {
             let mut opening = self.opening.lock().unwrap_or_else(|v| v.into_inner());
-            if let Some(active) = opening.as_ref() {
+            if let Some(active) = opening.get(session_id) {
                 if !active.cancelled.load(Ordering::Acquire) {
                     return Err(format!(
                         "Native player session {} is still opening",
@@ -590,15 +634,37 @@ impl MpvPlayerManager {
                     ));
                 }
             }
-            *opening = Some(OpeningPlayer {
-                session_id: session_id.into(),
-                cancelled: Arc::clone(&cancelled),
-            });
+            if kind == MediaKind::Video
+                && (opening
+                    .values()
+                    .any(|session| session.kind == MediaKind::Video)
+                    || self
+                        .running
+                        .lock()
+                        .unwrap_or_else(|v| v.into_inner())
+                        .values()
+                        .any(|session| session.surface.is_some()))
+            {
+                return Err("Another native video session is active".into());
+            }
+            opening.insert(
+                session_id.into(),
+                OpeningPlayer {
+                    session_id: session_id.into(),
+                    kind,
+                    cancelled: Arc::clone(&cancelled),
+                },
+            );
         }
         let _opening = OpeningGuard {
             registry: &self.opening,
+            session_id: session_id.into(),
             cancelled: Arc::clone(&cancelled),
         };
+        // Serialize audible ownership across opens and explicit Play commands.
+        // Close and Pause remain able to interrupt an opening session.
+        let _audibility = self.audibility.lock().unwrap_or_else(|v| v.into_inner());
+        self.pause_others(session_id);
         let mut fallback_reason = None;
         for (index, backend) in backends.iter().copied().enumerate() {
             if cancelled.load(Ordering::Acquire) {
@@ -614,6 +680,7 @@ impl MpvPlayerManager {
                 backend,
                 fallback_reason.clone(),
                 &cancelled,
+                kind,
             ) {
                 if !can_fallback || cancelled.load(Ordering::Acquire) {
                     return Err(error);
@@ -622,11 +689,11 @@ impl MpvPlayerManager {
                 fallback_reason = Some(error);
                 continue;
             }
-            let identity = Identity::from_source(&source);
-            let resume = self.history.lookup(identity.clone());
+            let (identity, resume) = source_history(&self.history, &source, history_enabled);
             let uri = self.registry.register(source);
             eprintln!("[player={session_id}] source load requested");
             let result = self.with_running(session_id, true, |running| {
+                if let (Some(surface), Some(geometry)) = (&running.surface, geometry) {
                 let startup_geometry = geometry;
                 // Exercise actual VO/swapchain startup with a safely retained,
                 // zero-sized host. Never change source/codec or OpenGL geometry.
@@ -637,12 +704,13 @@ impl MpvPlayerManager {
                     eprintln!("[player={session_id}] injecting debug-only MacVk zero-sized presentation host startup failure");
                     PlayerGeometry { width: 0.0, height: 0.0, ..startup_geometry }
                 } else { startup_geometry };
-                running.surface.set_geometry(startup_geometry)?;
-                running.surface.set_visible(true)?;
+                surface.set_geometry(startup_geometry)?;
+                surface.set_visible(true)?;
                 running
                     .sender
                     .send(Control::SetSubtitlePosition(geometry.subtitle_position))
                     .map_err(|_| "The native player control channel is closed".to_string())?;
+                }
                 request(&running.sender, |reply| Control::Load {
                     uri: uri.clone(),
                     autoplay,
@@ -663,19 +731,21 @@ impl MpvPlayerManager {
                 }
             }
             if let Ok(snapshot) = &result {
-                if let Err(error) = self.thumbnails.start(
-                    filesystem,
-                    session_id,
-                    provider_id,
-                    path,
-                    &snapshot.diagnostics,
-                    snapshot.duration,
-                    Arc::clone(&cancelled),
-                ) {
-                    eprintln!(
-                        "[player={session_id}] thumbnail start failed: {}",
-                        error.message
-                    );
+                if kind == MediaKind::Video {
+                    if let Err(error) = self.thumbnails.start(
+                        filesystem,
+                        session_id,
+                        provider_id,
+                        path,
+                        &snapshot.diagnostics,
+                        snapshot.duration,
+                        Arc::clone(&cancelled),
+                    ) {
+                        eprintln!(
+                            "[player={session_id}] thumbnail start failed: {}",
+                            error.message
+                        );
+                    }
                 }
             }
             return result;
@@ -685,7 +755,11 @@ impl MpvPlayerManager {
 
     pub fn set_geometry(&self, session_id: &str, geometry: PlayerGeometry) -> Result<(), String> {
         self.with_running(session_id, false, |running| {
-            running.surface.set_geometry(geometry)?;
+            running
+                .surface
+                .as_ref()
+                .ok_or("Audio playback has no video surface")?
+                .set_geometry(geometry)?;
             running
                 .sender
                 .send(Control::SetSubtitlePosition(geometry.subtitle_position))
@@ -695,7 +769,11 @@ impl MpvPlayerManager {
 
     pub fn set_visible(&self, session_id: &str, visible: bool) -> Result<(), String> {
         self.with_running(session_id, false, |running| {
-            running.surface.set_transition_visible(visible)
+            running
+                .surface
+                .as_ref()
+                .ok_or("Audio playback has no video surface")?
+                .set_transition_visible(visible)
         })
     }
 
@@ -719,9 +797,25 @@ impl MpvPlayerManager {
         self.with_running(session_id, false, |_| Ok(()))
     }
 
+    fn pause_others(&self, session_id: &str) {
+        let sessions: Vec<_> = self
+            .running
+            .lock()
+            .unwrap_or_else(|v| v.into_inner())
+            .keys()
+            .filter(|id| id.as_str() != session_id)
+            .cloned()
+            .collect();
+        for id in sessions {
+            let _ = self.pause(&id);
+        }
+    }
+
     pub fn play(&self, session_id: &str) -> Result<PlayerSnapshot, String> {
         eprintln!("[player={session_id}] play");
         let started = Instant::now();
+        let _audibility = self.audibility.lock().unwrap_or_else(|v| v.into_inner());
+        self.pause_others(session_id);
         let result = self.with_request(session_id, Control::Play);
         eprintln!(
             "[player={session_id}] play completed_ms={}",
@@ -732,7 +826,9 @@ impl MpvPlayerManager {
     pub fn pause(&self, session_id: &str) -> Result<PlayerSnapshot, String> {
         eprintln!("[player={session_id}] pause");
         let started = Instant::now();
-        let result = self.with_request(session_id, Control::Pause);
+        let result = self.with_running(session_id, true, |running| {
+            request(&running.sender, Control::Pause)
+        });
         eprintln!(
             "[player={session_id}] pause completed_ms={}",
             started.elapsed().as_millis()
@@ -808,7 +904,7 @@ impl MpvPlayerManager {
             .running
             .lock()
             .unwrap_or_else(|value| value.into_inner());
-        let Some(active) = running.as_ref() else {
+        let Some(active) = running.get(session_id) else {
             eprintln!("[player={session_id}] command rejected: native player is not open for this session; registry=[]");
             return Err(format!(
                 "The native player is not open for session {session_id}"
@@ -844,7 +940,7 @@ impl MpvPlayerManager {
 
     pub fn close(&self, session_id: &str) -> bool {
         let opening = self.opening.lock().unwrap_or_else(|v| v.into_inner());
-        let cancelled = opening.as_ref().is_some_and(|opening| {
+        let cancelled = opening.get(session_id).is_some_and(|opening| {
             if opening.session_id != session_id {
                 return false;
             }
@@ -861,27 +957,21 @@ impl MpvPlayerManager {
             .running
             .lock()
             .unwrap_or_else(|value| value.into_inner());
-        if !is_target_session(
-            guard.as_ref().map(|player| player.session_id.as_str()),
-            session_id,
-        ) {
-            eprintln!(
-                "[player={session_id}] close ignored; registry contains {:?}",
-                guard.as_ref().map(|player| player.session_id.as_str())
-            );
+        let Some(mut running) = guard.remove(session_id) else {
             return false;
-        }
-        let mut running = guard.take();
+        };
         drop(guard);
-        if let Some(mut running) = running.take() {
+        {
             running.cancelled.store(true, Ordering::Release);
             *running
                 .lifecycle
                 .lock()
                 .unwrap_or_else(|value| value.into_inner()) = PlayerLifecycle::Closing;
-            #[cfg(target_os = "macos")]
-            running.surface.retire();
-            let _ = running.surface.set_visible(false);
+            if let Some(surface) = &running.surface {
+                #[cfg(target_os = "macos")]
+                surface.retire();
+                let _ = surface.set_visible(false);
+            }
             let (reply, finished) = mpsc::sync_channel(1);
             let _ = running.sender.send(Control::Shutdown(reply));
             let _ = finished.recv_timeout(Duration::from_secs(5));
@@ -905,23 +995,32 @@ impl MpvPlayerManager {
     }
 
     pub fn close_all(&self) {
-        if let Some(opening) = self
+        for opening in self
             .opening
             .lock()
             .unwrap_or_else(|v| v.into_inner())
-            .as_ref()
+            .values()
         {
             opening.cancelled.store(true, Ordering::Release);
         }
-        let session_id = self
+        let sessions: Vec<_> = self
             .running
             .lock()
-            .unwrap_or_else(|value| value.into_inner())
-            .as_ref()
-            .map(|player| player.session_id.clone());
-        if let Some(session_id) = session_id {
+            .unwrap_or_else(|v| v.into_inner())
+            .keys()
+            .cloned()
+            .collect();
+        for session_id in sessions {
             self.close(&session_id);
         }
+    }
+
+    pub fn is_video(&self, session_id: &str) -> bool {
+        self.running
+            .lock()
+            .unwrap_or_else(|v| v.into_inner())
+            .get(session_id)
+            .is_some_and(|session| session.surface.is_some())
     }
 }
 
@@ -944,12 +1043,14 @@ fn request(
         .map_err(|_| "The native player did not respond".to_string())?
 }
 
+type PlayerEvents = Arc<dyn Fn(&str, &PlayerSnapshot) + Send + Sync>;
+
 fn control_loop(
     runtime: PlayerRuntime,
     registry: Arc<MpvStreamRegistry>,
-    surface: NativeSurface,
+    surface: Option<NativeSurface>,
     receiver: mpsc::Receiver<Control>,
-    app: AppHandle,
+    events: PlayerEvents,
     session_id: String,
     lifecycle: Arc<Mutex<PlayerLifecycle>>,
     backend: Backend,
@@ -963,14 +1064,24 @@ fn control_loop(
     let handle = runtime.handle_address as *mut MpvHandle;
     let mut current_uri: Option<String> = None;
     let mut state = PlayerSnapshot::default();
+    state.kind = if surface.is_some() {
+        MediaKind::Video
+    } else {
+        MediaKind::Audio
+    };
     state.diagnostics.presentation_fallback_reason = fallback_reason;
     let mut last_emit = Instant::now() - Duration::from_secs(1);
     let mut last_display_refresh = Instant::now() - Duration::from_secs(1);
     let mut last_metadata_refresh = Instant::now() - Duration::from_secs(1);
     let mut last_performance_log = Instant::now();
-    let mut display = surface.display_capabilities();
+    let mut display = surface
+        .as_ref()
+        .map(|surface| surface.display_capabilities())
+        .unwrap_or_default();
     let mut shutdown_reply = None;
     let mut eof_handled = false;
+    let mut interrupted = false;
+    let mut playing_intent = false;
     let mut identity: Option<Identity> = None;
     let mut resume_target: Option<f64> = None;
     let mut restoring: Option<Instant> = None;
@@ -1010,7 +1121,7 @@ fn control_loop(
                     &state,
                     SaveReason::Switch,
                 );
-                identity = Some(next_identity);
+                identity = next_identity;
                 resume_target = resume;
                 checkpoints = Checkpoints::new();
                 eof_handled = false;
@@ -1020,7 +1131,7 @@ fn control_loop(
                 state.current_chapter_index = None;
                 state.status = "opening".to_string();
                 state.error = None;
-                emit_state(&app, &session_id, &state);
+                events(&session_id, &state);
                 let result = api
                     .set_property(handle, "pause", "yes")
                     .and_then(|_| api.command(handle, &["loadfile", &uri, "replace"]));
@@ -1029,10 +1140,13 @@ fn control_loop(
                         PlayerLifecycle::Error;
                     let _ = reply.send(Err(error));
                 } else {
-                    pending_load = Some((reply, autoplay, uri));
+                    playing_intent = autoplay && !interrupted;
+                    pending_load = Some((reply, playing_intent, uri));
                 }
             }
             Ok(Control::Play(reply)) => {
+                interrupted = false;
+                playing_intent = true;
                 reply_with(
                     &api,
                     handle,
@@ -1045,6 +1159,11 @@ fn control_loop(
                     PlayerLifecycle::Playing;
             }
             Ok(Control::Pause(reply)) => {
+                interrupted = true;
+                playing_intent = false;
+                if let Some((_, autoplay, _)) = &mut pending_load {
+                    *autoplay = false;
+                }
                 reply_with(
                     &api,
                     handle,
@@ -1139,7 +1258,11 @@ fn control_loop(
             }
             Ok(Control::Snapshot(reply)) => {
                 state = read_snapshot(&api, handle, &state, &display);
-                state.presentation = runtime.presentation.as_ref().unwrap().presentation();
+                state.presentation = runtime
+                    .presentation
+                    .as_ref()
+                    .map(|presentation| presentation.presentation())
+                    .unwrap_or_default();
                 let _ = reply.send(Ok(state.clone()));
             }
             Ok(Control::Shutdown(reply)) => {
@@ -1210,12 +1333,31 @@ fn control_loop(
                     }
                     state.error = None;
                     state = read_snapshot(&api, handle, &state, &display);
+                    if state.kind == MediaKind::Audio
+                        && !state
+                            .tracks
+                            .iter()
+                            .any(|track| track.kind == "audio" && track.selected)
+                    {
+                        let message =
+                            "libmpv could not initialize audio decoding or output".to_string();
+                        if let Some((reply, _, uri)) = pending_load.take() {
+                            registry.remove(&uri);
+                            let _ = reply.send(Err(message.clone()));
+                        }
+                        state.status = "error".into();
+                        state.error = Some(message);
+                        *lifecycle.lock().unwrap_or_else(|v| v.into_inner()) =
+                            PlayerLifecycle::Error;
+                        events(&session_id, &state);
+                        continue;
+                    }
                     state.status = "ready".into();
                     *lifecycle.lock().unwrap_or_else(|value| value.into_inner()) =
                         PlayerLifecycle::Ready;
                     eprintln!("[player={session_id}] source loaded");
                     eprintln!("[player={session_id}] ready");
-                    emit_state(&app, &session_id, &state);
+                    events(&session_id, &state);
                     if let Some(target) = resume_target.filter(|p| resumable(*p, state.duration)) {
                         match api.command(handle, &["seek", &target.to_string(), "absolute+exact"])
                         {
@@ -1237,7 +1379,7 @@ fn control_loop(
                             &mut state,
                             &display,
                             &lifecycle,
-                            &app,
+                            &events,
                             &session_id,
                             &registry,
                             &mut pending_load,
@@ -1341,7 +1483,7 @@ fn control_loop(
                 let seek = pending_seek.take().unwrap();
                 restore_seek_volume(&api, handle, &mut state);
                 state = read_playback_state(&api, handle, &state);
-                emit_state(&app, &session_id, &state);
+                events(&session_id, &state);
                 let _ = seek
                     .reply
                     .send(failure.map_or_else(|| Ok(state.clone()), Err));
@@ -1357,7 +1499,7 @@ fn control_loop(
                 let (kind, _, reply, _) = pending_track.take().unwrap();
                 state = read_snapshot(&api, handle, &state, &display);
                 osd(&mut state, &kind);
-                emit_state(&app, &session_id, &state);
+                events(&session_id, &state);
                 let _ = reply.send(Ok(state.clone()));
             } else if started.elapsed() > Duration::from_secs(5) {
                 let (_, _, reply, _) = pending_track.take().unwrap();
@@ -1384,7 +1526,7 @@ fn control_loop(
                     &mut state,
                     &display,
                     &lifecycle,
-                    &app,
+                    &events,
                     &session_id,
                     &registry,
                     &mut pending_load,
@@ -1400,7 +1542,7 @@ fn control_loop(
                     &mut state,
                     &display,
                     &lifecycle,
-                    &app,
+                    &events,
                     &session_id,
                     &registry,
                     &mut pending_load,
@@ -1412,8 +1554,16 @@ fn control_loop(
             // keep-open retains the file and last frame at EOF, so no END_FILE
             // event is required. Rewind once and leave replay under user control.
             let at_eof = api.get_flag(handle, "eof-reached") == Some(true);
-            if at_eof && !eof_handled && pending_load.is_none() && current_uri.is_some() {
+            if at_eof
+                && !eof_handled
+                && playing_intent
+                && pending_load.is_none()
+                && pending_seek.is_none()
+                && restoring.is_none()
+                && current_uri.is_some()
+            {
                 eof_handled = true;
+                playing_intent = false;
                 persist(
                     &history,
                     &identity,
@@ -1421,6 +1571,7 @@ fn control_loop(
                     &state,
                     SaveReason::Eof,
                 );
+                state.ended_revision += 1;
                 match rewind_after_eof(&api, handle) {
                     Ok(()) => {
                         state.status = "paused".into();
@@ -1440,17 +1591,23 @@ fn control_loop(
             } else if !at_eof {
                 eof_handled = false;
             }
-            if last_display_refresh.elapsed() >= Duration::from_secs(2) {
-                surface.refresh_display_capabilities();
-                let next_display = surface.display_capabilities();
-                if next_display != display {
-                    let _ = configure_display_output(&api, handle, &next_display);
-                    display = next_display;
-                    event_changed = true;
+            if let Some(surface) = &surface {
+                if last_display_refresh.elapsed() >= Duration::from_secs(2) {
+                    surface.refresh_display_capabilities();
+                    let next_display = surface.display_capabilities();
+                    if next_display != display {
+                        let _ = configure_display_output(&api, handle, &next_display);
+                        display = next_display;
+                        event_changed = true;
+                    }
+                    last_display_refresh = Instant::now();
                 }
-                last_display_refresh = Instant::now();
             }
-            state.presentation = runtime.presentation.as_ref().unwrap().presentation();
+            state.presentation = runtime
+                .presentation
+                .as_ref()
+                .map(|presentation| presentation.presentation())
+                .unwrap_or_default();
             // Time/volume update frequently; codec/HDR metadata and track lists
             // require many synchronous mpv property queries and change rarely.
             let next = if event_changed || last_metadata_refresh.elapsed() >= Duration::from_secs(1)
@@ -1472,7 +1629,7 @@ fn control_loop(
             };
             if next != state || event_changed {
                 state = next;
-                emit_state(&app, &session_id, &state);
+                events(&session_id, &state);
             }
             if pending_load.is_none() && restoring.is_none() && state.status == "playing" {
                 persist(
@@ -1533,13 +1690,23 @@ fn control_loop(
     // Destroy the VO while both its host and callback registry are still alive.
     drop(runtime);
     *lifecycle.lock().unwrap_or_else(|value| value.into_inner()) = PlayerLifecycle::Closed;
-    let _ = app.emit(
-        "player:state",
-        json!({ "sessionId": session_id, "status": "closed" }),
-    );
+    state.status = "closed".into();
+    events(&session_id, &state);
     if let Some(reply) = shutdown_reply {
         let _ = reply.send(());
     }
+}
+
+fn source_history(
+    history: &History,
+    source: &ContentSource,
+    enabled: bool,
+) -> (Option<Identity>, Option<f64>) {
+    let identity = enabled.then(|| Identity::from_source(source));
+    let resume = identity
+        .as_ref()
+        .and_then(|identity| history.lookup(identity.clone()));
+    (identity, resume)
 }
 
 fn persist(
@@ -1563,7 +1730,7 @@ fn finish_load(
     state: &mut PlayerSnapshot,
     display: &DisplayCapabilities,
     lifecycle: &Mutex<PlayerLifecycle>,
-    app: &AppHandle,
+    events: &PlayerEvents,
     session: &str,
     registry: &MpvStreamRegistry,
     pending: &mut Option<(
@@ -1590,7 +1757,7 @@ fn finish_load(
             } else {
                 PlayerLifecycle::Paused
             };
-            emit_state(app, session, state);
+            events(session, state);
             state.clone()
         });
         let _ = reply.send(result);
@@ -1671,6 +1838,9 @@ fn read_snapshot(
     let mut state = read_playback_state(api, handle, previous);
     state.tracks = read_tracks(api, handle);
     state.diagnostics = read_diagnostics(api, handle, display);
+    if state.kind == MediaKind::Audio {
+        state.diagnostics.renderer = "bundled libmpv audio (no video presentation)".into();
+    }
     state.diagnostics.presentation_fallback_reason =
         previous.diagnostics.presentation_fallback_reason.clone();
     state
@@ -1697,7 +1867,9 @@ fn read_playback_state(
         .unwrap_or(previous.current_time)
         .max(0.0);
     PlayerSnapshot {
+        kind: previous.kind,
         presentation: previous.presentation.clone(),
+        ended_revision: previous.ended_revision,
         status,
         current_time,
         chapters: previous.chapters.clone(),
@@ -2430,33 +2602,316 @@ fn emit_state(app: &AppHandle, session_id: &str, state: &PlayerSnapshot) {
 mod tests {
     use super::*;
 
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    mod audio_integration {
+        use super::*;
+        struct Audio {
+            sender: mpsc::Sender<Control>,
+            thread: Option<JoinHandle<()>>,
+            registry: Arc<MpvStreamRegistry>,
+            states: Arc<Mutex<Vec<PlayerSnapshot>>>,
+            history: Arc<History>,
+            filesystem: Filesystem,
+            ssh: Arc<SshManager>,
+            root: std::path::PathBuf,
+        }
+        impl Audio {
+            fn new(history: Arc<History>) -> Self {
+                let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../test/fixtures/media")
+                    .canonicalize()
+                    .unwrap();
+                let filesystem = Filesystem::from_root(&root, root.clone()).unwrap();
+                let ssh = SshManager::new();
+                let registry = MpvStreamRegistry::new(Arc::clone(&ssh));
+                let api = Arc::new(MpvApi::load_bundled().unwrap());
+                let handle = api
+                    .initialize_audio(
+                        Arc::as_ptr(&registry).cast_mut().cast(),
+                        std::env::var("VESPERWIND_MPV_SMOKE_AO").ok().as_deref(),
+                    )
+                    .unwrap();
+                // The session initializes real normal audio output; silence in tests.
+                api.set_property(handle, "volume", "0").unwrap();
+                let runtime = PlayerRuntime {
+                    api,
+                    handle_address: handle as usize,
+                    presentation: None,
+                    _host: None,
+                    _registry: Arc::clone(&registry),
+                };
+                assert!(runtime._host.is_none());
+                assert!(runtime.presentation.is_none());
+                let (sender, receiver) = mpsc::channel();
+                let states = Arc::new(Mutex::new(Vec::new()));
+                let observed = Arc::clone(&states);
+                let events: PlayerEvents =
+                    Arc::new(move |_, state| observed.lock().unwrap().push(state.clone()));
+                let loop_registry = Arc::clone(&registry);
+                let loop_history = Arc::clone(&history);
+                let thread = thread::spawn(move || {
+                    control_loop(
+                        runtime,
+                        loop_registry,
+                        None,
+                        receiver,
+                        events,
+                        "test-audio".into(),
+                        Arc::new(Mutex::new(PlayerLifecycle::Opening)),
+                        Backend::RenderApi,
+                        None,
+                        loop_history,
+                        Arc::new(ThumbnailManager::default()),
+                    )
+                });
+                Self {
+                    sender,
+                    thread: Some(thread),
+                    registry,
+                    states,
+                    history,
+                    filesystem,
+                    ssh,
+                    root,
+                }
+            }
+            fn load(&self, filename: &str, enabled: bool, autoplay: bool) -> PlayerSnapshot {
+                let source = ContentSource::open(
+                    &self.filesystem,
+                    &self.ssh,
+                    Some("local"),
+                    &self.root.join(filename).to_string_lossy(),
+                )
+                .unwrap();
+                let (identity, resume) = source_history(&self.history, &source, enabled);
+                let uri = self.registry.register(source);
+                request(&self.sender, |reply| Control::Load {
+                    uri,
+                    identity,
+                    resume,
+                    autoplay,
+                    reply,
+                })
+                .unwrap()
+            }
+            fn identity(&self, filename: &str) -> Identity {
+                Identity::from_source(
+                    &ContentSource::open(
+                        &self.filesystem,
+                        &self.ssh,
+                        Some("local"),
+                        &self.root.join(filename).to_string_lossy(),
+                    )
+                    .unwrap(),
+                )
+            }
+            fn snapshot(&self) -> PlayerSnapshot {
+                request(&self.sender, Control::Snapshot).unwrap()
+            }
+        }
+        impl Drop for Audio {
+            fn drop(&mut self) {
+                let (reply, done) = mpsc::sync_channel(1);
+                self.sender.send(Control::Shutdown(reply)).unwrap();
+                done.recv_timeout(Duration::from_secs(5)).unwrap();
+                self.thread.take().unwrap().join().unwrap();
+            }
+        }
+        #[test]
+        fn native_audio_controls_chapters_resume_and_quick_look_history_opt_out() {
+            let temp =
+                std::env::temp_dir().join(format!("vw-native-audio-{}", uuid::Uuid::new_v4()));
+            let database = temp.join("media-history.sqlite3");
+            let history = Arc::new(History::default());
+            history.configure(database.clone());
+            let audio = Audio::new(Arc::clone(&history));
+            let identity = audio.identity("book.m4b");
+            history.save(&identity, 49.125, 120.0, false, SaveReason::Pause);
+            history.flush();
+            let normal = audio.load("book.m4b", true, false);
+            assert!((normal.current_time - 49.125).abs() < 0.05, "{normal:?}");
+            assert_eq!(normal.chapters.len(), 3);
+            assert_eq!(normal.current_chapter_index, Some(1));
+            let seek = request(&audio.sender, |reply| Control::Seek {
+                seconds: 52.375,
+                reply,
+            })
+            .unwrap();
+            assert!((seek.current_time - 52.375).abs() < 0.05);
+            request(&audio.sender, |reply| Control::SetVolume {
+                volume: 0.15,
+                reply,
+            })
+            .unwrap();
+            assert!((audio.snapshot().volume - 0.15).abs() < 0.001);
+            request(&audio.sender, |reply| Control::SetMuted {
+                muted: true,
+                reply,
+            })
+            .unwrap();
+            request(&audio.sender, Control::Play).unwrap();
+            request(&audio.sender, Control::Pause).unwrap();
+            assert!(audio.snapshot().muted);
+            history.flush();
+            let resume = history.lookup(identity.clone()).unwrap();
+            assert!((resume - 52.375).abs() < 0.2);
+            // Save an exact normal record, then ephemeral playback uses no identity.
+            let ephemeral = audio.load("book.m4b", false, false);
+            assert!(ephemeral.current_time < 0.1, "{ephemeral:?}");
+            history.save(&identity, 49.125, 120.0, false, SaveReason::Pause);
+            history.flush();
+            let before: (f64, i64) = rusqlite::Connection::open(&database)
+                .unwrap()
+                .query_row(
+                    "SELECT position, updated_at FROM media_history",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            request(&audio.sender, |reply| Control::Seek {
+                seconds: 60.5,
+                reply,
+            })
+            .unwrap();
+            request(&audio.sender, Control::Play).unwrap();
+            request(&audio.sender, Control::Pause).unwrap();
+            drop(audio);
+            history.flush();
+            let after: (f64, i64) = rusqlite::Connection::open(&database)
+                .unwrap()
+                .query_row(
+                    "SELECT position, updated_at FROM media_history",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!(
+                before, after,
+                "Quick Look must neither touch nor overwrite normal history"
+            );
+            // Exercise 04:37:18 as an actual absolute mpv seek in a long M4B.
+            let audio = Audio::new(Arc::clone(&history));
+            let long_identity = audio.identity("long.m4b");
+            history.save(&long_identity, 16638.0, 20000.0, false, SaveReason::Pause);
+            history.flush();
+            let source = ContentSource::open(
+                &audio.filesystem,
+                &audio.ssh,
+                Some("local"),
+                &audio.root.join("long.m4b").to_string_lossy(),
+            )
+            .unwrap();
+            assert_eq!(source_history(&history, &source, false), (None, None));
+            assert_eq!(source_history(&history, &source, true).1, Some(16638.0));
+            let normal = audio.load("long.m4b", true, false);
+            assert!((normal.current_time - 16638.0).abs() < 0.001, "{normal:?}");
+            assert_eq!(normal.current_chapter_index, Some(1));
+            let quick = audio.load("long.m4b", false, true);
+            assert!(quick.current_time < 0.5);
+            request(&audio.sender, |reply| Control::Seek {
+                seconds: 45.0,
+                reply,
+            })
+            .unwrap();
+            request(&audio.sender, Control::Pause).unwrap();
+            drop(audio);
+            history.flush();
+            assert_eq!(history.lookup(long_identity), Some(16638.0));
+            drop(history);
+            std::fs::remove_dir_all(temp).unwrap();
+        }
+        #[test]
+        fn native_audio_flac_ac3_eac3_decode_and_emit_one_natural_eof_then_replay() {
+            for name in ["native.flac", "native.ac3", "native.eac3"] {
+                let audio = Audio::new(Arc::new(History::default()));
+                let state = audio.load(name, false, true);
+                assert!(state.duration > 1.9, "{name}: {state:?}");
+                assert!(state.tracks.iter().any(|t| t.kind == "audio"));
+                assert!(!state.tracks.iter().any(|t| t.kind == "video"));
+                let deadline = Instant::now() + Duration::from_secs(8);
+                while audio.snapshot().ended_revision == 0 && Instant::now() < deadline {
+                    thread::sleep(Duration::from_millis(30));
+                }
+                let finished = audio.snapshot();
+                assert_eq!(finished.ended_revision, 1, "{name}: {finished:?}");
+                assert_eq!(finished.status, "paused");
+                assert!(finished.current_time < 0.1);
+                thread::sleep(Duration::from_millis(300));
+                assert_eq!(audio.snapshot().ended_revision, 1);
+                let revisions: Vec<_> = audio
+                    .states
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .map(|s| s.ended_revision)
+                    .collect();
+                assert_eq!(
+                    revisions
+                        .windows(2)
+                        .filter(|pair| pair[0] == 0 && pair[1] == 1)
+                        .count(),
+                    1
+                );
+                request(&audio.sender, Control::Play).unwrap();
+                request(&audio.sender, Control::Pause).unwrap();
+            }
+        }
+        #[test]
+        fn independent_audio_sessions_do_not_share_controls_streams_or_teardown() {
+            let history = Arc::new(History::default());
+            let persistent = Audio::new(Arc::clone(&history));
+            persistent.load("book.m4b", true, false);
+            request(&persistent.sender, |reply| Control::Seek {
+                seconds: 42.125,
+                reply,
+            })
+            .unwrap();
+            let foreground = Audio::new(history);
+            foreground.load("native.flac", false, false);
+            drop(foreground);
+            let state = persistent.snapshot();
+            assert_eq!(state.status, "paused");
+            assert!((state.current_time - 42.125).abs() < 0.05);
+        }
+    }
+
     #[test]
     fn cancelled_opening_cleanup_does_not_remove_reopened_session() {
         let previous = Arc::new(AtomicBool::new(false));
         let replacement = Arc::new(AtomicBool::new(false));
-        let registry = Mutex::new(Some(OpeningPlayer {
-            session_id: "previous".into(),
-            cancelled: Arc::clone(&previous),
-        }));
+        let registry = Mutex::new(HashMap::from([(
+            "session".into(),
+            OpeningPlayer {
+                session_id: "previous".into(),
+                kind: MediaKind::Audio,
+                cancelled: Arc::clone(&previous),
+            },
+        )]));
         let guard = OpeningGuard {
             registry: &registry,
+            session_id: "session".into(),
             cancelled: Arc::clone(&previous),
         };
         previous.store(true, Ordering::Release);
-        *registry.lock().unwrap() = Some(OpeningPlayer {
-            session_id: "reopened".into(),
-            cancelled: Arc::clone(&replacement),
-        });
+        registry.lock().unwrap().insert(
+            "session".into(),
+            OpeningPlayer {
+                session_id: "reopened".into(),
+                kind: MediaKind::Audio,
+                cancelled: Arc::clone(&replacement),
+            },
+        );
         drop(guard);
         assert_eq!(
-            registry.lock().unwrap().as_ref().unwrap().session_id,
+            registry.lock().unwrap().get("session").unwrap().session_id,
             "reopened"
         );
         drop(OpeningGuard {
             registry: &registry,
+            session_id: "session".into(),
             cancelled: replacement,
         });
-        assert!(registry.lock().unwrap().is_none());
+        assert!(registry.lock().unwrap().is_empty());
     }
 
     #[cfg(target_os = "windows")]

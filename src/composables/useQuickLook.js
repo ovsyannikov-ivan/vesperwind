@@ -5,6 +5,7 @@ import { TEXT_PREVIEW_MAX_BYTES } from '../../shared/textPreview.js'
 import { isEditableFile } from '../utils/editableFiles.js'
 import { filesystem } from '../api/filesystem.js'
 import { media } from '../api/media.js'
+import { selectPlayerBackend } from '../player/mediaPlayerBackend.js'
 
 export const getQuickLookKind = (entry, editableFiles = DEFAULT_EDITABLE_FILES) => {
   if (!entry || entry.isDirectory) return null
@@ -20,7 +21,7 @@ export const getQuickLookKind = (entry, editableFiles = DEFAULT_EDITABLE_FILES) 
   return 'metadata'
 }
 
-export const useQuickLook = ({ openMedia, closeMedia, beforePlayback, io = filesystem, prepareMedia = media.prepare }) => {
+export const useQuickLook = ({ openMedia, closeMedia, beforePlayback, io = filesystem, prepareMedia = media.prepare, selectBackend = selectPlayerBackend }) => {
   const current = ref(null)
   const preview = computed(() => current.value && !['image', 'video'].includes(current.value.kind) ? current.value : null)
   let controller = null
@@ -71,7 +72,8 @@ export const useQuickLook = ({ openMedia, closeMedia, beforePlayback, io = files
           return true
         } else if (result.error?.code === 'EFILE_TOO_LARGE') target.message = 'This text file is too large for Quick Look.'
       } else if (kind === 'audio' || kind === 'pdf') {
-        result = await prepareMedia(location, options)
+        result = kind === 'audio' && await selectBackend('audio') === 'mpv'
+          ? { ok: true, source: 'native-audio' } : await prepareMedia(location, options)
         if (result.ok) target.sourceUrl = result.source
       } else if (kind === 'word') {
         const { loadDocument } = await import('../modules/document/services/documentFile.js')

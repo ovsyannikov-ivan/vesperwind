@@ -17,7 +17,9 @@ use std::{
 
 use self::stream::MpvStreamOpenFn;
 use dynamic_library::DynamicLibrary;
-pub use player::{MpvPlayerManager, PlaybackDiagnostics, PlayerGeometry, PlayerSnapshot};
+pub use player::{
+    MediaKind, MpvPlayerManager, PlaybackDiagnostics, PlayerGeometry, PlayerSnapshot,
+};
 #[cfg(target_os = "windows")]
 pub(crate) use surface::set_window_clip;
 
@@ -204,6 +206,63 @@ impl MpvApi {
                 reason: Some(reason),
             },
         }
+    }
+
+    /// Audio owns a demux/decoder/output session, never a rendering context.
+    pub(crate) fn initialize_for_audio(
+        &self,
+        registry: *mut c_void,
+    ) -> Result<*mut MpvHandle, String> {
+        self.initialize_audio(registry, None)
+    }
+
+    fn initialize_audio(
+        &self,
+        registry: *mut c_void,
+        audio_output: Option<&str>,
+    ) -> Result<*mut MpvHandle, String> {
+        let handle = unsafe { (self.create)() };
+        if handle.is_null() {
+            return Err("mpv_create returned null".into());
+        }
+        let result = (|| {
+            for (name, value) in [
+                ("config", "no"),
+                ("terminal", "no"),
+                ("idle", "yes"),
+                ("keep-open", "yes"),
+                ("pause", "yes"),
+                ("vid", "no"),
+                ("vo", "null"),
+                ("audio-display", "no"),
+                ("sub-auto", "no"),
+                ("input-default-bindings", "no"),
+            ] {
+                self.set_option(handle, name, value)?;
+            }
+            #[cfg(target_os = "macos")]
+            self.set_option(handle, "ao", "coreaudio,avfoundation")?;
+            if let Some(log_path) = std::env::var_os("VESPERWIND_MPV_LOG") {
+                self.set_option(handle, "log-file", &log_path.to_string_lossy())?;
+                self.set_option(handle, "msg-level", "all=v")?;
+            }
+            if let Some(output) = audio_output {
+                self.set_option(handle, "ao", output)?;
+            }
+            let protocol = CString::new("vesperwind").unwrap();
+            status(
+                unsafe {
+                    (self.stream_add)(handle, protocol.as_ptr(), registry, stream::open_stream)
+                },
+                "mpv_stream_cb_add_ro",
+            )?;
+            status(unsafe { (self.initialize)(handle) }, "mpv_initialize")?;
+            Ok(handle)
+        })();
+        if result.is_err() {
+            self.destroy(handle);
+        }
+        result
     }
 
     pub(crate) fn initialize_for_streams(

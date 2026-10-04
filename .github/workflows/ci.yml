@@ -68,6 +68,9 @@ jobs:
               run: cargo fmt --check
 
             - name: Run tests
+              env:
+                  # CI has no physical audio device; decode/output timing still runs in libmpv.
+                  VESPERWIND_MPV_SMOKE_AO: "null"
               run: cargo test
 
             - name: Run real archive workflow
@@ -103,6 +106,9 @@ jobs:
               run: cargo fmt --check
 
             - name: Run tests
+              env:
+                  # CI has no physical audio device; decode/output timing still runs in libmpv.
+                  VESPERWIND_MPV_SMOKE_AO: "null"
               run: cargo test
 
             - name: Run real archive workflow

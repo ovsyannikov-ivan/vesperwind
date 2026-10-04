@@ -41,6 +41,12 @@ export const audioExtensions = new Set([
   'aiff',
   'caf',
   'wma',
+  'ac3',
+  'eac3',
+  'ec3',
+  'dts',
+  'mka',
+  'ape',
 ])
 
 export const imageExtensions = new Set([
@@ -68,22 +74,7 @@ const previewableVideoExtensions = new Set([
   'ts',
   'm2ts',
 ])
-const previewableAudioExtensions = new Set([
-  'mp3',
-  'm4a',
-  'm4b',
-  'm4r',
-  'aac',
-  'wav',
-  'wave',
-  'ogg',
-  'oga',
-  'opus',
-  'flac',
-  'aif',
-  'aiff',
-  'caf',
-])
+const previewableAudioExtensions = audioExtensions
 const previewableImageExtensions = new Set([
   'jpg',
   'jpeg',
@@ -117,6 +108,13 @@ const contentTypes = {
   aif: 'audio/aiff',
   aiff: 'audio/aiff',
   caf: 'audio/x-caf',
+  wma: 'audio/x-ms-wma',
+  ac3: 'audio/ac3',
+  eac3: 'audio/eac3',
+  ec3: 'audio/eac3',
+  dts: 'audio/vnd.dts',
+  mka: 'audio/x-matroska',
+  ape: 'audio/x-ape',
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
   png: 'image/png',

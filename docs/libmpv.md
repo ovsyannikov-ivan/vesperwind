@@ -84,8 +84,9 @@ subtitles and embedded fonts are handled by libass/libmpv. Automatic external
 subtitle discovery is not guaranteed for opaque provider streams and remains
 planned work.
 
-Browser and Node SEA modes continue to use HTML/media-chrome. Audio also remains on
-the established persistent web player for now. Windows has the common player and
+Browser and Node SEA modes continue to use HTML/media-chrome. Tauri audio uses
+the bundled libmpv audio-only session and shared native control loop, without a
+rendering surface or child WebView. Windows has the common player and
 stream implementation, an mpv-owned D3D11 HDR10-capable child HWND with WGL SDR fallback, and a pinned source-built x64
 DLL closure. See [Windows build and media checks](build-windows.md) for the
 decoder/audio/application verification procedure. Windows HDR10 display validation is still **not verified**;
