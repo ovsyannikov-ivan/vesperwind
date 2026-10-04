@@ -101,7 +101,16 @@ pub fn run() {
         }
     }
 
-    let builder = tauri::Builder::default();
+    let builder = tauri::Builder::default().plugin(
+        tauri_plugin_window_state::Builder::default()
+            .with_state_flags(
+                tauri_plugin_window_state::StateFlags::SIZE
+                    | tauri_plugin_window_state::StateFlags::POSITION
+                    | tauri_plugin_window_state::StateFlags::MAXIMIZED,
+            )
+            .with_filter(|label| label == "main")
+            .build(),
+    );
     // Windows uses the application's toolbar. Attaching a native menu also
     // leaves it visible in fullscreen and changes the client height. Preserve
     // the existing menus on other platforms, including macOS's system menu.
