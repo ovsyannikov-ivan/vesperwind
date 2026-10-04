@@ -5,7 +5,7 @@ mod macos_output;
 mod player;
 mod presentation;
 mod render;
-mod stream;
+pub(crate) mod stream;
 mod surface;
 pub(crate) mod transition_cover;
 
@@ -237,6 +237,8 @@ impl MpvApi {
                 ("audio-display", "no"),
                 ("sub-auto", "no"),
                 ("input-default-bindings", "no"),
+                ("network-timeout", "3"),
+                ("tls-verify", "yes"),
             ] {
                 self.set_option(handle, name, value)?;
             }
@@ -284,6 +286,8 @@ impl MpvApi {
         let result = (|| {
             self.set_option(handle, "terminal", "no")?;
             self.set_option(handle, "config", "no")?;
+            self.set_option(handle, "network-timeout", "3")?;
+            self.set_option(handle, "tls-verify", "yes")?;
             self.set_option(handle, "input-default-bindings", "no")?;
             self.set_option(handle, "input-vo-keyboard", "no")?;
             self.set_option(handle, "keep-open", "yes")?;
@@ -921,3 +925,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(all(test, any(target_os = "macos", target_os = "windows")))]
+mod network_tests;

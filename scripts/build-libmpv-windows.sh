@@ -92,16 +92,19 @@ meson_build libass -Dtest=disabled -Dcompare=disabled -Dprofile=disabled \
 
 ffmpeg_flags=(--enable-shared --disable-static --disable-programs --disable-doc \
   --disable-debug --disable-autodetect --disable-gpl --disable-nonfree \
-  --disable-version3 --enable-d3d11va --enable-dxva2 --disable-vulkan \
+  --disable-version3 --enable-schannel --enable-d3d11va --enable-dxva2 --disable-vulkan \
   --target-os=mingw32 --arch=x86_64 --enable-w32threads)
 printf '%s\n' "${ffmpeg_flags[@]}" > "$build_root/ffmpeg-flags.txt"
 mkdir -p "$build_root/ffmpeg"
 (
   cd "$build_root/ffmpeg"
-  if [[ ! -f ffbuild/config.mak ]]; then
+  if [[ ! -f ffbuild/config.mak ]] || ! grep -q '^#define CONFIG_SCHANNEL 1$' config.h; then
     "$source_root/ffmpeg/configure" --prefix="$prefix" --cc=gcc --cxx=g++ \
       "${ffmpeg_flags[@]}" --extra-cflags="$common_flags" --extra-ldflags="$LDFLAGS"
   fi
+  grep -q '^#define CONFIG_SCHANNEL 1$' config.h
+  grep -q '^#define CONFIG_HTTPS_PROTOCOL 1$' config_components.h
+  grep -q '^#define CONFIG_HLS_DEMUXER 1$' config_components.h
   grep -q '^#define CONFIG_D3D11VA 1$' config.h
   grep -q '^#define CONFIG_H264_D3D11VA_HWACCEL 1$' config_components.h
   grep -q '^#define CONFIG_HEVC_D3D11VA_HWACCEL 1$' config_components.h

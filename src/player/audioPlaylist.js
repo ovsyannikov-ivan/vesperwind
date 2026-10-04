@@ -1,7 +1,9 @@
 import { getMediaKind } from '../../shared/mediaTypes.js'
 import { isSameOrDescendantPath, getFilesystemPathName } from '../utils/filesystemPath.js'
 
-export const audioIdentity = ({ providerId = 'local', path }) => JSON.stringify([providerId, path])
+import { mediaIdentity, normalizeMediaSource, mediaSourceLabel } from './mediaSource.js'
+
+export const audioIdentity = mediaIdentity
 export const createAudioPlaylistState = () => ({
   visible: false, items: [], selectedId: null, currentId: null,
   autoplay: false, playbackStatus: 'idle', playRevision: 0, repeat: 'off', shuffle: false,
@@ -16,7 +18,7 @@ const shuffled = (items, random) => {
   return result
 }
 
-// Session-only logical queue. Playback is owned by the common media backend.
+// Logical queue. Playback is owned by the common media backend.
 export const createAudioPlaylist = ({ state = createAudioPlaylistState(), random = Math.random,
   getMetadata = null, concurrency = 2, onStop = () => {}, onPlay = () => {} } = {}) => {
   const find = (id) => state.items.find((item) => item.id === id)
@@ -27,21 +29,23 @@ export const createAudioPlaylist = ({ state = createAudioPlaylistState(), random
   const pumpMetadata = () => {
     if (disposed || !getMetadata) return
     while (activeProbes < Math.max(1, concurrency)) {
-      const item = state.items.find((entry) => !entry.metadataLoaded && entry.id !== state.currentId && !probing.has(entry))
+      const item = state.items.find((entry) => !entry.metadataLoaded && (entry.id !== state.currentId || !entry.preparedSource && !state.autoplay) && !probing.has(entry))
       if (!item) break
       const id = item.id, revision = item.metadataRevision
-      const location = { providerId: item.providerId, path: item.path }
+      const location = normalizeMediaSource(item)
       probing.add(item)
       activeProbes++
       void Promise.resolve().then(() => getMetadata(location))
         .then((metadata) => {
-          if (disposed || find(id) !== item || revision !== item.metadataRevision || id === state.currentId) return
+          if (disposed || find(id) !== item || revision !== item.metadataRevision || (id === state.currentId && (item.preparedSource || state.autoplay))) return
           if (metadata?.ok) {
             item.duration = Number.isFinite(metadata.duration) && metadata.duration > 0 ? metadata.duration : null
             item.chapters = metadata.chapters || []
+            item.tags = metadata.tags || {}
+            item.live = metadata.live === true
           }
         }).catch(() => {}).finally(() => {
-          if (find(id) === item && revision === item.metadataRevision && id !== state.currentId) item.metadataLoaded = true
+          if (find(id) === item && revision === item.metadataRevision && (id !== state.currentId || !item.preparedSource && !state.autoplay)) item.metadataLoaded = true
           probing.delete(item)
           activeProbes--
           pumpMetadata()
@@ -70,12 +74,13 @@ export const createAudioPlaylist = ({ state = createAudioPlaylistState(), random
   const add = (sources) => {
     const added = []
     for (const source of sources || []) {
-      if (!source?.path || source.isDirectory || getMediaKind(source.name) !== 'audio') continue
-      const providerId = source.providerId || 'local'
-      const id = audioIdentity({ providerId, path: source.path })
+      if (source?.isDirectory || (source?.kind !== 'audio' && getMediaKind(source?.name) !== 'audio')) continue
+      let location
+      try { location = normalizeMediaSource(source) } catch { continue }
+      const id = audioIdentity(location)
       if (find(id)) continue
-      const item = { id, key: id, providerId, path: source.path, name: source.name, kind: 'audio',
-        duration: null, chapters: [], metadataLoaded: false, metadataRevision: 0 }
+      const item = { id, key: id, ...location, name: source.name || mediaSourceLabel(location), displayName: source.displayName || '', kind: 'audio', tags: source.tags || {}, live: source.live === true,
+        duration: Number.isFinite(source.duration) && source.duration > 0 ? source.duration : null, chapters: source.chapters || [], metadataLoaded: source.metadataLoaded === true, metadataRevision: 0 }
       state.items.push(item)
       added.push(id)
     }
@@ -86,7 +91,7 @@ export const createAudioPlaylist = ({ state = createAudioPlaylistState(), random
   }
   const open = (node, providerId = 'local') => {
     add([{ ...node, providerId }])
-    return play(audioIdentity({ providerId, path: node.path }))
+    return play(audioIdentity({ ...node, providerId }))
   }
   const setShuffle = (enabled) => {
     state.shuffle = Boolean(enabled)
@@ -126,8 +131,9 @@ export const createAudioPlaylist = ({ state = createAudioPlaylistState(), random
     }
     return play(id)
   }
-  const ended = () => {
-    if (!state.currentId) return
+  const sourceMatches = (item, source) => Boolean(item) && (!source || [mediaIdentity(item), `${item.providerId}:${item.path}`, item.preparedSource, item.url].includes(source))
+  const ended = (snapshot) => {
+    if (!state.currentId || !sourceMatches(find(state.currentId), snapshot?.source)) return
     if (state.repeat === 'one') return play(state.currentId, { navigation: true })
     if (!step(1)) state.autoplay = false
   }
@@ -153,7 +159,7 @@ export const createAudioPlaylist = ({ state = createAudioPlaylistState(), random
     state.upcoming = []; state.history = []; state.historyIndex = -1
   }
   const sync = ({ action, providerId = 'local', sourcePath, destinationPath, destinationProviderId = providerId }) => {
-    const affected = state.items.filter((item) => item.providerId === providerId && isSameOrDescendantPath(sourcePath, item.path))
+    const affected = state.items.filter((item) => item.sourceType !== 'url' && item.providerId === providerId && isSameOrDescendantPath(sourcePath, item.path))
     if (action === 'delete') return remove(affected.map((item) => item.id))
     if (!['rename', 'move'].includes(action) || !destinationPath) return
     for (const item of affected) {
@@ -177,8 +183,10 @@ export const createAudioPlaylist = ({ state = createAudioPlaylistState(), random
   const acceptState = (id, snapshot) => {
     const item = find(id)
     if (!item || state.currentId !== id) return
-    if (snapshot.source && snapshot.source !== `${item.providerId}:${item.path}` && snapshot.source !== item.url) return
+    if (!sourceMatches(item, snapshot.source)) return
     state.playbackStatus = snapshot.status
+    if (snapshot.tags) item.tags = snapshot.tags
+    if (snapshot.live != null) item.live = snapshot.live
     if (Number.isFinite(snapshot.duration) && snapshot.duration > 0) {
       item.duration = snapshot.duration
       item.chapters = snapshot.chapters || []
@@ -186,7 +194,15 @@ export const createAudioPlaylist = ({ state = createAudioPlaylistState(), random
       item.metadataRevision++
     }
   }
-  return { state, add, open, play, pause, hide, toggleVisible, setShuffle, step, target, ended, remove, clear, sync, acceptState,
+  const reorder = (id, targetId, after = false) => {
+    if (id === targetId || !find(id) || !find(targetId)) return false
+    const item = find(id)
+    state.items = state.items.filter((entry) => entry.id !== id)
+    const index = state.items.findIndex((entry) => entry.id === targetId) + (after ? 1 : 0)
+    state.items.splice(index, 0, item)
+    return true
+  }
+  return { state, reorder, add, open, play, pause, hide, toggleVisible, setShuffle, step, target, ended, remove, clear, sync, acceptState,
     cycleRepeat: () => { state.repeat = { off: 'all', all: 'one', one: 'off' }[state.repeat] },
     dispose: () => { disposed = true },
   }

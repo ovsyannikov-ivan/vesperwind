@@ -100,6 +100,8 @@ pub struct PlayerSnapshot {
     pub subtitle_delay: f64,
     pub tracks: Vec<PlayerTrack>,
     pub chapters: Vec<super::chapters::Chapter>,
+    pub tags: super::chapters::AudioTags,
+    pub live: bool,
     pub current_chapter_index: Option<usize>,
     pub diagnostics: PlaybackDiagnostics,
     pub error: Option<String>,
@@ -281,6 +283,8 @@ impl Default for PlayerSnapshot {
             subtitle_delay: 0.0,
             tracks: Vec::new(),
             chapters: Vec::new(),
+            tags: Default::default(),
+            live: false,
             current_chapter_index: None,
             diagnostics: PlaybackDiagnostics::default(),
             error: None,
@@ -607,14 +611,13 @@ impl MpvPlayerManager {
         window: &Window,
         app: &AppHandle,
         session_id: &str,
-        provider_id: Option<&str>,
-        path: &str,
+        source: &crate::media::source::MediaSource,
         autoplay: bool,
         geometry: Option<PlayerGeometry>,
         kind: MediaKind,
         history_enabled: bool,
     ) -> Result<PlayerSnapshot, String> {
-        eprintln!("[player={session_id}] open requested source={path}");
+        eprintln!("[player={session_id}] open requested");
         let backends = if kind == MediaKind::Audio {
             vec![Backend::RenderApi]
         } else {
@@ -671,8 +674,7 @@ impl MpvPlayerManager {
                 return Err("Native player opening was cancelled".into());
             }
             let can_fallback = index + 1 < backends.len();
-            let source = ContentSource::open(filesystem, &self.ssh, provider_id, path)
-                .map_err(|error| error.message)?;
+            let resolved = source.resolve(filesystem, &self.ssh, &self.registry)?;
             if let Err(error) = self.ensure_started(
                 session_id,
                 window,
@@ -689,8 +691,18 @@ impl MpvPlayerManager {
                 fallback_reason = Some(error);
                 continue;
             }
-            let (identity, resume) = source_history(&self.history, &source, history_enabled);
-            let uri = self.registry.register(source);
+            let (identity, resume) = resolved
+                .content
+                .as_ref()
+                .map(|content| {
+                    source_history(
+                        &self.history,
+                        content,
+                        history_enabled && resolved.history_enabled,
+                    )
+                })
+                .unwrap_or((None, None));
+            let uri = resolved.uri;
             eprintln!("[player={session_id}] source load requested");
             let result = self.with_running(session_id, true, |running| {
                 if let (Some(surface), Some(geometry)) = (&running.surface, geometry) {
@@ -731,12 +743,15 @@ impl MpvPlayerManager {
                 }
             }
             if let Ok(snapshot) = &result {
-                if kind == MediaKind::Video {
+                if kind == MediaKind::Video && resolved.history_enabled {
                     if let Err(error) = self.thumbnails.start(
                         filesystem,
                         session_id,
-                        provider_id,
-                        path,
+                        source
+                            .provider_id
+                            .as_deref()
+                            .or(source.filesystem_id.as_deref()),
+                        &source.path,
                         &snapshot.diagnostics,
                         snapshot.duration,
                         Arc::clone(&cancelled),
@@ -1122,6 +1137,10 @@ fn control_loop(
                     SaveReason::Switch,
                 );
                 identity = next_identity;
+                if uri.starts_with("http://") || uri.starts_with("https://") {
+                    // Even opt-in developer logs must not capture URL tokens.
+                    let _ = api.set_property(handle, "msg-level", "all=no");
+                }
                 resume_target = resume;
                 checkpoints = Checkpoints::new();
                 eof_handled = false;
@@ -1873,6 +1892,9 @@ fn read_playback_state(
         status,
         current_time,
         chapters: previous.chapters.clone(),
+        tags: super::chapters::read_tags(api, handle),
+        live: api.get_flag(handle, "demuxer-via-network").unwrap_or(false)
+            && api.get_double(handle, "duration").is_none(),
         current_chapter_index: super::chapters::current_index(&previous.chapters, current_time),
         seeking: api.get_flag(handle, "seeking").unwrap_or(false),
         duration: api
@@ -2708,6 +2730,62 @@ mod tests {
             fn snapshot(&self) -> PlayerSnapshot {
                 request(&self.sender, Control::Snapshot).unwrap()
             }
+            fn load_source(
+                &self,
+                source: &crate::media::source::MediaSource,
+                autoplay: bool,
+            ) -> PlayerSnapshot {
+                let resolved = source
+                    .resolve(&self.filesystem, &self.ssh, &self.registry)
+                    .unwrap();
+                let (identity, resume) = resolved
+                    .content
+                    .as_ref()
+                    .map(|s| source_history(&self.history, s, resolved.history_enabled))
+                    .unwrap_or((None, None));
+                request(&self.sender, |reply| Control::Load {
+                    uri: resolved.uri,
+                    identity,
+                    resume,
+                    autoplay,
+                    reply,
+                })
+                .unwrap()
+            }
+        }
+        #[test]
+        fn native_url_audio_is_surface_free_and_eof_does_not_modify_audiobook_history() {
+            let server = crate::media::network_fixtures::Server::new();
+            let history = Arc::new(History::default());
+            let temp =
+                std::env::temp_dir().join(format!("vw-network-history-{}", uuid::Uuid::new_v4()));
+            history.configure(temp.join("history.sqlite3"));
+            let audio = Audio::new(Arc::clone(&history));
+            let identity = audio.identity("long.m4b");
+            history.save(&identity, 16638.0, 20000.0, false, SaveReason::Pause);
+            history.flush();
+            let source = crate::media::source::MediaSource {
+                source_type: Some("url".into()),
+                url: Some(server.url("/tagged.flac")),
+                ..Default::default()
+            };
+            let state = audio.load_source(&source, true);
+            assert_eq!(state.kind, MediaKind::Audio);
+            let deadline = Instant::now() + Duration::from_secs(6);
+            while audio.snapshot().ended_revision == 0 && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(30));
+            }
+            let finished = audio.snapshot();
+            assert_eq!(finished.ended_revision, 1);
+            assert_eq!(finished.status, "paused");
+            assert_eq!(finished.tags.title.as_deref(), Some("Время 日本語"));
+            thread::sleep(Duration::from_millis(200));
+            assert_eq!(audio.snapshot().ended_revision, 1);
+            history.flush();
+            assert_eq!(history.lookup(identity), Some(16638.0));
+            drop(audio);
+            drop(history);
+            std::fs::remove_dir_all(temp).unwrap();
         }
         impl Drop for Audio {
             fn drop(&mut self) {

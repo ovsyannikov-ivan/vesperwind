@@ -17,7 +17,7 @@
     "build:sea": "node scripts/build-sea.js",
     "postinstall": "node scripts/ensure-node-pty-helper.js",
     "start": "node server/index.js",
-    "test": "node --test",
+    "test": "node scripts/test.js",
     "test:smoke": "node scripts/runtime-smoke.js",
     "build:archives": "node scripts/build-archive-worker.js"
   },

@@ -37,6 +37,9 @@
 *.woff2 binary
 *.pdf binary
 
+# These .ts files are MPEG-TS media segments, not TypeScript source.
+/test/fixtures/media/local-hls/*.ts binary
+
 # Keep the vendored Windows runtime byte-identical to its SHA256SUMS on checkout.
 /src-tauri/vendor/libmpv/windows/** -text
 # Upstream license texts retain their original whitespace as well as their hashes.

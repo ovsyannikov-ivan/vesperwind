@@ -2493,3 +2493,13 @@ body.is-resizing-horizontal {
   .audio-player-details { flex-basis: 7rem; max-width: 13%; }
   .audio-volume { flex-basis: 3rem; width: 3rem; }
 }
+
+.audio-playlist-table th:nth-child(2) { width: 28px; }
+.audio-playlist-table .playlist-artist, .audio-playlist-table .playlist-album { width: 22%; }
+.audio-playlist-table .playlist-drag-cell { padding: 0; }
+.audio-playlist-table tr.drop-before > td { border-top: 2px solid var(--bs-primary); }
+.audio-playlist-table tr.drop-after > td { border-bottom: 2px solid var(--bs-primary); }
+.audio-playlist-actions { flex-wrap: wrap; }
+.playlist-status { margin: 0; padding: 2px 8px; font-size: 0.8rem; }
+@media (max-width: 1100px) { .audio-playlist-table .playlist-album { display: none; } }
+@media (max-width: 720px) { .audio-playlist-table .playlist-artist { display: none; } }

@@ -28,3 +28,10 @@ Vulkan-Headers_repo_revision: e2e53a724677f6eba8ff0ce1ccb64ee321785cbd
 Vulkan-Tools_repo_revision: 682e42f7ae70a8fadf374199c02de737daa5c70d
 cereal_repo_revision: 51cbda5f30e56c801c07fe3d3aba5d7fb9e6cca4
 mpv owned hwdec policy: auto-safe; actual hwdec-current must be checked at runtime
+
+Network component: libavformat.62.dylib rebuilt from pinned FFmpeg n8.0 only; remaining codec/render libraries unchanged
+Network TLS backend: Apple SecureTransport (--enable-securetransport)
+Network protocols: http https tls hls tcp crypto file; HLS demuxer enabled
+Network rebuild: scripts/build-libmpv-network.sh macos
+Network LGPL flags: --disable-gpl --disable-nonfree --disable-version3 --disable-autodetect
+Network hardware flags: --enable-videotoolbox --disable-audiotoolbox

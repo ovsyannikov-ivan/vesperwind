@@ -43,6 +43,8 @@ export async function verifyWindowsBundle(directory, manifest) {
   if (info.architecture !== 'x86_64' || !info.toolchain || info.minimumWindows !== '10') {
     throw new Error('Missing Windows architecture/toolchain/minimum-version evidence')
   }
+  if (!closure['avformat-62.dll']?.includes('secur32.dll') || !closure['avformat-62.dll']?.includes('crypt32.dll')) throw new Error('Bundled avformat lacks native Schannel TLS imports')
+  if (!info.ffmpegFlags?.includes('--enable-schannel') && info.networkComponent?.tlsBackend !== 'schannel') throw new Error('Missing Schannel build evidence')
   const pins = { mpv: manifest.mpvVersion, mpvCommit: manifest.mpvCommit, ...manifest.dependencies }
   for (const [name, value] of Object.entries(pins)) {
     if (info.sources?.[name] !== value) throw new Error(`Unconfirmed source pin: ${name}`)

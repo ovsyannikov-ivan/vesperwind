@@ -240,22 +240,25 @@ onBeforeUnmount(() => {
               </button>
             </div>
             <img
-              v-else-if="displayedMedia?.url && displayedKind === 'image'"
-              :key="displayedMedia.path"
+              v-else-if="displayedMedia?.preparedSource && displayedKind === 'image'"
+              :key="displayedMedia.sourceType === 'url' ? displayedMedia.url : displayedMedia.path"
               class="media-viewer-image"
-              :src="displayedMedia.url"
+              :src="displayedMedia.preparedSource"
               :alt="displayedMedia.name"
               draggable="false"
               @error="playbackError = 'This image could not be displayed by the browser'"
             >
             <CustomMediaPlayer
-              v-else-if="displayedMedia?.url && displayedKind === 'video'"
+              v-else-if="displayedMedia?.preparedSource && displayedKind === 'video'"
               ref="videoPlayer"
-              :key="displayedMedia.path"
+              :key="displayedMedia.sourceType === 'url' ? displayedMedia.url : displayedMedia.path"
               class="media-viewer-video"
               kind="video"
-              :src="displayedMedia.url"
+              :src="displayedMedia.preparedSource"
               :provider-id="displayedMedia.providerId"
+              :source-type="displayedMedia.sourceType"
+              :source-url="displayedMedia.url"
+              :history-enabled="displayedMedia.historyEnabled !== false"
               :path="displayedMedia.path"
               autoplay
               :title="displayedMedia.name"

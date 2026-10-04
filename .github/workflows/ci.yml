@@ -64,6 +64,10 @@ jobs:
               working-directory: .
               run: npm run build:archives
 
+            - name: Verify bundled libmpv including HTTP HTTPS and HLS
+              working-directory: .
+              run: node scripts/verify-libmpv-bundle.js
+
             - name: Check formatting
               run: cargo fmt --check
 
@@ -101,6 +105,10 @@ jobs:
             - name: Build bundled archive worker and test disk limits
               working-directory: .
               run: npm run build:archives
+
+            - name: Verify bundled libmpv including HTTP HTTPS and HLS
+              working-directory: .
+              run: node scripts/verify-libmpv-bundle.js
 
             - name: Check formatting
               run: cargo fmt --check

@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises'
+import os from 'node:os'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -47,7 +48,9 @@ if (platformName === 'macos') {
   }
   const buildInfo = await fs.readFile(path.join(directory, 'BUILD-INFO.txt'), 'utf8')
   for (const evidence of [
-    'FFmpeg configuration: --disable-gpl --disable-nonfree --disable-version3 --enable-videotoolbox',
+    '--disable-gpl --disable-nonfree --disable-version3',
+    '--enable-videotoolbox',
+    '--enable-securetransport',
     'FFmpeg config: CONFIG_VIDEOTOOLBOX=1',
     'FFmpeg config: CONFIG_H264_VIDEOTOOLBOX_HWACCEL=1',
     'FFmpeg config: CONFIG_HEVC_VIDEOTOOLBOX_HWACCEL=1',
@@ -115,3 +118,12 @@ if (platformName === 'macos') {
 }
 
 console.log(`Verified ${platformName} libmpv bundle for mpv ${manifest.mpvVersion}`)
+
+if ((platformName === 'macos' && process.platform === 'darwin') || (['windows', 'win32'].includes(platformName) && process.platform === 'win32')) {
+  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'vw-network-verifier-'))
+  try {
+    const probe = path.join(temporary, process.platform === 'win32' ? 'network-probe.exe' : 'network-probe')
+    run('rustc', ['--edition=2021', fileURLToPath(new URL('./probe-libmpv-network.rs', import.meta.url)), '-o', probe])
+    console.log(run(probe, [path.join(directory, process.platform === 'win32' ? 'avformat-62.dll' : 'libavformat.62.dylib')]))
+  } finally { await fs.rm(temporary, { recursive: true, force: true }) }
+}

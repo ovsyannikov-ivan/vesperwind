@@ -205,9 +205,12 @@ meson install -C "$build_root/libass"
   ./configure --prefix="$prefix" --cc=/usr/bin/clang --cxx=/usr/bin/clang++ \
     --enable-shared --disable-static --disable-programs --disable-doc \
     --disable-debug --disable-autodetect --disable-gpl --disable-nonfree \
-    --disable-version3 --enable-videotoolbox --disable-audiotoolbox \
+    --disable-version3 --enable-securetransport --enable-videotoolbox --disable-audiotoolbox \
     --enable-pic --extra-cflags="$common_cflags" \
     --extra-ldflags="$common_link_args" | tee "$build_root/ffmpeg-configure.txt"
+  grep -q '^#define CONFIG_SECURETRANSPORT 1$' config.h
+  grep -q '^#define CONFIG_HTTPS_PROTOCOL 1$' config_components.h
+  grep -q '^#define CONFIG_HLS_DEMUXER 1$' config_components.h
   grep -q '^#define CONFIG_VIDEOTOOLBOX 1$' config.h
   grep -q '^#define CONFIG_H264_VIDEOTOOLBOX_HWACCEL 1$' config_components.h
   grep -q '^#define CONFIG_HEVC_VIDEOTOOLBOX_HWACCEL 1$' config_components.h
@@ -336,7 +339,7 @@ Vesperwind bundled macOS libmpv build
 Xcode: $xcode_version
 macOS SDK: $sdk_version
 Deployment target: $deployment_target
-FFmpeg configuration: --disable-gpl --disable-nonfree --disable-version3 --enable-videotoolbox
+FFmpeg configuration: --disable-gpl --disable-nonfree --disable-version3 --enable-securetransport --enable-videotoolbox
 FFmpeg config: CONFIG_VIDEOTOOLBOX=1
 FFmpeg config: CONFIG_H264_VIDEOTOOLBOX_HWACCEL=1
 FFmpeg config: CONFIG_HEVC_VIDEOTOOLBOX_HWACCEL=1

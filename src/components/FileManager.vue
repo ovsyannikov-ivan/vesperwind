@@ -24,6 +24,13 @@ import {
 } from '../utils/panelSwap.js'
 import { transferSources } from '../utils/fileSelection.js'
 import AudioPlayerBar from './AudioPlayerBar.vue'
+import PlaylistCommandModal from './PlaylistCommandModal.vue'
+import { media as mediaApi } from '../api/media.js'
+import { filesystem } from '../api/filesystem.js'
+import { createSourceOpener } from '../player/openMediaSource.js'
+import { normalizeMediaSource } from '../player/mediaSource.js'
+import { isPlaylistFile, exportM3u, playlistParentPath } from '../player/m3u.js'
+import { importPlaylist, playlistDestination } from '../player/playlistFiles.js'
 import AudioPlaylist from './AudioPlaylist.vue'
 import { useAudioPlayer } from '../composables/useAudioPlayer.js'
 import { verticalWorkspaceSizes } from '../player/workspaceSizing.js'
@@ -68,6 +75,7 @@ const {
   viewerPosition,
   viewerCount,
   openMedia,
+  openSource,
   closeViewer,
   showPrevious,
   showNext,
@@ -222,6 +230,7 @@ const commandAvailability = computed(() => {
   const interactionBlocked = Boolean(
     !connected.value ||
       settingsOpen.value ||
+      playlistRequest.value ||
       createRequest.value ||
       archiveRequest.value ||
       dropRequest.value ||
@@ -412,8 +421,74 @@ const updatePanelState = (state) => {
   panelSlots[state.side].viewState = state.viewState
 }
 
+const playlistRequest = ref(null), playlistBusy = ref(false), playlistError = ref(''), playlistStatus = ref('')
+let playlistController = null
+const playlistDirectory = () => ({ providerId: panelSlots[activePanel.value].providerId, path: panelStates[activePanel.value].currentDirectory?.path })
+const requestPlaylistCommand = (mode) => {
+  const directory = playlistDirectory()
+  playlistError.value = ''
+  playlistRequest.value = { mode, directory,
+    title: { url: 'Open media URL', import: 'Import playlist', export: 'Export playlist' }[mode],
+    button: mode === 'export' ? 'Save' : 'Open',
+    description: mode === 'url' ? 'Open an HTTP or HTTPS audio, video, or HLS source.' : `In: ${directory.path || 'Select a folder in the active panel'}`,
+    value: mode === 'url' ? '' : mode === 'import' && isPlaylistFile(panelStates[activePanel.value].selected?.name) ? panelStates[activePanel.value].selected.name : 'playlist.m3u8' }
+}
+const closePlaylistCommand = () => { playlistController?.abort(); playlistRequest.value = null; playlistBusy.value = false }
+const openUrlSource = createSourceOpener({ probe: mediaApi.probeSource, open: openSource, beforePlayback: playback.beforePlayback })
+const openProbedSource = (location, metadata) => openUrlSource(location, { metadata })
+const importAudioPlaylist = async (location, signal) => {
+  const result = await importPlaylist(location, { filesystem, media: mediaApi, audio, openHls: openProbedSource, signal })
+  if (!result.hls) {
+    layout.audioPlaylistExpanded = true
+    playlistStatus.value = `Imported ${result.imported} tracks · Skipped ${result.skipped} unsupported or unavailable entries${result.duplicates ? ` · ${result.duplicates} duplicates` : ''}`
+  }
+}
+const saveAudioPlaylist = async (destination, overwrite = false) => {
+  const text = exportM3u(audio.state.items, destination)
+  const split = Math.max(destination.path.lastIndexOf('/'), destination.path.lastIndexOf('\\'))
+  const directory = { providerId: destination.providerId, path: playlistParentPath(destination.path) }
+  const name = destination.path.slice(split + 1)
+  if (!overwrite) {
+    const listing = await filesystem.readDir(directory)
+    if (!listing.ok) throw new Error(listing.error?.message || 'Unable to read destination')
+    if (listing.entries.some((item) => item.name === name)) {
+      confirmationRequest.value = { action: 'overwrite-playlist', destination, source: { name, path: destination.path }, targetDirectory: { name: directory.path } }
+      return
+    }
+    const created = await filesystem.createFile(directory, name)
+    if (!created.ok) throw new Error(created.error?.message || 'Unable to create playlist')
+  }
+  const response = await filesystem.writeText(destination, text)
+  if (!response.ok) throw new Error(response.error?.message || 'Unable to save playlist')
+  filesystemRevision.value++
+  playlistStatus.value = `Exported ${audio.state.items.length} tracks`
+}
+const submitPlaylistCommand = async (value) => {
+  const request = playlistRequest.value
+  if (!request || playlistBusy.value) return
+  const controller = new AbortController(); playlistController = controller
+  playlistBusy.value = true; playlistError.value = ''
+  try {
+    if (request.mode === 'url') {
+      const location = normalizeMediaSource({ sourceType: 'url', url: value })
+      await openUrlSource(location, { signal: controller.signal })
+    } else {
+      if (!request.directory.path) throw new Error('Select a folder in the active panel')
+      const location = playlistDestination(request.directory, value)
+      if (request.mode === 'import') await importAudioPlaylist(location, controller.signal)
+      else await saveAudioPlaylist(location)
+    }
+    if (!controller.signal.aborted) playlistRequest.value = null
+  } catch (error) { if (!controller.signal.aborted) playlistError.value = request.mode === 'url' ? (error.message.startsWith('Only HTTP') || error.message.startsWith('Enter a valid') ? error.message : 'Unable to open this media source') : error.message }
+  finally { if (playlistController === controller) playlistBusy.value = false }
+}
 const openFile = (context) => {
-  const type = getFileOpenType(
+  if (isPlaylistFile(context?.node?.name) && context.type !== 'text') {
+    void importAudioPlaylist({ sourceType: 'provider', providerId: context.filesystemId || 'local', path: context.node.path })
+      .catch((error) => { audio.state.visible = true; layout.audioPlaylistExpanded = true; playlistStatus.value = error.message })
+    return
+  }
+  const type = context?.type || getFileOpenType(
     context?.node?.name,
     settings.value.editor.editableFiles,
   )
@@ -669,6 +744,13 @@ const closeCommanderConfirmation = () => {
 }
 
 const executeCommanderOperation = async () => {
+  if (confirmationRequest.value?.action === 'overwrite-playlist') {
+    confirmationBusy.value = true; confirmationError.value = ''
+    try { await saveAudioPlaylist(confirmationRequest.value.destination, true); confirmationRequest.value = null }
+    catch (error) { confirmationError.value = error.message }
+    finally { confirmationBusy.value = false }
+    return
+  }
   if (!confirmationRequest.value || confirmationBusy.value) {
     return
   }
@@ -796,7 +878,7 @@ onBeforeUnmount(() => {
       @toggle-playlist="layout.audioPlaylistExpanded = !layout.audioPlaylistExpanded" />
 
     <div ref="workspace" class="workspace">
-      <AudioPlaylist v-if="playlistVisible" :audio="audio" :style="playlistStyle" />
+      <AudioPlaylist v-if="playlistVisible" :audio="audio" :status="playlistStatus" @open-url="requestPlaylistCommand('url')" @import="requestPlaylistCommand('import')" @export="requestPlaylistCommand('export')" :style="playlistStyle" />
       <Splitter v-if="playlistVisible" orientation="horizontal" @resize="resizePlaylist" />
       <div v-show="workspaceMode === 'files'" ref="filesContainer" class="files-container">
         <FilePanel
@@ -886,6 +968,7 @@ onBeforeUnmount(() => {
       />
     </div>
 
+    <PlaylistCommandModal :request="playlistRequest" :busy="playlistBusy" :error="playlistError" @submit="submitPlaylistCommand" @close="closePlaylistCommand" />
     <SettingsModal :open="settingsOpen" @close="settingsOpen = false" />
     <RemoteConnectionsModal :open="remoteConnectionsOpen" :active-panel="activePanel" @close="remoteConnectionsOpen = false" @connected="handleRemoteConnected" />
     <CreateEntryModal :request="createRequest" :busy="createBusy" :error="createError" @confirm="submitCreate" @cancel="!createBusy && (createRequest = null)" />

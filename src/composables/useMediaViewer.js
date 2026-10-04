@@ -1,3 +1,4 @@
+import { normalizeMediaSource, mediaSourceLabel } from '../player/mediaSource.js'
 import { computed, ref, watch } from 'vue'
 import { entryChange, relocatePath } from './useEntryChanges.js'
 import { canPreviewMedia, getMediaKind } from '../../shared/mediaTypes.js'
@@ -13,11 +14,12 @@ export const createMediaDescriptor = (
   node,
   providerId = LOCAL_FILESYSTEM_PROVIDER,
 ) => ({
+  sourceType: 'provider',
   name: node.name,
   path: node.path,
   providerId,
   kind: getMediaKind(node.name),
-  url: '',
+  preparedSource: '',
   loading: false,
   statusMessage: 'Preparing file…',
   error: null,
@@ -39,20 +41,20 @@ const buildPlaylist = (node, siblings, kind, providerId) => {
   return items.map((item) => createMediaDescriptor(item, providerId))
 }
 
-export const useMediaViewer = ({ audio = useAudioPlayer() } = {}) => {
+export const useMediaViewer = ({ audio = useAudioPlayer(), prepareMedia = mediaApi.prepare } = {}) => {
   const activeAudio = audio.current
   const viewer = ref(null)
   watch(entryChange, (change) => {
     if (change?.action !== 'rename') return
     const relocate = (item) => {
-      if (!item || item.providerId !== change.providerId) return item
+      if (!item || item.sourceType === 'url' || item.providerId !== change.providerId) return item
       const path = relocatePath(item.path, change)
       return path === item.path
         ? item
-        : { ...item, path, name: getFilesystemPathName(path), url: '', error: null }
+        : { ...item, path, name: getFilesystemPathName(path), preparedSource: '', error: null }
     }
     if (viewer.value) viewer.value.items = viewer.value.items.map(relocate)
-    if (currentViewerMedia.value && !currentViewerMedia.value.url) void prepareDescriptor(currentViewerMedia.value)
+    if (currentViewerMedia.value && !currentViewerMedia.value.preparedSource) void prepareDescriptor(currentViewerMedia.value)
   })
   const currentViewerMedia = computed(() =>
     viewer.value ? viewer.value.items[viewer.value.index] : null,
@@ -63,7 +65,7 @@ export const useMediaViewer = ({ audio = useAudioPlayer() } = {}) => {
   const viewerCount = computed(() => viewer.value?.items.length || 0)
 
   const prepareDescriptor = async (descriptor) => {
-    if (!descriptor || descriptor.loading || descriptor.url) return descriptor
+    if (!descriptor || descriptor.loading || descriptor.preparedSource) return descriptor
 
     descriptor.loading = true
     descriptor.error = null
@@ -73,10 +75,7 @@ export const useMediaViewer = ({ audio = useAudioPlayer() } = {}) => {
     descriptor.preparationController = controller
 
     try {
-      const response = await mediaApi.prepare({
-        providerId: descriptor.providerId,
-        path: descriptor.path,
-      }, {
+      const response = await prepareMedia(normalizeMediaSource(descriptor), {
         signal: controller.signal,
         onStatus: (status) => {
           descriptor.statusMessage = status?.userMessage || 'Preparing file…'
@@ -84,7 +83,7 @@ export const useMediaViewer = ({ audio = useAudioPlayer() } = {}) => {
         },
       })
       if (controller.signal.aborted) return descriptor
-      if (response?.ok) descriptor.url = response.source
+      if (response?.ok) descriptor.preparedSource = response.source
       else descriptor.error = response?.error || { message: 'Unable to prepare this file' }
     } catch (error) {
       descriptor.error = {
@@ -128,6 +127,17 @@ export const useMediaViewer = ({ audio = useAudioPlayer() } = {}) => {
     return true
   }
 
+  const openSource = (source, metadata) => {
+    const location = normalizeMediaSource(source)
+    const descriptor = { ...location, name: source.name || mediaSourceLabel(location), kind: metadata.kind,
+      duration: metadata.duration, tags: metadata.tags, chapters: metadata.chapters, live: metadata.live, metadataLoaded: true,
+      preparedSource: '', loading: false, error: null, historyEnabled: location.sourceType !== 'url' && !metadata.live }
+    if (metadata.kind === 'audio') return audio.open({ ...descriptor, kind: 'audio' }, location.providerId)
+    if (metadata.kind !== 'video') throw new Error('This source has no playable audio or video tracks')
+    viewer.value = { kind: 'video', items: [descriptor], index: 0 }
+    void prepareDescriptor(viewer.value.items[0])
+    return true
+  }
   const closeAudio = audio.hide
 
   const closeViewer = () => {
@@ -153,7 +163,7 @@ export const useMediaViewer = ({ audio = useAudioPlayer() } = {}) => {
     const descriptor = currentViewerMedia.value
     if (!descriptor) return
     descriptor.error = null
-    descriptor.url = ''
+    descriptor.preparedSource = ''
     void prepareDescriptor(descriptor)
   }
 
@@ -172,7 +182,7 @@ export const useMediaViewer = ({ audio = useAudioPlayer() } = {}) => {
       if (viewer.value) {
         const currentPath = currentViewerMedia.value?.path
         const nextItems = viewer.value.items.filter(
-          (item) => !isSameOrDescendantPath(sourcePath, item.path),
+          (item) => item.sourceType === 'url' || item.providerId !== (requestDetails.source.providerId || requestDetails.source.filesystemId || 'local') || !isSameOrDescendantPath(sourcePath, item.path),
         )
 
         if (nextItems.length === 0) {
@@ -197,6 +207,7 @@ export const useMediaViewer = ({ audio = useAudioPlayer() } = {}) => {
     }
 
     const relocateMedia = (mediaItem) => {
+      if (mediaItem.sourceType === 'url' || mediaItem.providerId !== (requestDetails.source.providerId || requestDetails.source.filesystemId || 'local')) return mediaItem
       if (!mediaItem || !isSameOrDescendantPath(sourcePath, mediaItem.path)) {
         return mediaItem
       }
@@ -206,7 +217,7 @@ export const useMediaViewer = ({ audio = useAudioPlayer() } = {}) => {
       return {
         ...mediaItem,
         path: nextPath,
-        url: '',
+        preparedSource: '',
         error: null,
       }
     }
@@ -216,7 +227,7 @@ export const useMediaViewer = ({ audio = useAudioPlayer() } = {}) => {
       viewer.value.items = viewer.value.items.map(relocateMedia)
     }
 
-    if (currentViewerMedia.value && !currentViewerMedia.value.url) {
+    if (currentViewerMedia.value && !currentViewerMedia.value.preparedSource) {
       void prepareDescriptor(currentViewerMedia.value)
     }
   }
@@ -228,6 +239,7 @@ export const useMediaViewer = ({ audio = useAudioPlayer() } = {}) => {
     viewerPosition,
     viewerCount,
     openMedia,
+    openSource,
     closeAudio,
     closeViewer,
     showPrevious,

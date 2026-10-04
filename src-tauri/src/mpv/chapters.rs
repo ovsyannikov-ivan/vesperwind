@@ -3,6 +3,7 @@ use super::{
     stream::MpvStreamRegistry, MpvApi, MpvHandle, MPV_EVENT_END_FILE, MPV_EVENT_FILE_LOADED,
     MPV_EVENT_SHUTDOWN,
 };
+#[cfg(test)]
 use crate::{provider_content::ContentSource, ssh::SshManager};
 use serde::Serialize;
 use std::{
@@ -60,6 +61,74 @@ pub(crate) fn current_index(chapters: &[Chapter], seconds: f64) -> Option<usize>
 pub struct SourceMetadata {
     pub duration: Option<f64>,
     pub chapters: Vec<Chapter>,
+    pub tags: AudioTags,
+    pub kind: Option<String>,
+    pub live: bool,
+    pub tracks: Vec<ProbeTrack>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioTags {
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub album_artist: Option<String>,
+    pub track_number: Option<String>,
+    pub disc_number: Option<String>,
+}
+#[derive(Debug, Clone, Serialize)]
+pub struct ProbeTrack {
+    pub kind: String,
+    pub codec: Option<String>,
+}
+pub(super) fn read_tags(api: &MpvApi, handle: *mut MpvHandle) -> AudioTags {
+    let mut tags = AudioTags::default();
+    let count = api
+        .get_i64(handle, "metadata/list/count")
+        .unwrap_or(0)
+        .clamp(0, 256);
+    for index in 0..count {
+        let key = api
+            .get_string(handle, &format!("metadata/list/{index}/key"))
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .replace(['_', '-', ' '], "");
+        let value = api
+            .get_string(handle, &format!("metadata/list/{index}/value"))
+            .filter(|s| !s.trim().is_empty());
+        match key.as_str() {
+            "title" => tags.title = value,
+            "artist" => tags.artist = value,
+            "album" => tags.album = value,
+            "albumartist" => tags.album_artist = value,
+            "track" | "tracknumber" => tags.track_number = value,
+            "disc" | "discnumber" => tags.disc_number = value,
+            _ => {}
+        }
+    }
+    tags
+}
+fn read_probe_tracks(api: &MpvApi, handle: *mut MpvHandle) -> Vec<ProbeTrack> {
+    (0..api
+        .get_i64(handle, "track-list/count")
+        .unwrap_or(0)
+        .clamp(0, 256))
+        .filter_map(|index| {
+            let prefix = format!("track-list/{index}");
+            if api
+                .get_flag(handle, &format!("{prefix}/albumart"))
+                .unwrap_or(false)
+            {
+                return None;
+            }
+            let kind = api.get_string(handle, &format!("{prefix}/type"))?;
+            Some(ProbeTrack {
+                kind,
+                codec: api.get_string(handle, &format!("{prefix}/codec")),
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -69,12 +138,21 @@ pub(crate) fn probe(source: ContentSource, ssh: Arc<SshManager>) -> Result<Vec<C
 
 /// No rendering surface, audio device, watch-later files, or system executable.
 /// The registry must outlive mpv_destroy (stream callbacks run on mpv threads).
+#[cfg(test)]
 pub(crate) fn probe_metadata(
     source: ContentSource,
     ssh: Arc<SshManager>,
 ) -> Result<SourceMetadata, String> {
     let registry = MpvStreamRegistry::new(ssh);
     let uri = registry.register(source);
+    probe_uri(&uri, registry, None)
+}
+
+pub(crate) fn probe_uri(
+    uri: &str,
+    registry: Arc<MpvStreamRegistry>,
+    cancelled: Option<&std::sync::atomic::AtomicBool>,
+) -> Result<SourceMetadata, String> {
     let api = MpvApi::load_bundled()?;
     let handle = unsafe { (api.create)() };
     if handle.is_null() {
@@ -91,6 +169,9 @@ pub(crate) fn probe_metadata(
             ("keep-open", "always"),
             ("audio-display", "no"),
             ("sub-auto", "no"),
+            ("network-timeout", "3"),
+            ("tls-verify", "yes"),
+            ("msg-level", "all=no"),
         ] {
             api.set_option(handle, name, value)
                 .map_err(|error| format!("{name}={value}: {error}"))?;
@@ -108,19 +189,37 @@ pub(crate) fn probe_metadata(
             "mpv_stream_cb_add_ro",
         )?;
         super::status(unsafe { (api.initialize)(handle) }, "mpv_initialize")?;
-        api.command(handle, &["loadfile", &uri, "replace"])?;
+        api.command(handle, &["loadfile", uri, "replace"])?;
         let deadline = Instant::now() + Duration::from_secs(10);
         while Instant::now() < deadline {
+            if cancelled.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Acquire)) {
+                return Err("Metadata probe cancelled".into());
+            }
             match api.wait_event_details(handle, 0.05).event_id {
                 MPV_EVENT_FILE_LOADED => {
+                    let tracks = read_probe_tracks(&api, handle);
+                    let kind = if tracks.iter().any(|t| t.kind == "video") {
+                        Some("video".into())
+                    } else if tracks.iter().any(|t| t.kind == "audio") {
+                        Some("audio".into())
+                    } else {
+                        None
+                    };
                     return Ok(SourceMetadata {
+                        kind,
+                        tracks,
+                        tags: read_tags(&api, handle),
+                        live: api.get_flag(handle, "demuxer-via-network").unwrap_or(false)
+                            && api.get_double(handle, "duration").is_none(),
                         duration: api
                             .get_double(handle, "duration")
                             .filter(|d| d.is_finite() && *d > 0.0),
                         chapters: read(&api, handle),
-                    })
+                    });
                 }
-                MPV_EVENT_END_FILE | MPV_EVENT_SHUTDOWN => return Ok(SourceMetadata::default()),
+                MPV_EVENT_END_FILE | MPV_EVENT_SHUTDOWN => {
+                    return Err("Unable to inspect this media source".into())
+                }
                 _ => {}
             }
         }
@@ -133,6 +232,77 @@ pub(crate) fn probe_metadata(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[test]
+    fn bundled_network_probe_routes_tracks_tags_redirects_hls_and_failure_with_time_bounds() {
+        let server = crate::media::network_fixtures::Server::new();
+        let registry = || MpvStreamRegistry::new(SshManager::new());
+        for (path, kind) in [
+            ("/native.mp3?looks=video.mp4", "audio"),
+            ("/tagged.flac", "audio"),
+            ("/chapters.mp4", "video"),
+            ("/native-h264.mp4", "video"),
+            ("/redirect", "audio"),
+            ("/local-hls/master.m3u8", "video"),
+            ("/local-hls/playlist.m3u8", "video"),
+        ] {
+            let result = probe_uri(&server.url(path), registry(), None).unwrap();
+            assert_eq!(result.kind.as_deref(), Some(kind), "{path}: {result:?}");
+            assert!(result.duration.is_some(), "{path}");
+            if path == "/tagged.flac" {
+                assert_eq!(result.tags.title.as_deref(), Some("Время 日本語"));
+                assert_eq!(result.tags.artist.as_deref(), Some("Test Artist"));
+                assert_eq!(result.tags.album.as_deref(), Some("Test Album"));
+                assert_eq!(result.tags.album_artist.as_deref(), Some("Album Artist"));
+                assert_eq!(result.tags.track_number.as_deref(), Some("2/9"));
+                assert_eq!(result.tags.disc_number.as_deref(), Some("1/2"));
+            }
+        }
+        assert!(probe_uri(&server.url("/missing"), registry(), None).is_err());
+        let started = Instant::now();
+        assert!(probe_uri(&server.url("/slow"), registry(), None).is_err());
+        assert!(started.elapsed() < Duration::from_secs(12));
+        let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = Arc::clone(&cancelled);
+        let worker = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(150));
+            flag.store(true, std::sync::atomic::Ordering::Release);
+        });
+        let started = Instant::now();
+        assert!(probe_uri(&server.url("/slow"), registry(), Some(&cancelled)).is_err());
+        assert!(started.elapsed() < Duration::from_secs(5));
+        worker.join().unwrap();
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[test]
+    fn local_hls_uses_validated_unicode_path_for_relative_segments() {
+        let root =
+            std::env::temp_dir().join(format!("vw-HLS-日本語-Время-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let original = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../test/fixtures/media/local-hls");
+        for file in std::fs::read_dir(original).unwrap() {
+            let file = file.unwrap();
+            std::fs::copy(file.path(), root.join(file.file_name())).unwrap();
+        }
+        let filesystem = crate::filesystem::Filesystem::from_root(&root, root.clone()).unwrap();
+        let ssh = SshManager::new();
+        let registry = MpvStreamRegistry::new(Arc::clone(&ssh));
+        let location = crate::media::source::MediaSource {
+            source_type: Some("provider".into()),
+            provider_id: Some("local".into()),
+            path: root.join("master.m3u8").to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        let source = location.resolve(&filesystem, &ssh, &registry).unwrap();
+        assert!(!source.uri.starts_with("vesperwind:"));
+        assert!(!source.history_enabled);
+        let metadata = probe_uri(&source.uri, registry, None).unwrap();
+        assert_eq!(metadata.kind.as_deref(), Some("video"));
+        assert!((metadata.duration.unwrap() - 7.0).abs() < 0.2);
+        std::fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn current_chapter_tracks_boundaries_and_absolute_resume() {
         let chapters = vec![

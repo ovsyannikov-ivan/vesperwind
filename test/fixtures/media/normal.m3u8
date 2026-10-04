@@ -1,0 +1,7 @@
+#EXTM3U
+#EXTINF:2,Test Artist — Время 日本語
+tagged.flac
+#EXTINF:2,Native MP3 fixture
+native.mp3
+#EXTINF:120,Book with chapters
+book.m4b

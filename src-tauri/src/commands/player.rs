@@ -18,8 +18,8 @@ use objc2_web_kit::WKWebView;
 #[serde(rename_all = "camelCase")]
 pub struct OpenPayload {
     session_id: String,
-    filesystem_id: Option<String>,
-    path: String,
+    #[serde(flatten)]
+    source: crate::media::source::MediaSource,
     #[serde(default)]
     autoplay: bool,
     geometry: Option<PlayerGeometry>,
@@ -165,8 +165,7 @@ pub async fn player_open(app: AppHandle, payload: OpenPayload) -> Value {
                 &window,
                 &app,
                 &payload.session_id,
-                payload.filesystem_id.as_deref(),
-                &payload.path,
+                &payload.source,
                 payload.autoplay,
                 payload.geometry,
                 payload.kind,

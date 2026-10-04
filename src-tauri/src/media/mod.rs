@@ -556,3 +556,8 @@ mod tests {
 pub mod thumbnail;
 
 pub mod history;
+
+pub mod source;
+
+#[cfg(test)]
+pub(crate) mod network_fixtures;

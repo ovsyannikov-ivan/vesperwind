@@ -9,6 +9,7 @@ import { isEditableFile } from './editableFiles.js'
 const mediaTypes = new Set(['image', 'video', 'audio'])
 
 export const getFileOpenType = (fileName, editableFiles = []) => {
+  if (/\.m3u8?$/i.test(fileName || '')) return 'playlist'
   const documentHandler = getDocumentHandlerForExtension(getFileExtension(fileName))
   if (documentHandler) return documentHandler.id
 

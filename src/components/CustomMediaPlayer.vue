@@ -31,6 +31,8 @@ const props = defineProps({
   src: { type: String, required: true },
   providerId: { type: String, default: 'local' },
   path: { type: String, default: '' },
+  sourceType: { type: String, default: 'provider' },
+  sourceUrl: { type: String, default: '' },
   kind: {
     type: String,
     required: true,
@@ -80,7 +82,7 @@ const seekController = createSeekController({
   seek: (target) => player?.seek(target), onChange: (value) => { seekFeedback.value = value },
   onError: (error) => console.warn('Video seek failed', error),
 })
-const sourceLocation = () => ({ providerId: props.providerId || 'local', path: props.path })
+const sourceLocation = () => props.sourceType === 'url' ? { sourceType: 'url', url: props.sourceUrl } : { sourceType: 'provider', providerId: props.providerId || 'local', path: props.path }
 const thumbnail = useThumbnailPreview(() => ({ ...sourceLocation(), sourceHdr: state.diagnostics?.sourceHdr }))
 const handleVideoKeydown = (event) => {
   if (isAudio.value || isNative.value || nativeTransitioning || !canHandleSeekKey(event)) return
@@ -91,7 +93,7 @@ const handleVideoKeydown = (event) => {
   }
 }
 const handlePreview = (event) => {
-  if (isAudio.value || event.detail == null) { thumbnail.hide(); return }
+  if (props.sourceType === 'url' || isAudio.value || event.detail == null) { thumbnail.hide(); return }
   thumbnail.show(event.detail, state.duration > 0 ? event.detail / state.duration : 0)
 }
 const formatTime = (seconds) => {
@@ -216,7 +218,7 @@ const applyState = (snapshot) => {
   emit('state', snapshot)
   if ((snapshot.endedRevision || 0) > endedRevision) {
     endedRevision = snapshot.endedRevision
-    emit('ended')
+    emit('ended', snapshot)
   }
   if ([PlayerStatus.ERROR, PlayerStatus.CLOSED, PlayerStatus.LOADING, PlayerStatus.OPENING].includes(snapshot.status)) osd.reset()
   else osd.accept(snapshot.osd)
@@ -237,7 +239,7 @@ const createPlayer = async () => {
     const bounds = isAudio.value ? undefined : await waitForNativeGeometry({ measure: geometry,
       cancelled: () => currentGeneration !== generation })
     if ((!isAudio.value && !bounds) || currentGeneration !== generation) return
-    player = new NativeMpvPlayerBackend({ kind: props.kind, autoplay: props.autoplay, historyEnabled: props.historyEnabled })
+    player = new NativeMpvPlayerBackend({ kind: props.kind, autoplay: props.autoplay, historyEnabled: props.historyEnabled && props.sourceType !== 'url' })
     console.info(`[player=${player.sessionId}] viewer mounted`)
     console.info(`[player=${player.sessionId}] backend selected: ${mode}`)
     unsubscribeState = player.subscribe(applyState)
@@ -250,7 +252,7 @@ const createPlayer = async () => {
       await player.setOverlay(true, overlayGeometry(), overlayContext())
     }
   } else {
-    player = new WebMediaPlayerBackend(mediaElement.value, { autoplay: props.autoplay, historyEnabled: props.historyEnabled })
+    player = new WebMediaPlayerBackend(mediaElement.value, { autoplay: props.autoplay, historyEnabled: props.historyEnabled && props.sourceType !== 'url' })
     unsubscribeState = player.subscribe(applyState)
     await player.setSource(props.src, sourceLocation())
   }
@@ -371,7 +373,7 @@ onMounted(() => {
 })
 
 watch(
-  () => isNative.value ? [props.providerId, props.path] : [props.src],
+  () => isNative.value ? [props.sourceType, props.sourceUrl, props.providerId, props.path] : [props.src],
   () => {
     seekController.reset()
     thumbnail.hide()

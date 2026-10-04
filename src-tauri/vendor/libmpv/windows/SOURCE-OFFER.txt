@@ -15,3 +15,10 @@ https://github.com/ovsyannikov-ivan/vesperwind
 
 LGPL libraries remain separate, dynamically linked and replaceable. No technical
 measure prevents replacing or relinking them. License texts are in LICENSES/.
+
+The avformat-62.dll networking-only update uses the same pinned FFmpeg n8.0
+source, with Schannel enabled. Rebuild it with scripts/build-libmpv-network.sh.
+Its official llvm-mingw 20260826 UCRT cross toolchain and archive SHA-256 are
+recorded in BUILD-INFO.txt. Source/release material is available at:
+https://github.com/mstorsjo/llvm-mingw/releases/tag/20260826
+The compiler runtime license/exception is in LICENSES/LLVM-Apache-2.0-exception.txt.

@@ -27,6 +27,7 @@ const requestCommands = Object.freeze({
   'media:history': 'media_history',
   'media:chapters': 'media_chapters',
   'media:metadata': 'media_metadata',
+  'media:cancel-metadata': 'media_cancel_metadata',
   'player:capabilities': 'player_capabilities',
   'player:open': 'player_open',
   'player:play': 'player_play',

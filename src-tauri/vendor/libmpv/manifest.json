@@ -37,7 +37,8 @@
       "glslang": "15.1.0, static, optimizer disabled",
       "transitiveSourcePins": "macos/BUILD-INFO.txt (MoltenVK ExternalRevisions)"
     },
-    "backendOverride": "VESPERWIND_MPV_MACOS_BACKEND=auto|macvk|opengl"
+    "backendOverride": "VESPERWIND_MPV_MACOS_BACKEND=auto|macvk|opengl",
+    "tlsBackend": "securetransport"
   },
   "windows": {
     "artifactStatus": "built-from-pinned-source",
@@ -62,7 +63,8 @@
     },
     "buildEvidence": "windows/BUILD-INFO.txt",
     "runtimeValidation": "Windows Intel UHD 630: Local H.264/HEVC D3D11VA copy-back and WASAPI API smoke passed; gpu-next/D3D11 SDR video, source switching, seek, fullscreen and EOF rewind/replay application smoke passed; automatic WGL fallback tested with the prior runtime; WGL/ASS baseline smoke passed; SFTP, audible listening and updated macOS fullscreen visuals unverified",
-    "validationInstructions": "../../../docs/build-windows.md"
+    "validationInstructions": "../../../docs/build-windows.md",
+    "tlsBackend": "schannel"
   },
   "dependencies": {
     "FFmpeg": "8.0",
@@ -85,5 +87,6 @@
     "FFmpeg version3 components"
   ],
   "macosEntry": "macos/libmpv.2.dylib",
-  "windowsEntry": "windows/mpv-2.dll"
+  "windowsEntry": "windows/mpv-2.dll",
+  "requiredNetworkProtocols": ["http", "https", "tls", "hls", "tcp", "crypto", "file"]
 }

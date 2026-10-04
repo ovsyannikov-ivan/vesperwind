@@ -3,11 +3,30 @@ import fs from 'node:fs'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { useMediaViewer } from '../src/composables/useMediaViewer.js'
+import { effectScope, ref, watch, nextTick } from 'vue'
 
 const node = (name) => ({
   name,
   path: `/gallery/${name}`,
   isDirectory: false,
+})
+
+test('URL video preparation updates reactive viewer state and both provider/URL presentation use preparedSource', async () => {
+  const scope = effectScope()
+  let finish, presented = ''
+  const viewer = scope.run(() => useMediaViewer({ audio: { current: ref(null) },
+    prepareMedia: () => new Promise((resolve) => { finish = resolve }) }))
+  scope.run(() => watch(() => viewer.currentViewerMedia.value?.preparedSource, (source) => { presented = source }))
+  viewer.openSource({ sourceType: 'url', url: 'https://example.com/video' }, { kind: 'video' })
+  await nextTick()
+  finish({ ok: true, source: 'https://example.com/video' })
+  await nextTick(); await nextTick()
+  assert.equal(presented, 'https://example.com/video')
+  assert.equal(viewer.currentViewerMedia.value.loading, false)
+  assert.equal(viewer.currentViewerMedia.value.historyEnabled, false)
+  const markup = fs.readFileSync(new URL('../src/components/MediaViewerModal.vue', import.meta.url), 'utf8')
+  for (const kind of ['image', 'video']) assert.ok(markup.includes(`displayedMedia?.preparedSource && displayedKind === '${kind}'`))
+  scope.stop()
 })
 
 test('builds an image carousel from sibling files and wraps navigation', () => {

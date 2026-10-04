@@ -209,6 +209,7 @@ pub fn run() {
             commands::media::media_history,
             commands::media::media_chapters,
             commands::media::media_metadata,
+            commands::media::media_cancel_metadata,
             commands::player::player_capabilities,
             commands::player::player_open,
             commands::player::player_play,

@@ -139,6 +139,7 @@ test('native player routes provider sources and releases the active player', asy
   ])
   assert.deepEqual(requests[0].payload, {
     sessionId: firstSessionId,
+    sourceType: 'provider', providerId: 'sftp:demo',
     filesystemId: 'sftp:demo',
     path: '/video/one.mkv',
     autoplay: true,
@@ -149,6 +150,7 @@ test('native player routes provider sources and releases the active player', asy
   assert.deepEqual(requests[1].payload, { sessionId: firstSessionId })
   assert.deepEqual(requests[2].payload, {
     sessionId: secondSessionId,
+    sourceType: 'provider', providerId: 'local',
     filesystemId: 'local',
     path: '/video/two.mp4',
     autoplay: true,
@@ -626,7 +628,7 @@ test('native audio opens local/provider sources without geometry or overlay and 
     }
     const player = new NativeMpvPlayerBackend({ kind: 'audio', autoplay: true, historyEnabled, transport })
     await player.setSource({ providerId, path: '/books/long.m4b' })
-    assert.deepEqual(commands[0].payload, { sessionId: player.sessionId, filesystemId: providerId,
+    assert.deepEqual(commands[0].payload, { sessionId: player.sessionId, sourceType: 'provider', providerId, filesystemId: providerId,
       path: '/books/long.m4b', kind: 'audio', autoplay: true, historyEnabled })
     assert.equal(Object.hasOwn(commands[0].payload, 'geometry'), false)
     await player.setGeometry({}); await player.setVisible(true); await player.setOverlay(true, {})

@@ -1,5 +1,6 @@
 import { backend, backendRuntimeMode } from '../api/backend.js'
 import { media } from '../api/media.js'
+import { normalizeMediaSource, mediaIdentity } from './mediaSource.js'
 import { normalizeChapters, currentChapterIndex, adjacentChapterIndex } from './chapters.js'
 
 export const PlayerStatus = Object.freeze({
@@ -31,6 +32,8 @@ const initialState = () => ({
   subtitleDelay: 0,
   tracks: [],
   chapters: [],
+  tags: {},
+  live: false,
   currentChapterIndex: null,
   currentChapter: null,
   diagnostics: null,
@@ -174,7 +177,7 @@ export class WebMediaPlayerBackend extends MediaPlayerBackend {
     this.historyReady = false
     this.historySession = null
     this.element.pause()
-    if (this.history && location?.path) {
+    if (this.history && location?.sourceType !== 'url' && location?.path) {
       const id = createPlayerSessionId()
       const result = await this.history.request('media:history', { event: 'open', sessionId: id, ...location }).catch(() => null)
       if (this.closed || generation !== this.sourceGeneration) {
@@ -301,6 +304,8 @@ export class NativeMpvPlayerBackend extends MediaPlayerBackend {
         subtitleDelay: state.subtitleDelay ?? this.state.subtitleDelay,
         tracks: state.tracks || this.state.tracks,
         chapters: state.chapters ?? this.state.chapters,
+        tags: state.tags ?? this.state.tags,
+        live: state.live ?? this.state.live,
         diagnostics: state.diagnostics ?? this.state.diagnostics,
         osd: state.osd ?? this.state.osd,
         error: state.error ? { message: state.error } : null,
@@ -348,8 +353,9 @@ export class NativeMpvPlayerBackend extends MediaPlayerBackend {
     if (this.hasOpenedSession) await this.closeSession()
     if (this.closed || sourceGeneration !== this.sourceGeneration) return
     if (!this.sessionId) this.sessionId = createPlayerSessionId()
-    const sourceKey = `${source?.providerId || 'local'}:${source?.path || ''}`
-    console.info(`[player=${this.sessionId}] source selected: ${sourceKey}`)
+    const logical = normalizeMediaSource(source)
+    const sourceKey = logical.sourceType === 'url' ? mediaIdentity(logical) : `${logical.providerId}:${logical.path}`
+    console.info(`[player=${this.sessionId}] source selected: ${logical.sourceType}`)
     console.info(`[player=${this.sessionId}] native open requested`)
     this.state.endedRevision = 0
     this.update({ ...initialState(), pendingSeekTime: null, source: sourceKey, status: PlayerStatus.OPENING })
@@ -358,11 +364,11 @@ export class NativeMpvPlayerBackend extends MediaPlayerBackend {
     // cancel it too, rather than sending a second open with the same identity.
     this.hasOpenedSession = true
     const response = await this.request('player:open', {
-      filesystemId: source?.providerId || 'local',
-      path: source?.path || '',
+      ...logical,
+      ...(logical.sourceType === 'provider' ? { filesystemId: logical.providerId } : {}),
       autoplay: this.autoplay,
       kind: this.kind,
-      historyEnabled: this.historyEnabled,
+      historyEnabled: logical.sourceType !== 'url' && this.historyEnabled,
       ...(this.kind === 'video' ? { geometry } : {}),
     })
     if (this.closed || sessionId !== this.sessionId || sourceGeneration !== this.sourceGeneration) return

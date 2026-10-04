@@ -27,3 +27,25 @@ regenerator uses the existing application-owned FFmpeg only to produce fixtures.
 0, 15,720 and 17,340 seconds. Native resume tests restore exactly 16,638 seconds
 (04:37:18), then exercise ephemeral Quick Look playback without changing that
 normal record. No long wall-clock playback is needed.
+
+## Owned network/audio fixtures
+
+`native.mp3` and `tagged.flac` are two-second generated sine waves. FLAC tags
+include Cyrillic/Japanese title plus artist, album, album artist, track and disc.
+`normal.m3u8` is an ordinary Unicode Extended M3U for UI/import tests.
+
+HLS was generated from FFmpeg test sources using the test fixture toolchain:
+
+```sh
+ffmpeg -f lavfi -i testsrc2=size=160x90:rate=24 \
+  -f lavfi -i sine=frequency=440:sample_rate=48000 -t 7 \
+  -c:v libx264 -pix_fmt yuv420p -g 48 -keyint_min 48 -sc_threshold 0 \
+  -c:a aac -b:a 48k -f hls -hls_time 2 -hls_playlist_type vod \
+  -hls_segment_filename local-hls/segment%03d.ts local-hls/playlist.m3u8
+ffmpeg -i local-hls/segment000.ts -c copy -movflags +faststart native-h264.mp4
+```
+
+`local-hls/master.m3u8` references the media playlist; four owned MPEG-TS
+segments are served unchanged by loopback HTTP/HTTPS tests. `native-h264.mp4`
+provides a browser-compatible direct video URL fixture. These fixture generation
+tools/encoders are not application runtime dependencies.

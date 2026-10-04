@@ -28,6 +28,7 @@ let modal = null
 
 const actionDetails = computed(() => {
   const details = {
+    'overwrite-playlist': { title: 'Confirm overwrite', icon: 'mdi-file-replace-outline', button: 'Overwrite' },
     copy: {
       title: 'Confirm copy',
       icon: 'mdi-content-copy',
@@ -140,7 +141,10 @@ onBeforeUnmount(() => {
 
           <div v-if="displayedRequest" class="modal-body">
             <p id="file-operation-confirm-description" class="mb-3">
-              <template v-if="displayedRequest.sources?.length > 1">
+              <template v-if="displayedRequest.action === 'overwrite-playlist'">
+                Overwrite the existing file <strong>“{{ displayedRequest.source.name }}”</strong>?
+              </template>
+              <template v-else-if="displayedRequest.sources?.length > 1">
                 {{ actionDetails.button }} {{ displayedRequest.sources.length }} selected items
                 <template v-if="displayedRequest.action !== 'delete'">
                   to the folder <strong>“{{ displayedRequest.targetDirectory.name }}”</strong>
@@ -190,7 +194,7 @@ onBeforeUnmount(() => {
               Cancel
             </button>
             <button
-              :class="displayedRequest?.action === 'delete' ? 'btn-danger' : 'btn-primary'"
+              :class="['delete', 'overwrite-playlist'].includes(displayedRequest?.action) ? 'btn-danger' : 'btn-primary'"
               class="btn btn-sm"
               type="button"
               :disabled="busy"

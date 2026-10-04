@@ -92,8 +92,9 @@ pub async fn media_history(app: tauri::AppHandle, payload: HistoryPayload) -> Va
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChapterPayload {
-    provider_id: Option<String>,
-    path: String,
+    #[serde(flatten)]
+    source: crate::media::source::MediaSource,
+    probe_id: Option<String>,
 }
 
 // Bound probes across all WebViews, including Quick Look and the playlist.
@@ -101,14 +102,23 @@ static METADATA_PROBES: (std::sync::Mutex<usize>, std::sync::Condvar) =
     (std::sync::Mutex::new(0), std::sync::Condvar::new());
 struct ProbePermit;
 impl ProbePermit {
-    fn acquire() -> Self {
+    fn acquire(cancelled: &std::sync::atomic::AtomicBool) -> Result<Self, String> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(12);
         let (mutex, ready) = &METADATA_PROBES;
         let mut active = mutex.lock().unwrap_or_else(|v| v.into_inner());
         while *active >= 2 {
-            active = ready.wait(active).unwrap_or_else(|v| v.into_inner());
+            if cancelled.load(std::sync::atomic::Ordering::Acquire)
+                || std::time::Instant::now() >= deadline
+            {
+                return Err("Metadata probe cancelled or timed out".into());
+            }
+            active = ready
+                .wait_timeout(active, std::time::Duration::from_millis(100))
+                .unwrap_or_else(|v| v.into_inner())
+                .0;
         }
         *active += 1;
-        Self
+        Ok(Self)
     }
 }
 impl Drop for ProbePermit {
@@ -121,35 +131,81 @@ impl Drop for ProbePermit {
 async fn source_metadata(
     app: tauri::AppHandle,
     payload: ChapterPayload,
-) -> crate::mpv::chapters::SourceMetadata {
+) -> Result<crate::mpv::chapters::SourceMetadata, String> {
     use tauri::Manager;
+    let cancelled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let id = payload
+        .probe_id
+        .clone()
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    probe_cancellations()
+        .lock()
+        .unwrap_or_else(|v| v.into_inner())
+        .insert(id.clone(), std::sync::Arc::clone(&cancelled));
     let metadata = tauri::async_runtime::spawn_blocking(move || {
-        let _permit = ProbePermit::acquire();
+        let _permit = ProbePermit::acquire(&cancelled)?;
         let state = app.state::<AppState>();
-        crate::provider_content::ContentSource::open(
-            &state.filesystem,
-            &state.ssh,
-            payload.provider_id.as_deref(),
-            &payload.path,
-        )
-        .ok()
-        .and_then(|source| {
-            crate::mpv::chapters::probe_metadata(source, std::sync::Arc::clone(&state.ssh)).ok()
-        })
-        .unwrap_or_default()
+        let registry =
+            crate::mpv::stream::MpvStreamRegistry::new(std::sync::Arc::clone(&state.ssh));
+        let resolved = payload
+            .source
+            .resolve(&state.filesystem, &state.ssh, &registry)?;
+        crate::mpv::chapters::probe_uri(&resolved.uri, registry, Some(&cancelled))
     })
     .await
-    .unwrap_or_default();
+    .unwrap_or_else(|_| Err("Metadata worker failed".into()));
+    probe_cancellations()
+        .lock()
+        .unwrap_or_else(|v| v.into_inner())
+        .remove(&id);
     metadata
 }
 
 #[tauri::command]
 pub async fn media_metadata(app: tauri::AppHandle, payload: ChapterPayload) -> Value {
     let metadata = source_metadata(app, payload).await;
-    serde_json::json!({"ok":true,"duration":metadata.duration,"chapters":metadata.chapters})
+    match metadata {
+        Ok(metadata) => {
+            let mut value = serde_json::to_value(metadata).unwrap();
+            value["ok"] = Value::Bool(true);
+            value
+        }
+        Err(_) => {
+            serde_json::json!({"ok":false,"error":{"code":"EMEDIA_PROBE","message":"Unable to inspect this source (unavailable, unsupported, or timed out)"}})
+        }
+    }
 }
 
 #[tauri::command]
 pub async fn media_chapters(app: tauri::AppHandle, payload: ChapterPayload) -> Value {
-    success("chapters", source_metadata(app, payload).await.chapters)
+    success(
+        "chapters",
+        source_metadata(app, payload)
+            .await
+            .unwrap_or_default()
+            .chapters,
+    )
+}
+
+type ProbeCancellations = std::sync::Mutex<
+    std::collections::HashMap<String, std::sync::Arc<std::sync::atomic::AtomicBool>>,
+>;
+fn probe_cancellations() -> &'static ProbeCancellations {
+    static PROBES: std::sync::OnceLock<ProbeCancellations> = std::sync::OnceLock::new();
+    PROBES.get_or_init(Default::default)
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CancelMetadataPayload {
+    probe_id: String,
+}
+#[tauri::command]
+pub fn media_cancel_metadata(payload: CancelMetadataPayload) {
+    if let Some(flag) = probe_cancellations()
+        .lock()
+        .unwrap_or_else(|v| v.into_inner())
+        .get(&payload.probe_id)
+    {
+        flag.store(true, std::sync::atomic::Ordering::Release);
+    }
 }

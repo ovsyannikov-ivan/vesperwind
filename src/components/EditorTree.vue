@@ -1,4 +1,5 @@
 <script setup>
+import { isPlaylistFile } from '../player/m3u.js'
 import { computed, nextTick, ref, watch } from 'vue'
 import { useFilesystem } from '../composables/useFilesystem.js'
 import { buildPathBreadcrumbs } from '../utils/pathBreadcrumbs.js'
@@ -98,6 +99,7 @@ const openNode = (payload) => {
 
   emit('open-file', {
     node,
+    type: isPlaylistFile(node.name) ? 'text' : undefined,
     siblings: Array.isArray(payload?.siblings) ? payload.siblings : [node],
     filesystemId: props.context.filesystemId,
     sourcePane: props.context.sourcePane,

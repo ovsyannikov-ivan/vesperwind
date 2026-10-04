@@ -213,7 +213,8 @@ test('UI contracts put player beside Terminal in both modes and playlist before 
   assert.match(read('src/components/CustomMediaPlayer.vue'), /Previous|ChapterControls/)
   assert.doesNotMatch(read('src/styles/main.css'), /width: min\(560px, 55vw\)|min-width: 800px/)
   assert.match(read('src/composables/useLayout.js'), /audioPlaylistHeight/)
-  assert.doesNotMatch(read('src/composables/useAudioPlayer.js'), /localStorage|media_history|sqlite/i)
+  assert.doesNotMatch(read('src/composables/useAudioPlayer.js'), /media_history|sqlite/i)
+  assert.match(read('src/composables/useAudioPlayer.js'), /playlistRecord\(state\)/)
 })
 
 test('native audio formats are recognized conservatively including wma and requested extensions', async () => {
