@@ -149,27 +149,32 @@ const selectCreate = (kind) => {
       </button>
     </div>
 
-    <button
-      class="btn btn-sm toolbar-button toolbar-toggle ms-1"
-      :class="visibilityButtonClass(layout.terminalVisible)"
-      type="button"
-      :aria-pressed="layout.terminalVisible"
-      title="Show or hide the terminal"
-      @click="$emit('toggle-terminal')"
-    >
-      <i class="mdi mdi-console-line" aria-hidden="true" />
-      Terminal
-    </button>
+    <div class="btn-group btn-group-sm ms-1" role="group" aria-label="Workspace tools">
+      <button
+        class="btn toolbar-button toolbar-toggle"
+        :class="visibilityButtonClass(layout.terminalVisible)"
+        type="button"
+        :aria-pressed="layout.terminalVisible"
+        title="Show or hide the terminal"
+        @click="$emit('toggle-terminal')"
+      >
+        <i class="mdi mdi-console-line" aria-hidden="true" />
+        Terminal
+      </button>
 
-    <button class="btn btn-sm toolbar-button toolbar-toggle" :class="visibilityButtonClass(audioVisible)" type="button" :aria-pressed="audioVisible" title="Show or hide audio player" @click="$emit('toggle-audio')">
-      <i class="mdi mdi-playlist-music" aria-hidden="true" /> Player
-    </button>
+      <button class="btn toolbar-button toolbar-toggle" :class="visibilityButtonClass(audioVisible)" type="button" :aria-pressed="audioVisible" title="Show or hide audio player" @click="$emit('toggle-audio')">
+        <i class="mdi mdi-playlist-music" aria-hidden="true" /> Player
+      </button>
+    </div>
 
     <div v-if="workspaceMode === 'files'" class="toolbar-divider" />
 
-    <div v-if="workspaceMode === 'files'" class="btn-group btn-group-sm" role="group" aria-label="File operations">
+    <div v-if="workspaceMode === 'files'" class="btn-group btn-group-sm" role="group" aria-label="Archive operations">
       <button class="btn toolbar-button toolbar-command" type="button" :disabled="!commandAvailability.archiveCreate" title="Create ZIP from selected items" @click="$emit('archive-create')"><i class="mdi mdi-folder-zip-outline" aria-hidden="true" /> ZIP</button>
       <button class="btn toolbar-button toolbar-command" type="button" :disabled="!commandAvailability.archiveExtract" title="Extract selected archive" @click="$emit('archive-extract')"><i class="mdi mdi-archive-arrow-down-outline" aria-hidden="true" /> Extract</button>
+    </div>
+
+    <div v-if="workspaceMode === 'files'" class="btn-group btn-group-sm" role="group" aria-label="File operations">
       <div class="btn-group btn-group-sm">
         <button ref="createButton" class="btn toolbar-button toolbar-command dropdown-toggle" data-bs-toggle="dropdown" type="button" :disabled="!commandAvailability.create" aria-expanded="false">
           <i class="mdi mdi-plus" aria-hidden="true" /> Create

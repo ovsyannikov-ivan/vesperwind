@@ -358,9 +358,7 @@ button:focus-visible,
 	display: inline-flex;
 	align-items: center;
 	gap: 5px;
-	height: 28px;
 	padding: 2px 9px;
-	border-radius: var(--bs-border-radius);
 }
 
 .toolbar-button {
@@ -701,6 +699,32 @@ body.is-swapping-panels * {
 	color: var(--text-muted);
 	background: transparent;
 	line-height: 1;
+}
+
+/* One geometry for dense commands; Bootstrap still joins btn-group edges. */
+.toolbar-button,
+.compact-button {
+	height: 24px;
+	border-radius: var(--bs-border-radius);
+}
+
+.compact-button.btn-neutral {
+	border-color: var(--bs-btn-border-color);
+	color: var(--bs-btn-color);
+	background: var(--bs-btn-bg);
+}
+
+.compact-button.btn-neutral:hover,
+.compact-button.btn-neutral:focus-visible {
+	border-color: var(--bs-btn-hover-border-color);
+	color: var(--bs-btn-hover-color);
+	background: var(--bs-btn-hover-bg);
+}
+
+.compact-button.btn-neutral:disabled {
+	border-color: var(--bs-btn-disabled-border-color);
+	color: var(--bs-btn-disabled-color);
+	background: var(--bs-btn-disabled-bg);
 }
 
 .compact-icon-button {

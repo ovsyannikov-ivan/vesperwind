@@ -38,12 +38,12 @@ const drop = (event) => {
 <template>
   <section class="audio-playlist" :class="{ 'is-drop-target': dropTarget }" aria-label="Playlist" @dragover="dragOver" @dragleave="!$el.contains($event.relatedTarget) && (dropTarget = false)" @drop="drop">
     <div class="audio-playlist-actions">
-      <button class="btn btn-sm btn-neutral" type="button" @click="emit('open-url')">Open URL…</button>
-      <button class="btn btn-sm btn-neutral" type="button" @click="emit('import')">Import…</button>
-      <button class="btn btn-sm btn-neutral" type="button" :disabled="!audio.state.items.length" @click="emit('export')">Export playlist…</button>
+      <button class="btn btn-sm btn-neutral compact-button" type="button" @click="emit('open-url')"><i class="mdi mdi-link-plus" aria-hidden="true" />Open URL…</button>
+      <button class="btn btn-sm btn-neutral compact-button" type="button" @click="emit('import')"><i class="mdi mdi-playlist-plus" aria-hidden="true" />Import…</button>
+      <button class="btn btn-sm btn-neutral compact-button" type="button" :disabled="!audio.state.items.length" @click="emit('export')"><i class="mdi mdi-export" aria-hidden="true" />Export playlist…</button>
       <span class="text-body-secondary">Playlist · {{ audio.state.items.length }}</span>
-      <button class="btn btn-sm btn-neutral" type="button" :disabled="!audio.state.selectedId" @click="audio.remove([audio.state.selectedId])">Remove selected</button>
-      <button class="btn btn-sm btn-neutral" type="button" :disabled="!audio.state.items.length" @click="audio.clear()">Clear playlist</button>
+      <button class="btn btn-sm btn-neutral compact-button" type="button" :disabled="!audio.state.selectedId" @click="audio.remove([audio.state.selectedId])"><i class="mdi mdi-playlist-remove" aria-hidden="true" />Remove selected</button>
+      <button class="btn btn-sm btn-neutral compact-button" type="button" :disabled="!audio.state.items.length" @click="audio.clear()"><i class="mdi mdi-playlist-music-outline" aria-hidden="true" />Clear playlist</button>
     </div>
     <p v-if="status" class="playlist-status text-body-secondary" role="status">{{ status }}</p>
     <div class="audio-playlist-scroll">
