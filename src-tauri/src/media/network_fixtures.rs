@@ -50,6 +50,10 @@ impl Drop for Server {
     }
 }
 fn serve(mut stream: TcpStream, stop: Arc<AtomicBool>) {
+    // Winsock accept inherits the listener's nonblocking mode. This worker
+    // uses blocking reads: otherwise arriving before the HTTP headers resets
+    // the connection instead of waiting for the client, making fixtures flaky.
+    stream.set_nonblocking(false).unwrap();
     let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
     let mut request = Vec::new();
     let mut bytes = [0; 1024];
@@ -123,4 +127,35 @@ fn serve(mut stream: TcpStream, stop: Arc<AtomicBool>) {
     };
     let _ = write!(stream, "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\n{range_header}Connection: close\r\n\r\n", data.len() - start);
     let _ = stream.write_all(&data[start..]);
+}
+
+#[test]
+fn fixture_waits_for_delayed_fragmented_headers_on_inherited_nonblocking_socket() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    let (accepted, _) = listener.accept().unwrap();
+    // Reproduce Winsock inheritance on every OS, so this regression is covered
+    // locally as well as on the Windows runner.
+    accepted.set_nonblocking(true).unwrap();
+    let worker = thread::spawn(move || serve(accepted, Arc::new(AtomicBool::new(false))));
+    thread::sleep(Duration::from_millis(40));
+    client
+        .write_all(b"GET /tagged.flac HTTP/1.1\r\nHost:")
+        .unwrap();
+    thread::sleep(Duration::from_millis(20));
+    client
+        .write_all(b" localhost\r\nConnection: close\r\n\r\n")
+        .unwrap();
+    let mut response = Vec::new();
+    client.read_to_end(&mut response).unwrap();
+    worker.join().unwrap();
+    assert!(response.starts_with(b"HTTP/1.1 200 OK\r\n"));
+    let body = std::fs::read(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../test/fixtures/media/tagged.flac"),
+    )
+    .unwrap();
+    assert!(response.ends_with(&body));
 }
