@@ -118,6 +118,12 @@ const handleHidden = () => {
   }
 }
 
+// Bootstrap ignores hide() during its opening transition. Honor a close that
+// arrived immediately after Space as soon as that transition has completed.
+const handleShown = () => {
+  if (!props.open) modal?.hide()
+}
+
 watch(
   () => [props.media, props.kind],
   ([media, kind]) => {
@@ -149,6 +155,7 @@ watch(
 
 onMounted(() => {
   modal = new Modal(modalElement.value)
+  modalElement.value.addEventListener('shown.bs.modal', handleShown)
   modalElement.value.addEventListener('hidden.bs.modal', handleHidden)
   window.addEventListener('keydown', handleKeydown)
   unsubscribeFullscreen = fullscreen.onChange((value) => {
@@ -162,6 +169,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  modalElement.value?.removeEventListener('shown.bs.modal', handleShown)
   modalElement.value?.removeEventListener('hidden.bs.modal', handleHidden)
   window.removeEventListener('keydown', handleKeydown)
   unsubscribeFullscreen?.()

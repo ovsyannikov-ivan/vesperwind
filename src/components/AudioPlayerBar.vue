@@ -11,11 +11,19 @@ const props = defineProps({
 
 defineEmits(['close', 'retry'])
 const playbackError = ref('')
+const player = ref(null)
+const autoplayAllowed = ref(true)
+const pause = () => {
+  autoplayAllowed.value = false
+  return player.value?.pause()
+}
+defineExpose({ pause })
 
 watch(
-  () => props.media.path,
+  () => props.media,
   () => {
     playbackError.value = ''
+    autoplayAllowed.value = true
   },
 )
 </script>
@@ -31,6 +39,7 @@ watch(
       <span v-else class="text-body-secondary">Audio</span>
     </div>
     <CustomMediaPlayer
+      ref="player"
       v-if="media.url"
       :key="media.path"
       class="audio-player-control"
@@ -38,7 +47,7 @@ watch(
       :src="media.url"
       :provider-id="media.providerId"
       :path="media.path"
-      autoplay
+      :autoplay="autoplayAllowed"
       @error="playbackError = 'This audio codec could not be played'"
     />
     <span v-else-if="media.loading" class="spinner-border spinner-border-sm" aria-hidden="true" />

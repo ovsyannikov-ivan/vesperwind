@@ -5,6 +5,7 @@ pub mod network;
 pub mod operations;
 pub mod paths;
 pub mod search;
+pub mod text;
 pub mod watch;
 
 use crate::error::NativeError;

@@ -243,10 +243,20 @@ pub fn filesystem_search_cancel(state: State<'_, AppState>, payload: SearchCance
     json!({"ok":true})
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FilesystemTextReadPayload {
+    filesystem_id: Option<String>,
+    path: Option<String>,
+    max_bytes: Option<u64>,
+    #[serde(default)]
+    strict_text: bool,
+}
+
 #[tauri::command]
 pub async fn filesystem_read_text(
     state: State<'_, AppState>,
-    payload: FilesystemPathPayload,
+    payload: FilesystemTextReadPayload,
 ) -> Result<Value, String> {
     let path = payload.path.unwrap_or_default();
     if let Some(provider) = payload
@@ -254,10 +264,17 @@ pub async fn filesystem_read_text(
         .as_deref()
         .filter(|value| *value != "local")
     {
-        return Ok(match state.ssh.read_text(provider, &path) {
-            Ok((content, modified)) => json!({"ok":true,"content":content,"modifiedAt":modified}),
-            Err(error) => failure(error),
-        });
+        return Ok(
+            match state
+                .ssh
+                .read_text(provider, &path, payload.max_bytes, payload.strict_text)
+            {
+                Ok((content, modified)) => {
+                    json!({"ok":true,"content":content,"modifiedAt":modified})
+                }
+                Err(error) => failure(error),
+            },
+        );
     }
     let real =
         match require_content_ready(&state.filesystem, payload.filesystem_id.as_deref(), &path) {
@@ -269,10 +286,18 @@ pub async fn filesystem_read_text(
         match tauri::async_runtime::spawn_blocking(move || {
             let metadata = fs::metadata(&real).map_err(|error| text_error(&error, &requested))?;
             validate_text_metadata(&metadata)?;
-            let content = fs::read(&real).map_err(|error| text_error(&error, &requested))?;
+            let limit = filesystem::text::read_limit(payload.max_bytes);
+            if metadata.len() > limit {
+                return Err(NativeError::new(
+                    "EFILE_TOO_LARGE",
+                    "Text file exceeds the read limit",
+                ));
+            }
+            let file = fs::File::open(&real).map_err(|error| text_error(&error, &requested))?;
+            let content = filesystem::text::read_bounded(file, limit, payload.strict_text)?;
             Ok::<_, NativeError>(json!({
                 "ok": true,
-                "content": String::from_utf8_lossy(&content),
+                "content": content,
                 "modifiedAt": metadata.modified().ok().map(filesystem::format_time),
             }))
         })

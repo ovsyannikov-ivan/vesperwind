@@ -37,6 +37,7 @@ const props = defineProps({
     validator: (value) => ['audio', 'video'].includes(value),
   },
   autoplay: { type: Boolean, default: false },
+  historyEnabled: { type: Boolean, default: true },
   fullscreen: { type: Boolean, default: false },
   title: { type: String, default: '' },
   position: { type: Number, default: 0 },
@@ -235,11 +236,13 @@ const createPlayer = async () => {
     attachNativeGeometry()
     await player.setOverlay(true, overlayGeometry(), overlayContext())
   } else {
-    player = new WebMediaPlayerBackend(mediaElement.value, { autoplay: props.autoplay })
+    player = new WebMediaPlayerBackend(mediaElement.value, { autoplay: props.autoplay, historyEnabled: props.historyEnabled })
     unsubscribeState = player.subscribe(applyState)
     await player.setSource(props.src, sourceLocation())
   }
 }
+
+watch(() => props.autoplay, (value) => { if (player) player.autoplay = value })
 
 const pause = () => { seekController.reset(); thumbnail.hide(); return player?.pause() }
 const play = () => player?.play()

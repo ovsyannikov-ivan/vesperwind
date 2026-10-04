@@ -31,13 +31,15 @@ const readDir = async (location) =>
     'Unable to read this folder',
   )
 
-const readText = async (location, options) => {
+const readText = async (location, options = {}) => {
   const preparation = await content.prepare(location, options)
   if (!preparation.ok) return preparation
   return normalizeApiResponse(
     await backend.request('filesystem:read-text', {
       filesystemId: providerIdOf(location),
       path: location?.path,
+      ...(options.maxBytes != null ? { maxBytes: options.maxBytes } : {}),
+      ...(options.strictText ? { strictText: true } : {}),
     }),
     'ETEXTFILE_READ',
     'Unable to open this file',

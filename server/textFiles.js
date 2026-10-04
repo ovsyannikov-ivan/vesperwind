@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises'
+import { decodeTextPreview } from '../shared/textPreview.js'
 import { resolveInsideRoot, verifyRealPathInsideRoot } from './filesystem.js'
 
 const MAX_TEXT_FILE_BYTES = 10 * 1024 * 1024
@@ -13,7 +14,7 @@ const requireLocalFilesystem = (filesystemId) => {
   throw error
 }
 
-const resolveTextFile = async (requestedPath) => {
+const resolveTextFile = async (requestedPath, maxBytes = MAX_TEXT_FILE_BYTES) => {
   const resolvedPath = resolveInsideRoot(requestedPath)
   const realPath = await verifyRealPathInsideRoot(resolvedPath)
   const stats = await fs.stat(realPath)
@@ -24,7 +25,7 @@ const resolveTextFile = async (requestedPath) => {
     throw error
   }
 
-  if (stats.size > MAX_TEXT_FILE_BYTES) {
+  if (stats.size > maxBytes) {
     const error = new Error('The file is too large for the text editor')
     error.code = 'EFILE_TOO_LARGE'
     throw error
@@ -33,12 +34,29 @@ const resolveTextFile = async (requestedPath) => {
   return { realPath, stats }
 }
 
-export const readTextFile = async (requestedPath, filesystemId = 'local') => {
+export const readTextFile = async (requestedPath, filesystemId = 'local', options = {}) => {
   requireLocalFilesystem(filesystemId)
-  const { realPath, stats } = await resolveTextFile(requestedPath)
+  const maxBytes = Number.isSafeInteger(options.maxBytes) && options.maxBytes >= 0
+    ? Math.min(options.maxBytes, MAX_TEXT_FILE_BYTES) : MAX_TEXT_FILE_BYTES
+  const { realPath, stats } = await resolveTextFile(requestedPath, maxBytes)
+  const file = await fs.open(realPath, 'r')
+  let bytes
+  try {
+    const chunks = []
+    let length = 0
+    while (length <= maxBytes) {
+      const buffer = Buffer.alloc(Math.min(64 * 1024, maxBytes + 1 - length))
+      const { bytesRead } = await file.read(buffer)
+      if (!bytesRead) break
+      chunks.push(buffer.subarray(0, bytesRead))
+      length += bytesRead
+    }
+    if (length > maxBytes) throw Object.assign(new Error('Text file exceeds the read limit'), { code: 'EFILE_TOO_LARGE' })
+    bytes = Buffer.concat(chunks)
+  } finally { await file.close() }
 
   return {
-    content: await fs.readFile(realPath, 'utf8'),
+    content: options.strictText ? decodeTextPreview(bytes) : bytes.toString('utf8'),
     modifiedAt: stats.mtime.toISOString(),
   }
 }
@@ -90,12 +108,12 @@ export const registerTextFileHandlers = (socket, { ssh } = {}) => {
   socket.on('filesystem:read-text', async (payload, acknowledge) => {
     try {
       if (payload?.filesystemId && payload.filesystemId !== 'local') {
-        acknowledge?.({ ok: true, ...(await (await ssh.ensure(payload.filesystemId)).readText(payload?.path)) })
+        acknowledge?.({ ok: true, ...(await (await ssh.ensure(payload.filesystemId)).readText(payload?.path, { maxBytes: payload?.maxBytes, strictText: payload?.strictText })) })
         return
       }
       acknowledge?.({
         ok: true,
-        ...(await readTextFile(payload?.path, payload?.filesystemId)),
+        ...(await readTextFile(payload?.path, payload?.filesystemId, { maxBytes: payload?.maxBytes, strictText: payload?.strictText })),
       })
     } catch (error) {
       acknowledge?.({

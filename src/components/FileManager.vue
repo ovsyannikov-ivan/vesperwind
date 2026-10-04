@@ -6,6 +6,10 @@ import { useEditorWorkspace } from '../composables/useEditorWorkspace.js'
 import { useFileOperations } from '../composables/useFileOperations.js'
 import { useLayout } from '../composables/useLayout.js'
 import { useMediaViewer } from '../composables/useMediaViewer.js'
+import { useQuickLook } from '../composables/useQuickLook.js'
+import { canOpenQuickLook } from '../utils/quickLookKeyboard.js'
+import { createPlaybackCoordinator } from '../player/playbackCoordination.js'
+import QuickLookModal from './QuickLookModal.vue'
 import { useSettings } from '../composables/useSettings.js'
 import {
   getEntryOpenAction,
@@ -66,6 +70,15 @@ const {
   retryMedia,
   syncAfterFileOperation,
 } = useMediaViewer()
+const audioPlayerBar = ref(null)
+const playback = createPlaybackCoordinator({ pauseBackgroundAudio: () => audioPlayerBar.value?.pause() })
+const openCoordinatedMedia = (context, canOpen) => playback.openMedia(context, openMedia, canOpen)
+const quickLook = useQuickLook({ openMedia: openCoordinatedMedia, closeMedia: closeViewer, beforePlayback: playback.beforePlayback })
+const quickLookPreview = quickLook.preview
+const handleViewerClose = () => {
+  if (quickLook.current.value) quickLook.close()
+  else closeViewer()
+}
 const filesContainer = ref(null)
 const leftPanel = ref(null)
 const rightPanel = ref(null)
@@ -207,6 +220,7 @@ const commandAvailability = computed(() => {
       confirmationRequest.value ||
       entryContextRequest.value ||
       viewer.value ||
+      quickLook.current.value ||
       operationBusy.value ||
       confirmationBusy.value ||
       workspaceMode.value !== 'files',
@@ -398,7 +412,7 @@ const openFile = (context) => {
   )
 
   if (isMediaOpenType(type)) {
-    openMedia(context)
+    void openCoordinatedMedia(context)
     return
   }
 
@@ -687,7 +701,14 @@ const executeCommanderOperation = async () => {
 }
 
 const handleCommanderKeydown = (event) => {
-  if (isAddressShortcut(event) && !event.target.closest?.('.xterm') && workspaceMode.value === 'files' && !settingsOpen.value && !remoteConnectionsOpen.value && !createRequest.value && !confirmationRequest.value && !archiveRequest.value && !viewer.value && !dropRequest.value && !entryContextRequest.value) {
+  const panel = activePanel.value === 'left' ? leftPanel.value : rightPanel.value
+  if (canOpenQuickLook(event, { workspaceMode: workspaceMode.value, selected: panelStates[activePanel.value].selected,
+    panelVisible: Boolean(panel), blocked: !connected.value || settingsOpen.value || remoteConnectionsOpen.value || createRequest.value || confirmationRequest.value || archiveRequest.value || viewer.value || quickLook.current.value || dropRequest.value || entryContextRequest.value || operationBusy.value || confirmationBusy.value || panel?.hasOpenMenu() })) {
+    event.preventDefault()
+    void quickLook.open(panel.quickLookContext(), settings.value.editor.editableFiles)
+    return
+  }
+  if (isAddressShortcut(event) && !event.target.closest?.('.xterm') && workspaceMode.value === 'files' && !settingsOpen.value && !remoteConnectionsOpen.value && !createRequest.value && !confirmationRequest.value && !archiveRequest.value && !viewer.value && !quickLook.current.value && !dropRequest.value && !entryContextRequest.value) {
     const panel = activePanel.value === 'left' ? leftPanel.value : rightPanel.value
     if (panel) { event.preventDefault(); void panel.editAddress() }
     return
@@ -727,6 +748,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  quickLook.close()
   archiveJob?.dispose()
   clearPanelDrag()
   unsubscribeNativeSettings?.()
@@ -761,6 +783,7 @@ onBeforeUnmount(() => {
     />
 
     <AudioPlayerBar
+      ref="audioPlayerBar"
       v-if="activeAudio"
       :media="activeAudio"
       @close="closeAudio"
@@ -865,11 +888,12 @@ onBeforeUnmount(() => {
       :kind="viewer?.kind || ''"
       :position="viewerPosition"
       :total="viewerCount"
-      @close="closeViewer"
+      @close="handleViewerClose"
       @previous="showPrevious"
       @next="showNext"
       @retry="retryMedia"
     />
+    <QuickLookModal v-if="quickLookPreview" :key="quickLookPreview.id" :preview="quickLookPreview" @close="quickLook.close" />
     <ArchiveOperationModal :open="Boolean(archiveRequest)" :request="archiveRequest" :busy="archiveBusy" :cancelling="archiveCancelling" :progress="archiveProgress" :error="archiveError" @submit="submitArchive" @cancel="cancelArchive" />
     <FileOperationConfirmModal
       :open="Boolean(confirmationRequest)"

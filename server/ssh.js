@@ -1,3 +1,4 @@
+import { decodeTextPreview } from '../shared/textPreview.js'
 import { createHash, randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
@@ -164,12 +165,23 @@ class RemoteConnection {
     }).sort((a, b) => a.isDirectory === b.isDirectory ? a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }) : a.isDirectory ? -1 : 1)
   }
 
-  async readText(requested) {
+  async readText(requested, options = {}) {
     const remotePath = this.resolve(requested)
     const stats = await call(this.sftp, 'stat', remotePath)
-    if (stats.size > MAX_TEXT_BYTES) throw remoteError('EFILE_TOO_LARGE', 'Files larger than 10 MB cannot be opened in the editor')
-    const content = await call(this.sftp, 'readFile', remotePath, { encoding: 'utf8' })
-    return { content: String(content), modifiedAt: stats.mtime ? new Date(stats.mtime * 1000).toISOString() : null }
+    if (!stats.isFile()) throw remoteError('EISDIR', 'The requested path is not a file')
+    const maxBytes = Number.isSafeInteger(options.maxBytes) && options.maxBytes >= 0
+      ? Math.min(options.maxBytes, MAX_TEXT_BYTES) : MAX_TEXT_BYTES
+    if (stats.size > maxBytes) throw remoteError('EFILE_TOO_LARGE', 'Text file exceeds the read limit')
+    const stream = this.sftp.createReadStream(remotePath, { start: 0, end: maxBytes, highWaterMark: 64 * 1024 })
+    const chunks = []
+    let length = 0
+    for await (const chunk of stream) {
+      length += chunk.length
+      if (length > maxBytes) { stream.destroy(); throw remoteError('EFILE_TOO_LARGE', 'Text file exceeds the read limit') }
+      chunks.push(chunk)
+    }
+    const bytes = Buffer.concat(chunks)
+    return { content: options.strictText ? decodeTextPreview(bytes) : bytes.toString('utf8'), modifiedAt: stats.mtime ? new Date(stats.mtime * 1000).toISOString() : null }
   }
 
   async readBinary(requested) {

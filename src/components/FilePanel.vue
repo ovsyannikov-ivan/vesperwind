@@ -497,7 +497,13 @@ onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', closeFilterOnOutsidePointer, true)
 })
 
-defineExpose({ openNode, requestRename, removeSelectedPaths, editAddress })
+const quickLookContext = () => ({
+  node: selectedNode.value,
+  siblings: visibleEntries(),
+  filesystemId: props.providerId,
+})
+defineExpose({ openNode, requestRename, removeSelectedPaths, editAddress, quickLookContext,
+  hasOpenMenu: () => Boolean(filterMenuOpen.value || folderMenu.value) })
 
 watch(entryChange, (change) => {
   if (change?.action !== 'rename' || change.providerId !== props.providerId) return

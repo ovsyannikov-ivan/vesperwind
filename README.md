@@ -16,6 +16,8 @@ between applications.
   and file transfers between local and remote panels.
 - **Search & filtering:** recursive name/path search, per-panel filters and sorting,
   and automatic refresh for local folders.
+- **Quick Look:** press Space on a selected file for a temporary read-only preview
+  of media, text, PDF, DOCX or XLS/XLSX without opening an editor tab.
 - **Text & code:** multi-tab Monaco editor with syntax highlighting, minimap,
   document search and indentation controls. Edit local or remote files.
 - **Documents:** edit DOCX and XLSX/XLS; import DOC and RTF through LibreOffice.
@@ -37,6 +39,7 @@ For setup and build instructions, see the [development guide](docs/development.m
 ## Learn more
 
 - [Word documents](docs/word-documents.md) and [spreadsheets](docs/spreadsheets.md)
+- [Quick Look and playback coordination](docs/quick-look.md)
 - [Video seeking and thumbnail previews](docs/video-thumbnails.md)
 - [Archives, address bar and mounted network shares](docs/archives-and-navigation.md)
 - [Native playback, HDR and Dolby Vision details](docs/libmpv.md#hdr-and-color-pipeline)

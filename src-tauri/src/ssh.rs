@@ -305,9 +305,11 @@ impl SshManager {
         self: &Arc<Self>,
         provider_id: &str,
         requested: &str,
+        max_bytes: Option<u64>,
+        strict_text: bool,
     ) -> Result<(String, Option<String>), NativeError> {
         let connection = self.ensure(provider_id)?;
-        match connection.read_text(requested) {
+        match connection.read_text(requested, max_bytes, strict_text) {
             Ok(result) => Ok(result),
             Err(error) if matches!(error.code.as_str(), "ESFTP" | "ESSH" | "ESSH_DISCONNECTED") => {
                 connection.connected.store(false, Ordering::Release);
@@ -315,7 +317,8 @@ impl SshManager {
                     "ssh:status",
                     serde_json::json!({"connectionId":connection.profile.id,"status":"disconnected"}),
                 );
-                self.reconnect(provider_id)?.read_text(requested)
+                self.reconnect(provider_id)?
+                    .read_text(requested, max_bytes, strict_text)
             }
             Err(error) => Err(error),
         }
@@ -699,19 +702,38 @@ impl RemoteConnection {
         });
         Ok(result)
     }
-    fn read_text(&self, requested: &str) -> Result<(String, Option<String>), NativeError> {
+    fn read_text(
+        &self,
+        requested: &str,
+        max_bytes: Option<u64>,
+        strict_text: bool,
+    ) -> Result<(String, Option<String>), NativeError> {
         let path = self.resolve(requested)?;
         let stat = self.sftp.stat(Path::new(&path)).map_err(sftp_error)?;
-        if stat.size.unwrap_or(0) > MAX_TEXT_BYTES {
+        let limit = crate::filesystem::text::read_limit(max_bytes);
+        if stat.size.unwrap_or(0) > limit {
             return Err(NativeError::new(
                 "EFILE_TOO_LARGE",
                 "Files larger than 10 MB cannot be opened in the editor",
             ));
         }
-        let mut file = self.sftp.open(Path::new(&path)).map_err(sftp_error)?;
-        let mut content = String::new();
-        file.read_to_string(&mut content)
-            .map_err(|e| NativeError::from_io(&e, "Unable to read remote text"))?;
+        let file = self.sftp.open(Path::new(&path)).map_err(sftp_error)?;
+        let content = if strict_text {
+            crate::filesystem::text::read_bounded(file, limit, true)?
+        } else {
+            // Preserve the normal SFTP editor's UTF-8 decoding contract.
+            let mut content = String::new();
+            file.take(limit + 1)
+                .read_to_string(&mut content)
+                .map_err(|e| NativeError::from_io(&e, "Unable to read remote text"))?;
+            if content.len() as u64 > limit {
+                return Err(NativeError::new(
+                    "EFILE_TOO_LARGE",
+                    "Text file exceeds the read limit",
+                ));
+            }
+            content
+        };
         Ok((
             content,
             stat.mtime.map(|v| {

@@ -76,13 +76,13 @@ export class MediaPlayerBackend {
 }
 
 export class WebMediaPlayerBackend extends MediaPlayerBackend {
-  constructor(element, { autoplay = false, history = backendRuntimeMode === 'tauri' ? backend : null,
+  constructor(element, { autoplay = false, history = backendRuntimeMode === 'tauri' ? backend : null, historyEnabled = true,
     chapterMetadata = backendRuntimeMode === 'tauri' ? media.getChapters : null } = {}) {
     super()
     this.element = element
     this.autoplay = autoplay
     this.chapterMetadata = chapterMetadata
-    this.history = history
+    this.history = historyEnabled ? history : null
     this.historySession = null
     this.historyReady = false
     this.lastHistorySync = 0
@@ -92,7 +92,7 @@ export class WebMediaPlayerBackend extends MediaPlayerBackend {
     this.restoreTimer = null
     this.explicitAction = null
     // Resume must complete before any autoplay starts in the WebView.
-    if (history) this.element.autoplay = false
+    if (this.history) this.element.autoplay = false
     this.disposers = []
     this.bindEvents()
   }
@@ -223,6 +223,7 @@ export class WebMediaPlayerBackend extends MediaPlayerBackend {
   }
 
   pause() {
+    this.autoplay = false
     this.expectAction('pause')
     this.element.pause()
     if (this.element.paused) this.confirmAction('pause')
