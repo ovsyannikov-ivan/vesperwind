@@ -76,7 +76,7 @@ fallback retains the existing WebHistory RAM mirror. Resume is always an absolut
 position; it never snaps to a chapter start. Chapters are source metadata, never
 SQLite data. Native audio/video reads duration and chapter-list from the active session at
 FILE_LOADED. Queued items and Tauri web fallback query a single paused headless
-libmpv probe through ContentSource, returning duration and chapters together.
+libmpv probe through ContentSource, returning duration, chapters and basic tags together.
 Probe concurrency is bounded at two in both the playlist and native command
 layer. Unsupported metadata returns unknown duration and no chapters.
 No system ffprobe/ffmpeg or container parser is used at runtime for chapters.
@@ -105,12 +105,15 @@ progression waits for `endedRevision`, incremented once after native EOF history
 completion and rewind. The web backend exposes the same revision after its ended
 history operation. Repeated snapshots cannot advance the queue twice.
 
-Queue items, current/selected row, repeat mode and shuffle traversal live only in
-application memory. Closing pauses and hides the UI while retaining the queue.
+Logical queue sources/order, current/selected identities, repeat and shuffle
+preferences are stored in `vesperwind:audio-playlist:v1`, separately from history.
+Playback sessions, autoplay and shuffle traversal remain in application memory.
+Startup restores the queue without playback. Closing pauses and hides the UI while retaining it.
 Repeat off stops at the final track, all wraps, and one repeats only natural EOF.
 Shuffle uses Fisher-Yates with injectable randomness, stable upcoming order and
 actual playback history; a new repeat-all cycle avoids the previous final item
-as its first choice. The visible table retains insertion order.
+as its first choice. Row reordering changes visible/unshuffled order without
+resetting playback or the active shuffle traversal.
 
 Only playlist expanded state and preferred height are layout preferences. One
 height budget reserves 140 px for Files/Editor while allocating both playlist and
@@ -118,3 +121,7 @@ terminal; effective heights scale together when the window shrinks. The playlist
 uses the established provider-backed file drag payload and never performs a
 filesystem transfer. Rename/move updates queue identities and preserves current
 position; deletion/removal stops the current track without autoplaying another.
+
+HTTP/HTTPS URL media and HLS never read, write or delete file resume history.
+File-backed M3U entries keep normal history semantics. See [media sources and
+playlists](media-player.md) for import/export, source probing and persistence.

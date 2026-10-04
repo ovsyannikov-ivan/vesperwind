@@ -76,7 +76,10 @@ impl MediaSource {
                 "HLS manifests with sibling segments are supported only on the local provider",
             )?;
             // Already sandbox-resolved by ContentSource; native paths preserve Unicode.
-            local.to_string_lossy().into_owned()
+            let path = local.to_string_lossy().into_owned();
+            #[cfg(target_os = "windows")]
+            let path = windows_hls_path(&path);
+            path
         } else {
             registry.register(content.clone())
         };
@@ -85,5 +88,37 @@ impl MediaSource {
             content: Some(content),
             history_enabled: !hls,
         })
+    }
+}
+
+// Rust canonical paths use verbatim Windows prefixes. FFmpeg's relative URL
+// resolver needs ordinary drive/UNC syntax; validation has already happened.
+// This changes spelling only, retaining the Unicode path and UNC share.
+#[cfg(any(target_os = "windows", test))]
+fn windows_hls_path(path: &str) -> String {
+    if let Some(unc) = path.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{unc}")
+    } else {
+        path.strip_prefix(r"\\?\").unwrap_or(path).to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn windows_hls_keeps_unicode_drive_and_unc_paths_without_verbatim_url_prefix() {
+        assert_eq!(
+            windows_hls_path(r"\\?\C:\Music\日本語 Время\master.m3u8"),
+            r"C:\Music\日本語 Время\master.m3u8"
+        );
+        assert_eq!(
+            windows_hls_path(r"\\?\UNC\server\share\日本語\master.m3u8"),
+            r"\\server\share\日本語\master.m3u8"
+        );
+        assert_eq!(
+            windows_hls_path(r"C:\Music\master.m3u8"),
+            r"C:\Music\master.m3u8"
+        );
     }
 }

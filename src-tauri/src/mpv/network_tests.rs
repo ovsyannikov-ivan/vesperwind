@@ -98,7 +98,7 @@ fn bundled_hls_http_master_and_local_vod_decode_multiple_segments_to_eof() {
 }
 
 #[test]
-fn bundled_https_audio_and_hls_verify_controlled_certificate() {
+fn bundled_https_audio_and_hls_decode_controlled_loopback_fixture() {
     struct Child(std::process::Child);
     impl Drop for Child {
         fn drop(&mut self) {

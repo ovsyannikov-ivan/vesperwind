@@ -48,7 +48,11 @@ export const parseM3u = (text, location) => {
     }
     if (line.startsWith('#')) continue
     try {
-      if (/^https?:\/\//i.test(line)) entries.push({ ...normalizeMediaSource({ sourceType: 'url', url: line }), ...info })
+      if (/^https?:\/\//i.test(line)) {
+        const source = normalizeMediaSource({ sourceType: 'url', url: line })
+        if (/\.m3u$/i.test(new URL(source.url).pathname)) skipped++
+        else entries.push({ ...source, ...info })
+      }
       else if (/^[a-z][a-z0-9+.-]*:/i.test(line) && !/^[A-Za-z]:[\\/]/.test(line)) skipped++
       else {
         const path = resolvePlaylistPath(location.path, line)

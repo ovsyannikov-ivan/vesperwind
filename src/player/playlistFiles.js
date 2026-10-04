@@ -22,7 +22,8 @@ export const importPlaylist = async (location, { filesystem, media, audio, openH
       try {
         if (entry.sourceType === 'url') {
           const metadata = await (media.probeSource || media.getMetadata)(entry, { signal })
-          if (!metadata?.ok || metadata.kind !== 'audio') { skipped++; continue }
+          const manifest = /\.m3u8$/i.test(new URL(entry.url).pathname)
+          if (!metadata?.ok || metadata.kind !== 'audio' || (manifest && metadata.format !== 'hls')) { skipped++; continue }
           accepted[index] = { ...entry, kind: 'audio', duration: metadata.duration, tags: metadata.tags, chapters: metadata.chapters, live: metadata.live, metadataLoaded: true }
         } else {
           const directory = playlistParentPath(entry.path)

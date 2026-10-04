@@ -63,6 +63,7 @@ pub struct SourceMetadata {
     pub chapters: Vec<Chapter>,
     pub tags: AudioTags,
     pub kind: Option<String>,
+    pub format: Option<String>,
     pub live: bool,
     pub tracks: Vec<ProbeTrack>,
 }
@@ -158,6 +159,10 @@ pub(crate) fn probe_uri(
     if handle.is_null() {
         return Err("mpv_create failed".into());
     }
+    // Owned fixture diagnostics only; production probes never log source URLs.
+    #[cfg(test)]
+    let fixture_log =
+        std::env::temp_dir().join(format!("vw-metadata-{}.log", uuid::Uuid::new_v4()));
     let result = (|| {
         for (name, value) in [
             ("config", "no"),
@@ -175,6 +180,11 @@ pub(crate) fn probe_uri(
         ] {
             api.set_option(handle, name, value)
                 .map_err(|error| format!("{name}={value}: {error}"))?;
+        }
+        #[cfg(test)]
+        {
+            api.set_option(handle, "log-file", &fixture_log.to_string_lossy())?;
+            api.set_option(handle, "msg-level", "all=v")?;
         }
         let protocol = CString::new("vesperwind").unwrap();
         super::status(
@@ -195,7 +205,8 @@ pub(crate) fn probe_uri(
             if cancelled.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Acquire)) {
                 return Err("Metadata probe cancelled".into());
             }
-            match api.wait_event_details(handle, 0.05).event_id {
+            let event = api.wait_event_details(handle, 0.05);
+            match event.event_id {
                 MPV_EVENT_FILE_LOADED => {
                     let tracks = read_probe_tracks(&api, handle);
                     let kind = if tracks.iter().any(|t| t.kind == "video") {
@@ -207,6 +218,7 @@ pub(crate) fn probe_uri(
                     };
                     return Ok(SourceMetadata {
                         kind,
+                        format: api.get_string(handle, "file-format"),
                         tracks,
                         tags: read_tags(&api, handle),
                         live: api.get_flag(handle, "demuxer-via-network").unwrap_or(false)
@@ -217,15 +229,30 @@ pub(crate) fn probe_uri(
                         chapters: read(&api, handle),
                     });
                 }
-                MPV_EVENT_END_FILE | MPV_EVENT_SHUTDOWN => {
-                    return Err("Unable to inspect this media source".into())
+                // A playlist/stream redirect can end the initial load before
+                // the final media's FILE_LOADED. Only a failed load is fatal.
+                MPV_EVENT_END_FILE if event.end_file_error < 0 => {
+                    return Err(format!(
+                        "Unable to inspect this media source: {}",
+                        api.error_string(event.end_file_error)
+                    ))
                 }
+                MPV_EVENT_SHUTDOWN => return Err("Metadata player shut down".into()),
                 _ => {}
             }
         }
         Err("Source metadata load timed out".into())
     })();
     api.destroy(handle);
+    #[cfg(test)]
+    {
+        if result.is_err() {
+            if let Ok(log) = std::fs::read_to_string(&fixture_log) {
+                eprintln!("Owned metadata fixture diagnostics:\n{log}");
+            }
+        }
+        let _ = std::fs::remove_file(fixture_log);
+    }
     result
 }
 
@@ -246,9 +273,13 @@ mod tests {
             ("/local-hls/master.m3u8", "video"),
             ("/local-hls/playlist.m3u8", "video"),
         ] {
-            let result = probe_uri(&server.url(path), registry(), None).unwrap();
+            let result = probe_uri(&server.url(path), registry(), None)
+                .unwrap_or_else(|error| panic!("Owned fixture {path}: {error}"));
             assert_eq!(result.kind.as_deref(), Some(kind), "{path}: {result:?}");
             assert!(result.duration.is_some(), "{path}");
+            if path.ends_with(".m3u8") {
+                assert_eq!(result.format.as_deref(), Some("hls"));
+            }
             if path == "/tagged.flac" {
                 assert_eq!(result.tags.title.as_deref(), Some("Время 日本語"));
                 assert_eq!(result.tags.artist.as_deref(), Some("Test Artist"));

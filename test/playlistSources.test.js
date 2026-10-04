@@ -91,6 +91,16 @@ test('reorder preserves current selection playback history and updates next/prev
   q.dispose()
 })
 
+test('nested network playlists are rejected while one audio HLS source remains one queue item', async () => {
+  const q = createAudioPlaylist()
+  const result = await importPlaylist(location, { audio: q,
+    filesystem: { readText: async () => ({ ok: true, content: '#EXTM3U\nhttps://example.com/nested.m3u\nhttps://example.com/nested.m3u8\nhttps://example.com/radio.m3u8\n' }) },
+    media: { getMetadata: async (source) => ({ ok: true, kind: 'audio', format: source.url.includes('radio') ? 'hls' : 'mp3' }) } })
+  assert.equal(result.imported, 1); assert.equal(result.skipped, 2)
+  assert.equal(q.state.items[0].url, 'https://example.com/radio.m3u8'); assert.equal(q.state.autoplay, false)
+  q.dispose()
+})
+
 test('versioned persistence survives recreation with offline SFTP, no autoplay/session/transient fields, and safe corruption', () => {
   const q = createAudioPlaylist(); q.add([file('a.flac'), url]); q.play(q.state.items[0].id); q.setShuffle(true); q.state.repeat = 'all'
   Object.assign(q.state.items[0], { preparedSource: 'vesperwind://temporary', error: 'error', loading: true, nativeSessionId: 'private', chapters: [1] })
