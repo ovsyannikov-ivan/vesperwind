@@ -20,7 +20,7 @@ let modal = null
 let previousFocus = null
 const handleKeydown = (event) => {
   if (event.defaultPrevented) return
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f' && props.preview.kind === 'pdf') {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f' && ['pdf', 'presentation'].includes(props.preview.kind)) {
     event.preventDefault()
     void pdf.value?.openFind()
   } else if (canCloseQuickLook(event)) {
@@ -77,7 +77,7 @@ onBeforeUnmount(() => {
               <CustomMediaPlayer kind="audio" :src="preview.sourceUrl" :provider-id="preview.providerId" :path="preview.node.path" :autoplay="true" :history-enabled="false" @error="playbackError = 'This audio could not be played'" />
               <p v-if="playbackError" class="text-danger" role="alert">{{ playbackError }}</p>
             </div>
-            <PdfViewer v-else-if="preview.kind === 'pdf'" ref="pdf" :tab="preview" :visible="true" @state-change="(_id, state) => Object.assign(preview, state)" />
+            <PdfViewer v-else-if="['pdf', 'presentation'].includes(preview.kind)" ref="pdf" :tab="preview" :visible="true" @state-change="(_id, state) => Object.assign(preview, state)" />
             <WordPreview v-else-if="preview.kind === 'word'" :bytes="preview.bytes" />
             <SpreadsheetPreview v-else-if="preview.kind === 'spreadsheet'" :model="preview.model" />
           </div>

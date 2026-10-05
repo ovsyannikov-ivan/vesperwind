@@ -7,9 +7,11 @@ const encode = (bytes) => {
   return btoa(binary)
 }
 
-export const convertImportedDocument = async (bytes, format) => {
+export const convertImportedDocument = async (bytes, format, options = {}) => {
   const response = normalizeApiResponse(await backend.request('document:convert', {
     base64: encode(bytes), format,
-  }, { timeout: 90_000 }), 'EDOCUMENT_CONVERT', 'Unable to import this document')
+  }, { timeout: 90_000, signal: options.signal }), 'EDOCUMENT_CONVERT', 'Unable to import this document')
   return response.ok ? { ...response, bytes: Uint8Array.from(atob(response.base64), (c) => c.charCodeAt(0)) } : response
 }
+
+export const convertPresentation = (bytes, options) => convertImportedDocument(bytes, 'pptx', options)

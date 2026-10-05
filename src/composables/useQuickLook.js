@@ -15,7 +15,8 @@ export const getQuickLookKind = (entry, editableFiles = DEFAULT_EDITABLE_FILES) 
   if (extension === 'ts' && isEditableFile(entry.name, editableFiles)) return 'text'
   if (canPreviewMedia(entry.name)) return getMediaKind(entry.name)
   if (extension === 'pdf') return 'pdf'
-  if (extension === 'docx') return 'word'
+  if (extension === 'pptx') return 'presentation'
+  if (['docx', 'doc', 'rtf'].includes(extension)) return 'word'
   if (['xls', 'xlsx'].includes(extension)) return 'spreadsheet'
   if (extension === 'log' || isEditableFile(entry.name, editableFiles)) return 'text'
   return 'metadata'
@@ -75,6 +76,10 @@ export const useQuickLook = ({ openMedia, closeMedia, beforePlayback, io = files
         result = kind === 'audio' && await selectBackend('audio') === 'mpv'
           ? { ok: true, source: 'native-audio' } : await prepareMedia(location, options)
         if (result.ok) target.sourceUrl = result.source
+      } else if (kind === 'presentation') {
+        const { loadPresentation } = await import('../modules/presentation/presentationFile.js')
+        if (signal.aborted) return false
+        result = await loadPresentation(target, options, io)
       } else if (kind === 'word') {
         const { loadDocument } = await import('../modules/document/services/documentFile.js')
         if (signal.aborted) return false

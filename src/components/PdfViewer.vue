@@ -91,7 +91,7 @@ let findController = null
 let findMatchesCountListener = null
 let findControlStateListener = null
 
-const sourceUrl = computed(() => props.tab.sourceUrl || '')
+const sourceUrl = computed(() => props.tab.pdfBytes || props.tab.sourceUrl || '')
 const currentPage = computed(() => props.tab.currentPage || 1)
 const pageCount = computed(() => props.tab.pageCount || 0)
 const thumbnailsOpen = computed(() => props.tab.thumbnailsOpen !== false)
@@ -1169,7 +1169,7 @@ const loadDocument = async () => {
   documentLoading.value = true
   errorMessage.value = ''
   loadingTask = getDocument({
-    url: sourceUrl.value,
+    ...(props.tab.pdfBytes ? { data: props.tab.pdfBytes.slice() } : { url: sourceUrl.value }),
     rangeChunkSize: 64 * 1024,
   })
 

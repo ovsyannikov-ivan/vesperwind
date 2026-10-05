@@ -26,7 +26,12 @@ const pdfHandler = {
   load: async (tab, { preparePdfTab }) => { tab.loading = false; await preparePdfTab(tab); return { ok: !tab.error, error: tab.error } },
 }
 
-export const documentHandlers = Object.freeze([textHandler, pdfHandler, spreadsheetHandler, wordHandler])
+const presentationHandler = {
+  ...pdfHandler, id: 'presentation', extensions: ['pptx'], icon: 'mdi-file-powerpoint-outline',
+  createTab: (common) => ({ ...pdfHandler.createTab(common), pdfBytes: null, zoomMode: 'fit-page' }),
+}
+
+export const documentHandlers = Object.freeze([textHandler, pdfHandler, presentationHandler, spreadsheetHandler, wordHandler])
 export const getDocumentHandler = (id) => documentHandlers.find((handler) => handler.id === id)
 export const getDocumentHandlerForExtension = (extension) =>
   documentHandlers.find((handler) => handler.extensions.includes(extension))

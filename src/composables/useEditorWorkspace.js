@@ -5,6 +5,7 @@ import { useTextFiles } from './useTextFiles.js'
 import { media } from '../api/media.js'
 import { getDocumentHandler } from '../editor/documentHandlers.js'
 import { filesystem } from '../api/filesystem.js'
+import { loadPresentation } from '../modules/presentation/presentationFile.js'
 
 const tabs = ref([])
 const activeTabId = ref(null)
@@ -52,18 +53,19 @@ export const useEditorWorkspace = () => {
   }
 
   const preparePdfTab = async (tab) => {
-    if (!tab || tab.type !== 'pdf' || tab.loading) return tab
+    if (!tab || !['pdf', 'presentation'].includes(tab.type) || tab.loading) return tab
 
     tab.loading = true
     tab.error = null
     tab.sourceUrl = ''
+    tab.pdfBytes = null
     tab.statusMessage = 'Preparing file…'
     preparationControllers.get(tab.id)?.abort()
     const controller = new AbortController()
     preparationControllers.set(tab.id, controller)
 
     try {
-      const response = await media.prepare({
+      const response = tab.type === 'presentation' ? await loadPresentation(tab, { signal: controller.signal }) : await media.prepare({
         providerId: tab.filesystemId,
         path: tab.filePath,
       }, {
@@ -79,7 +81,7 @@ export const useEditorWorkspace = () => {
       } else if (!response?.ok) {
         tab.error = response?.error || { message: 'Unable to prepare this file' }
       } else {
-        tab.sourceUrl = response.source
+        if (tab.type === 'pdf') tab.sourceUrl = response.source
       }
     } catch (error) {
       tab.error = {
@@ -108,7 +110,7 @@ export const useEditorWorkspace = () => {
 
     if (existingTab) {
       activeTabId.value = existingTab.id
-      if (existingTab.type === 'pdf' && existingTab.error) {
+      if (['pdf', 'presentation'].includes(existingTab.type) && existingTab.error) {
         void preparePdfTab(existingTab)
       }
       return existingTab
@@ -126,7 +128,7 @@ export const useEditorWorkspace = () => {
     activeTabId.value = uniqueId
 
     const controller = new AbortController()
-    if (type !== 'pdf') preparationControllers.set(tab.id, controller)
+    if (!['pdf', 'presentation'].includes(type)) preparationControllers.set(tab.id, controller)
     try {
       const response = await handler.load(tab, {
         readTextFile, preparePdfTab, signal: controller.signal,
@@ -226,7 +228,7 @@ export const useEditorWorkspace = () => {
   const updatePdfState = (tabId, state) => {
     const tab = tabs.value.find((candidate) => candidate.id === tabId)
 
-    if (!tab || tab.type !== 'pdf' || !state || typeof state !== 'object') {
+    if (!tab || !['pdf', 'presentation'].includes(tab.type) || !state || typeof state !== 'object') {
       return
     }
 

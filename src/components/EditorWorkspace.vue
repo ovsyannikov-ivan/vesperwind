@@ -80,7 +80,7 @@ const activeContextKey = computed(() =>
 )
 const treeStyle = computed(() => ({ width: `${editorLayout.treeWidth}px` }))
 const textTabs = computed(() => tabs.value.filter((tab) => tab.type === 'text'))
-const pdfTabs = computed(() => tabs.value.filter((tab) => tab.type === 'pdf'))
+const pdfTabs = computed(() => tabs.value.filter((tab) => ['pdf', 'presentation'].includes(tab.type)))
 const specializedTabs = computed(() => tabs.value.filter((tab) => getDocumentHandler(tab.type)?.component && !tab.loading && !tab.error))
 const activeEditableTab = computed(() => activeTab.value && getDocumentHandler(activeTab.value.type)?.save ? activeTab.value : null)
 const activeTextTab = computed(() =>
@@ -351,7 +351,7 @@ const runDocumentFindIntent = (intent) => {
     return action ? monacoEditor.value?.[action]?.() : false
   }
 
-  if (activeTab.value?.type === 'pdf') {
+  if (['pdf', 'presentation'].includes(activeTab.value?.type)) {
     const viewer = pdfViewerRefs.get(activeTab.value.id)
     const actions = {
       [DOCUMENT_FIND_INTENTS.OPEN]: 'openFind',
@@ -386,7 +386,7 @@ const handleEditorKeydown = (event) => {
     }
 
     if (
-      activeTab.value?.type === 'pdf' &&
+      ['pdf', 'presentation'].includes(activeTab.value?.type) &&
       findIntent === DOCUMENT_FIND_INTENTS.OPEN_REPLACE
     ) {
       return

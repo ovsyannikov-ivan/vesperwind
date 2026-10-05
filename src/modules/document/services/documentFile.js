@@ -11,11 +11,13 @@ export const loadDocument = async (tab, options = {}, io = filesystem, converter
   try {
     const response = await io.readBinary(refOf(tab), options)
     if (!response.ok) return response
+    if (options.signal?.aborted) return failure({ code: "ECANCELLED", message: "Document request was cancelled" })
     const format = importFormat(tab.fileName)
     let bytes = response.bytes
     if (format) {
-      const converted = await converter(bytes, format)
+      const converted = await converter(bytes, format, options)
       if (!converted.ok) return converted
+      if (options.signal?.aborted) return failure({ code: "ECANCELLED", message: "Document request was cancelled" })
       bytes = converted.bytes
       tab.importedFrom = format.toUpperCase()
       tab.dirty = true // Imported data has no DOCX destination until Save As.
