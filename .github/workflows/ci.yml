@@ -68,6 +68,14 @@ jobs:
               working-directory: .
               run: npm run build:archives
 
+            - name: Build and verify pinned thumbnail FFmpeg
+              working-directory: .
+              env:
+                  VESPERWIND_THUMBNAIL_BUILD_DIR: ${{ runner.temp }}/vesperwind-thumbnail-ffmpeg
+              run: |
+                  bash scripts/build-thumbnail-ffmpeg.sh
+                  node scripts/check-thumbnail-ffmpeg.mjs
+
             - name: Verify bundled libmpv including HTTP HTTPS and HLS
               working-directory: .
               run: node scripts/verify-libmpv-bundle.js
@@ -84,6 +92,9 @@ jobs:
                   # CI has no physical audio device; decode/output timing still runs in libmpv.
                   VESPERWIND_MPV_SMOKE_AO: "null"
               run: cargo test
+
+            - name: Run real thumbnail extraction and cancellation
+              run: cargo test media::thumbnail::tests::real -- --ignored --nocapture
 
             - name: Run real archive workflow
               run: cargo test real_archive_workflow -- --ignored
