@@ -17,30 +17,50 @@ export const useAudioPlayer = ({ onStop = () => {}, storage = globalThis.localSt
   const persist = () => { try { storage?.setItem(PLAYLIST_STORAGE_KEY, JSON.stringify(playlistRecord(state))) } catch {} }
   watch(() => playlistRecord(state), () => { clearTimeout(persistenceTimer); persistenceTimer = setTimeout(persist, 200) }, { deep: true })
   globalThis.addEventListener?.('pagehide', persist)
+  const getSelectedMetadata = metadata === undefined && backendRuntimeMode === 'tauri' ? media.getMetadata : metadata
   const current = computed(() => state.items.find((item) => item.id === state.currentId) || null)
   let preparationGeneration = 0
   let controller = null
+  let preparingItem = null
   const prepare = async (item) => {
     const generation = ++preparationGeneration
     controller?.abort()
+    if (preparingItem) preparingItem.loading = false
     controller = null
-    if (!item || (item.preparedSource && item.preparedId === item.id)) return
+    preparingItem = item
+    if (!item) return
+    item.preparedSource = ''; item.preparedId = null
+    item.statusMessage = 'Preparing file…'; item.preparationProgress = null
     item.loading = true; item.error = null
     const request = new AbortController()
     controller = request
     try {
       const native = await chooseBackend('audio')
       if (generation !== preparationGeneration) return
-      const response = native === 'mpv' ? { ok: true, source: 'native-audio' } : await prepareSource(item, { signal: request.signal })
-      if (generation !== preparationGeneration) return
-      if (response.ok) { item.preparedSource = response.source; item.preparedId = item.id }
+      const response = await prepareSource(item, { signal: request.signal, native: native === 'mpv',
+        onStatus: (status) => { if (generation === preparationGeneration && !request.signal.aborted) {
+          item.statusMessage = status?.userMessage || 'Preparing file…'; item.preparationProgress = status?.progress ?? null
+        } } })
+      if (generation !== preparationGeneration || request.signal.aborted) return
+      if (response.ok) {
+        if (item.sourceType !== 'url' && !item.metadataAvailable && typeof getSelectedMetadata === 'function') {
+          const information = await getSelectedMetadata(item, { signal: request.signal })
+          if (generation !== preparationGeneration || request.signal.aborted) return
+          if (information?.ok) {
+            item.tags = information.tags || {}; item.chapters = information.chapters || []
+            item.live = information.live === true; item.metadataAvailable = true
+            if (Number.isFinite(information.duration)) item.duration = information.duration
+          }
+        }
+        item.preparedSource = response.source; item.preparedId = item.id
+      }
       else item.error = response.error
     } catch (error) {
       if (generation === preparationGeneration) item.error = { message: error.message || 'Unable to prepare audio' }
     } finally { if (generation === preparationGeneration && item) item.loading = false }
   }
   watch(() => state.playRevision, () => { void prepare(current.value) }, { flush: 'sync' })
-  watch(() => current.value?.id, () => { if (current.value?.preparedSource) void prepare(current.value) }, { flush: 'post' })
+  watch(() => current.value?.id, () => { if (current.value?.preparedSource && current.value.preparedId !== current.value.id) void prepare(current.value) }, { flush: 'post' })
   watch(entryChange, (change) => { if (change?.sourcePath) playlist.sync(change) })
   onScopeDispose(() => { globalThis.removeEventListener?.('pagehide', persist); clearTimeout(persistenceTimer); persist(); playlist.dispose(); webMetadata?.dispose(); controller?.abort(); preparationGeneration++ })
   return { ...playlist, current, retry: () => { if (current.value) { current.value.preparedSource = ''; current.value.preparedId = null; void prepare(current.value) } },

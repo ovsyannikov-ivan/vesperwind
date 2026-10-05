@@ -72,7 +72,7 @@ test('file panels and the editor tree open the folder menu from breadcrumbs thro
   assert.match(dropdown, /\.dropdown-item:not\(:disabled\):is\(:hover, :active\) > \.mdi,[\s\S]*?\{\s*color: inherit;/u)
 
   for (const [name, source] of [['FilePanel', panel], ['EditorTree', editor]]) {
-    assert.match(source, /useFilesystem\((props\.providerId|props\.context\.filesystemId)\)/u, `${name}: provider-bound listing`)
+    assert.match(source, /useFilesystem\((?:\(\) => )?(props\.providerId|props\.context\.filesystemId)\)/u, `${name}: provider-bound listing`)
     assert.match(source, /@contextmenu\.prevent\.stop="openFolderMenu\(\$event, crumb, index\)"/u, `${name}: right-click opens the menu`)
     assert.match(source, /:list-directory="listDirectory"/u, `${name}: menu uses the provider listing`)
     assert.match(source, /currentPath: currentChildPath\(breadcrumbs\.value, index\)/u, `${name}: current folder is marked`)

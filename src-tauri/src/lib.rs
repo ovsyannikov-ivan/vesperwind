@@ -3,6 +3,8 @@ mod content;
 mod error;
 mod filesystem;
 mod media;
+#[cfg(debug_assertions)]
+mod media_ui_regression;
 mod mpv;
 #[cfg(debug_assertions)]
 mod native_regression;
@@ -96,6 +98,16 @@ pub fn run() {
         }
     });
     let mut context = tauri::generate_context!();
+    #[cfg(debug_assertions)]
+    if media_ui_regression::config().is_some() {
+        // The acceptance app must never change the user's WebView storage.
+        context.config_mut().identifier = "com.vesperwind.media-acceptance".into();
+        for window in &mut context.config_mut().app.windows {
+            window.incognito = true;
+            window.background_throttling =
+                Some(tauri::utils::config::BackgroundThrottlingPolicy::Disabled);
+        }
+    }
     if startup_theme == Some(tauri::Theme::Light) {
         if let Some(window) = context
             .config_mut()
@@ -118,6 +130,8 @@ pub fn run() {
             .with_filter(|label| label == "main")
             .build(),
     );
+    #[cfg(debug_assertions)]
+    let builder = builder.on_page_load(media_ui_regression::page_loaded);
     // Windows uses the application's toolbar. Attaching a native menu also
     // leaves it visible in fullscreen and changes the client height. Preserve
     // the existing menus on other platforms, including macOS's system menu.
@@ -163,10 +177,13 @@ pub fn run() {
             archive_jobs: Arc::new(Mutex::new(HashMap::new())),
         })
         .setup(move |app| {
+            let history_path = app.path().app_data_dir()?.join("media-history.sqlite3");
+            #[cfg(debug_assertions)]
+            let history_path = media_ui_regression::history_path().unwrap_or(history_path);
             app.state::<AppState>()
                 .player
                 .history
-                .configure(app.path().app_data_dir()?.join("media-history.sqlite3"));
+                .configure(history_path);
             let window = app
                 .get_window("main")
                 .expect("main window must exist before creating media overlay");
@@ -185,6 +202,11 @@ pub fn run() {
                 if std::env::args().nth(1).as_deref() == Some("--native-regression") {
                     window.hide()?;
                 }
+                if media_ui_regression::config().is_some() {
+                    window.show()?;
+                    window.set_focus()?;
+                }
+                media_ui_regression::setup(app.handle());
                 native_regression::start(app.handle());
             }
             Ok(())
@@ -320,14 +342,22 @@ pub(crate) fn ensure_media_overlay(app: &tauri::AppHandle) -> Result<(), String>
         return Ok(());
     }
     let window = app.get_window("main").ok_or("Main window is unavailable")?;
+    let overlay_builder = tauri::webview::WebviewBuilder::new(
+        "media-overlay",
+        tauri::WebviewUrl::App("media-overlay.html".into()),
+    )
+    .transparent(true)
+    .focused(false);
+    #[cfg(debug_assertions)]
+    let overlay_builder = if media_ui_regression::config().is_some() {
+        overlay_builder
+            .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
+    } else {
+        overlay_builder
+    };
     let overlay = window
         .add_child(
-            tauri::webview::WebviewBuilder::new(
-                "media-overlay",
-                tauri::WebviewUrl::App("media-overlay.html".into()),
-            )
-            .transparent(true)
-            .focused(false),
+            overlay_builder,
             tauri::LogicalPosition::new(-10_000.0, -10_000.0),
             tauri::LogicalSize::new(1.0, 1.0),
         )

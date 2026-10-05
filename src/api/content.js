@@ -29,7 +29,8 @@ const normalize = (response) =>
     'Unable to prepare this file',
   )
 
-const prepare = async (fileRef, { signal, onStatus } = {}) => {
+export const createContentPreparer = ({ request = backend.request, poll = waitForPoll } = {}) => async (fileRef, { signal, onStatus } = {}) => {
+  if (signal?.aborted) return { ok: false, error: { code: 'ECONTENT_CANCELLED', message: 'File preparation was cancelled' } }
   if (fileRef?.providerId && fileRef.providerId !== LOCAL_FILESYSTEM_PROVIDER) {
     const response = { ok: true, preparation: { state: 'READY', operationId: null, progress: 1, userMessage: 'Remote file is ready', elapsedMs: 0 } }
     onStatus?.(response.preparation)
@@ -42,15 +43,18 @@ const prepare = async (fileRef, { signal, onStatus } = {}) => {
   let operationId = null
 
   try {
-    let response = normalize(await backend.request('content:prepare', payload))
+    let response = normalize(await request('content:prepare', payload))
+    operationId = response.preparation?.operationId || null
+    if (signal?.aborted) throw new DOMException('Content preparation was cancelled', 'AbortError')
 
     while (response.ok && response.preparation?.state === 'MATERIALIZING') {
       operationId = response.preparation.operationId
       onStatus?.(response.preparation)
-      await waitForPoll(signal)
+      await poll(signal)
       response = normalize(
-        await backend.request('content:status', { operationId }),
+        await request('content:status', { operationId }),
       )
+      if (signal?.aborted) throw new DOMException('Content preparation was cancelled', 'AbortError')
     }
 
     if (response.ok) onStatus?.(response.preparation)
@@ -68,9 +72,9 @@ const prepare = async (fileRef, { signal, onStatus } = {}) => {
     throw error
   } finally {
     if (operationId) {
-      void backend.request('content:cancel', { operationId })
+      void request('content:cancel', { operationId }).catch(() => {})
     }
   }
 }
 
-export const content = Object.freeze({ prepare })
+export const content = Object.freeze({ prepare: createContentPreparer() })

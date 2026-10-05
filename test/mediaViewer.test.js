@@ -101,7 +101,8 @@ test('native video chrome lives in a transparent child WebView with stable geome
   const player = projectFile('src/components/CustomMediaPlayer.vue')
   const modal = projectFile('src/components/MediaViewerModal.vue')
 
-  assert.match(tauri, /add_child\([\s\S]*"media-overlay"/)
+  assert.match(tauri, /WebviewBuilder::new\([\s\S]*"media-overlay"/)
+  assert.match(tauri, /add_child\(\s*overlay_builder/)
   assert.match(tauri, /\.transparent\(true\)/)
   assert.doesNotMatch(tauri, /overlay\.hide\(\)/)
   assert.doesNotMatch(commands, /overlay\.(?:hide|show)\(\)/)

@@ -34,10 +34,10 @@ defineExpose({ hidePreview: cancel })
 </script>
 
 <template>
-  <div class="video-preview-track">
-    <ThumbnailPreview :preview="thumbnail.preview" />
+  <div class="video-preview-track" @pointerleave="thumbnail.hide" @pointercancel="cancel">
+    <ThumbnailPreview :preview="thumbnail.preview" :controls-target="true" />
     <input class="form-range media-overlay-seek" type="range" min="0" :max="duration || 0" step="0.1" :value="dragTime ?? currentTime" :disabled="!duration" aria-label="Playback position"
-      @pointerdown="drag.start" @pointermove="drag.update" @pointerup="drag.end" @pointerleave="thumbnail.hide"
+      @pointerdown="drag.start" @pointermove="drag.update" @pointerup="drag.end"
       @pointercancel="cancel" @lostpointercapture="cancel" @input="input" @change="commit" @blur="cancel">
   </div>
 </template>

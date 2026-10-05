@@ -2,11 +2,14 @@
 import { computed, ref, watch } from "vue";
 import { trackLabel, mediaSourceLabel } from "../player/mediaSource.js";
 import CustomMediaPlayer from "./CustomMediaPlayer.vue";
+import { mediaHistoryEnabled } from "../player/mediaHistoryPolicy.js";
 const props = defineProps({ audio: { type: Object, required: true }, expanded: { type: Boolean, default: false } });
 const emit = defineEmits(["toggle-playlist"]);
 const player = ref(null);
 const playbackError = ref("");
 const media = computed(() => props.audio.current.value);
+const preparationPercent = computed(() => Number.isFinite(media.value?.preparationProgress)
+	? `${Math.round(Math.max(0, Math.min(1, media.value.preparationProgress)) * 100)}%` : "");
 const state = computed(() => props.audio.state);
 const pause = () => {
 	props.audio.state.autoplay = false;
@@ -36,7 +39,7 @@ const repeatTitle = computed(() => ({ off: "Repeat off", all: "Repeat all", one:
 		<div class="audio-player-details">
 			<strong :title="media ? mediaSourceLabel(media) : undefined">{{ trackLabel(media) || "No track selected" }}</strong>
 			<span v-if="media?.error || playbackError" class="text-danger" role="alert">{{ media?.error?.message || playbackError }}</span>
-			<span v-else-if="media?.loading" class="text-body-secondary">Preparing file…</span>
+			<span v-else-if="media?.loading" class="text-body-secondary">{{ media.statusMessage || "Preparing file…" }}<template v-if="preparationPercent"> · {{ preparationPercent }}</template></span>
 			<span v-else class="text-body-secondary">{{ state.items.length }} {{ state.items.length === 1 ? "track" : "tracks" }}</span>
 		</div>
 		<div class="audio-track-controls">
@@ -46,7 +49,7 @@ const repeatTitle = computed(() => ({ off: "Repeat off", all: "Repeat all", one:
 			<button class="compact-icon-button" type="button" title="Next track" aria-label="Next track" :disabled="!audio.target(1)" @click="audio.step(1)"><i class="mdi mdi-skip-next" aria-hidden="true" /></button>
 		</div>
 		<CustomMediaPlayer
-			v-if="media?.preparedSource"
+			v-if="media?.preparedSource && !media.loading"
 			ref="player"
 			:key="media.key"
 			class="audio-player-control"
@@ -55,7 +58,7 @@ const repeatTitle = computed(() => ({ off: "Repeat off", all: "Repeat all", one:
 			:src="media.preparedSource"
 			:source-type="media.sourceType"
 			:source-url="media.url"
-			:history-enabled="media.sourceType !== 'url'"
+			:history-enabled="mediaHistoryEnabled(media, { kind: 'audio' })"
 			:provider-id="media.providerId"
 			:path="media.path"
 			:autoplay="state.autoplay"

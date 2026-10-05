@@ -44,7 +44,7 @@ export const useQuickLook = ({ openMedia, closeMedia, beforePlayback, io = files
     const node = context.node
     const providerId = context.filesystemId || node.providerId || 'local'
     current.value = { kind, node, providerId, loading: !['image', 'video', 'metadata'].includes(kind),
-      error: null, message: '', content: '', sourceUrl: '', statusMessage: 'Preparing file…',
+      error: null, message: '', content: '', sourceUrl: '', statusMessage: 'Preparing file…', preparationProgress: null,
       // These are isolated viewer state, never registered with EditorWorkspace.
       id: `quick-look:${providerId}:${node.path}`, filePath: node.path, fileName: node.name, filesystemId: providerId,
       currentPage: 1, pageCount: 0, zoomMode: 'fit-width', zoom: 1, scrollTop: 0, scrollLeft: 0, thumbnailsOpen: false }
@@ -56,7 +56,10 @@ export const useQuickLook = ({ openMedia, closeMedia, beforePlayback, io = files
     const target = current.value
     controller = new AbortController()
     const signal = controller.signal
-    const options = { signal, onStatus: (status) => { if (!signal.aborted) target.statusMessage = status?.userMessage || 'Preparing file…' } }
+    const options = { signal, onStatus: (status) => { if (!signal.aborted) {
+      target.statusMessage = status?.userMessage || 'Preparing file…'
+      target.preparationProgress = status?.progress ?? null
+    } } }
     try {
       let result
       const location = { providerId, path: node.path }
@@ -73,9 +76,9 @@ export const useQuickLook = ({ openMedia, closeMedia, beforePlayback, io = files
           return true
         } else if (result.error?.code === 'EFILE_TOO_LARGE') target.message = 'This text file is too large for Quick Look.'
       } else if (kind === 'audio' || kind === 'pdf') {
-        result = kind === 'audio' && await selectBackend('audio') === 'mpv'
-          ? { ok: true, source: 'native-audio' } : await prepareMedia(location, options)
-        if (result.ok) target.sourceUrl = result.source
+        result = await prepareMedia(location, { ...options,
+          native: kind === 'audio' && await selectBackend('audio') === 'mpv' })
+        if (result.ok && !signal.aborted && requestGeneration === generation) target.sourceUrl = result.source
       } else if (kind === 'presentation') {
         const { loadPresentation } = await import('../modules/presentation/presentationFile.js')
         if (signal.aborted) return false

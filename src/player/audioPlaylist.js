@@ -43,6 +43,7 @@ export const createAudioPlaylist = ({ state = createAudioPlaylistState(), random
             item.chapters = metadata.chapters || []
             item.tags = metadata.tags || {}
             item.live = metadata.live === true
+            item.metadataAvailable = true
           }
         }).catch(() => {}).finally(() => {
           if (find(id) === item && revision === item.metadataRevision && (id !== state.currentId || !item.preparedSource && !state.autoplay)) item.metadataLoaded = true
@@ -80,7 +81,7 @@ export const createAudioPlaylist = ({ state = createAudioPlaylistState(), random
       const id = audioIdentity(location)
       if (find(id)) continue
       const item = { id, key: id, ...location, name: source.name || mediaSourceLabel(location), displayName: source.displayName || '', kind: 'audio', tags: source.tags || {}, live: source.live === true,
-        duration: Number.isFinite(source.duration) && source.duration > 0 ? source.duration : null, chapters: source.chapters || [], metadataLoaded: source.metadataLoaded === true, metadataRevision: 0 }
+        duration: Number.isFinite(source.duration) && source.duration > 0 ? source.duration : null, chapters: source.chapters || [], metadataLoaded: source.metadataLoaded === true, metadataAvailable: source.metadataLoaded === true, metadataRevision: 0 }
       state.items.push(item)
       added.push(id)
     }
@@ -168,7 +169,7 @@ export const createAudioPlaylist = ({ state = createAudioPlaylistState(), random
       item.providerId = destinationProviderId
       item.name = getFilesystemPathName(item.path)
       item.id = audioIdentity(item)
-      item.metadataRevision++; item.metadataLoaded = false
+      item.metadataRevision++; item.metadataLoaded = false; item.metadataAvailable = false
       if (state.currentId === previousId) state.currentId = item.id
       if (state.selectedId === previousId) state.selectedId = item.id
       state.upcoming = state.upcoming.map((id) => id === previousId ? item.id : id)

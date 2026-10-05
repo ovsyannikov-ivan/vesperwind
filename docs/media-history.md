@@ -70,7 +70,7 @@ See [video thumbnail previews](video-thumbnails.md).
 
 ## Audiobooks and chapters
 
-Tauri M4B and other supported audio use the native player History worker,
+Persistent audiobooks use the native player History worker,
 checkpoint policy, identity and media_history table shared with video. The web
 fallback retains the existing WebHistory RAM mirror. Resume is always an absolute
 position; it never snaps to a chapter start. Chapters are source metadata, never
@@ -99,8 +99,19 @@ stream registry and History worker; native audible ownership is serialized so
 opening/playing a foreground session pauses other sessions. Paused persistent
 audio stays alive when video or Quick Look opens and does not resume on close.
 
-Quick Look uses `historyEnabled=false`: no identity lookup, checkpoint, touch,
-completion deletion or close write occurs. It starts at zero. Normal playlist
+Quick Look **audio** uses `historyEnabled=false`: no identity lookup, checkpoint, touch,
+completion deletion or close write occurs. It starts at zero even for an audiobook. Video opened with Space, double click
+or View uses the same MediaViewer and normal provider-backed video history;
+HTTP/live sources retain their opt-out.
+
+Persistent AudioPlayerBar enables history only for audiobooks. The centralized
+`mediaHistoryPolicy.js` recognizes M4B and explicit Audiobook/Audio book/Аудиокнига
+genre tags. Chapters, filename wording and duration alone do not classify music
+as an audiobook. Selected provider audio is prepared before its metadata and
+player are opened, so classification can use the ready file's tags. Ordinary
+music and URL/live audio never read, touch, write or delete resume rows.
+
+Normal playlist
 progression waits for `endedRevision`, incremented once after native EOF history
 completion and rewind. The web backend exposes the same revision after its ended
 history operation. Repeated snapshots cannot advance the queue twice.
@@ -123,5 +134,5 @@ filesystem transfer. Rename/move updates queue identities and preserves current
 position; deletion/removal stops the current track without autoplaying another.
 
 HTTP/HTTPS URL media and HLS never read, write or delete file resume history.
-File-backed M3U entries keep normal history semantics. See [media sources and
+File-backed M3U audiobook entries keep persistent audiobook history; ordinary music remains history-free. See [media sources and
 playlists](media-player.md) for import/export, source probing and persistence.

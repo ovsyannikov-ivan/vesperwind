@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, toRefs, watch } from 'vue'
 import { isComputerPath, isFilesystemRootEntry } from '../../shared/localFilesystem.js'
 import { entryNameError } from '../../shared/entryName.js'
 import { useFileOperations } from '../composables/useFileOperations.js'
@@ -21,6 +21,8 @@ import {
   TERMINAL_PATH_MIME,
 } from '../utils/terminalPath.js'
 import { LOCAL_FILESYSTEM_PROVIDER } from '../api/filesystemLocation.js'
+import { createDirectoryListing } from '../utils/directoryListing.js'
+import { traceMedia } from '../api/mediaDiagnostics.js'
 import { directoryWatch } from '../api/directoryWatch.js'
 
 const props = defineProps({
@@ -89,10 +91,8 @@ const props = defineProps({
 const emit = defineEmits(['select', 'open', 'drop-request', 'context-menu', 'expanded-change', 'children-loaded'])
 const { settings } = useSettings()
 const expanded = ref(false)
-const loaded = ref(false)
-const loading = ref(false)
-const children = ref([])
-const error = ref(null)
+const listingState = reactive({ loaded: false, loading: false, children: [], error: null, sourceEntryCount: 0 })
+const { loaded, loading, children, error } = toRefs(listingState)
 const dragging = ref(false)
 const dropTarget = ref(false)
 const rowElement = ref(null)
@@ -104,13 +104,19 @@ const renameBusy = ref(false)
 const renameInput = ref(null)
 let renameTimer = null
 let lastNameClick = 0
-let refreshPending = false
 let stopDirectoryWatch = null
-const refreshChildren = async () => {
+const listing = createDirectoryListing({ state: listingState,
+  consumer: props.panelSide,
+  getLocation: () => ({ providerId: props.providerId, path: props.node.path }),
+  isActive: () => expanded.value && props.node.isDirectory,
+  list: (path, options) => props.listDirectory(path, options),
+  onLoaded: (payload) => emit('children-loaded', payload),
+})
+const refreshChildren = async (event) => {
   if (!expanded.value) return
-  if (loading.value) { refreshPending = true; return }
-  loaded.value = false
-  await loadChildren()
+  traceMedia('directory.refresh', { panel: props.panelSide, providerId: props.providerId, path: props.node.path,
+    eventPath: event?.directoryPath })
+  await listing.load({ force: true })
 }
 const startDirectoryWatch = () => {
   if (stopDirectoryWatch || !expanded.value || !props.watchActive) return
@@ -179,8 +185,12 @@ const formattedModifiedAt = computed(() =>
 const modifiedAtTitle = computed(() =>
   formatModifiedAtTitle(props.node.modifiedAt, settings.value.appearance.locale),
 )
-const displayedChildren = computed(() => props.transformChildren
-  ? props.transformChildren(children.value, props.depth) : children.value)
+const displayedChildren = computed(() => {
+  const entries = props.transformChildren ? props.transformChildren(children.value, props.depth) : children.value
+  traceMedia('directory.visible', { panel: props.panelSide, providerId: props.providerId, path: props.node.path,
+    children: children.value.length, visible: entries.length, sourceEntries: listingState.sourceEntryCount })
+  return entries
+})
 const terminalPath = computed(() =>
   formatTerminalPath(props.node.path, {
     homePath: props.homePath,
@@ -200,33 +210,7 @@ const scrollToSelected = async () => {
   })
 }
 
-const loadChildren = async () => {
-  if (loaded.value || loading.value || !props.node.isDirectory) {
-    return
-  }
-
-  loading.value = true
-  error.value = null
-  const response = await props.listDirectory(props.node.path)
-  loading.value = false
-  loaded.value = true
-
-  if (refreshPending) {
-    refreshPending = false
-    loaded.value = false
-    if (expanded.value) await loadChildren()
-    return
-  }
-
-  if (!response?.ok) {
-    error.value = response?.error || { message: 'Unable to read this folder' }
-    return
-  }
-
-  const previous = children.value
-  children.value = response.entries
-  emit('children-loaded', { path: props.node.path, entries: response.entries, previous })
-}
+const loadChildren = () => listing.load()
 
 const toggle = async () => {
   if (!props.node.isDirectory) {
@@ -241,6 +225,7 @@ const toggle = async () => {
     startDirectoryWatch()
     await loadChildren()
   } else {
+    listing.invalidate()
     releaseDirectoryWatch()
   }
 }
@@ -444,11 +429,15 @@ watch(entryChange, async (change) => {
   await refreshChildren()
 })
 watch(() => props.watchActive, (active) => {
-  if (!active) releaseDirectoryWatch()
+  if (!active) { listing.invalidate(); releaseDirectoryWatch() }
   else if (expanded.value) { startDirectoryWatch(); void refreshChildren() }
 })
+watch(() => [props.providerId, props.node.path], () => {
+  releaseDirectoryWatch(); listing.reset()
+  if (expanded.value) { startDirectoryWatch(); void loadChildren() }
+}, { flush: 'sync' })
 watch(() => props.refreshRevision, () => { void refreshChildren() })
-onBeforeUnmount(() => { cancelRenameTimer(); releaseDirectoryWatch() })
+onBeforeUnmount(() => { listing.dispose(); cancelRenameTimer(); releaseDirectoryWatch() })
 </script>
 
 <template>
@@ -541,15 +530,15 @@ onBeforeUnmount(() => { cancelRenameTimer(); releaseDirectoryWatch() })
         {{ error.message }}
       </div>
       <div
-        v-else-if="loaded && displayedChildren.length === 0"
+        v-if="loaded && !error && displayedChildren.length === 0"
         v-show="expanded"
         class="tree-state"
         :style="{ paddingLeft: `${(depth + 1) * 16 + 26}px` }"
       >
-        Empty folder
+        {{ listingState.sourceEntryCount > 0 ? 'No items match the current filters' : 'Empty folder' }}
       </div>
       <ul
-        v-else-if="expanded && displayedChildren.length"
+        v-if="expanded && displayedChildren.length"
         class="tree-children"
         role="group"
       >

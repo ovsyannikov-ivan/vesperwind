@@ -743,7 +743,7 @@ impl MpvPlayerManager {
                 }
             }
             if let Ok(snapshot) = &result {
-                if kind == MediaKind::Video && resolved.history_enabled {
+                if kind == MediaKind::Video {
                     if let Err(error) = self.thumbnails.start(
                         filesystem,
                         session_id,

@@ -15,6 +15,8 @@ const emit = defineEmits(['close'])
 const element = ref(null)
 const pdf = ref(null)
 const playbackError = ref('')
+const preparationPercent = computed(() => Number.isFinite(props.preview.preparationProgress)
+  ? `${Math.round(Math.max(0, Math.min(1, props.preview.preparationProgress)) * 100)}%` : '')
 const icon = computed(() => getFileIcon(props.preview.node).icon)
 let modal = null
 let previousFocus = null
@@ -56,7 +58,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="modal-body">
             <p id="quick-look-description" class="visually-hidden">Temporary read-only file preview</p>
-            <div v-if="preview.loading" class="quick-look-message" role="status"><span class="spinner-border spinner-border-sm" aria-hidden="true" />{{ preview.statusMessage }}</div>
+            <div v-if="preview.loading" class="quick-look-message" role="status"><span class="spinner-border spinner-border-sm" aria-hidden="true" />{{ preview.statusMessage }}<span v-if="preparationPercent">{{ preparationPercent }}</span></div>
             <div v-else-if="preview.error" class="quick-look-message text-danger" role="alert">{{ preview.error.message }}</div>
             <template v-else-if="preview.kind === 'metadata' || preview.message">
               <div class="quick-look-metadata">

@@ -5,6 +5,7 @@ import { canPreviewMedia, getMediaKind } from '../../shared/mediaTypes.js'
 import { LOCAL_FILESYSTEM_PROVIDER } from '../api/filesystemLocation.js'
 import { useAudioPlayer } from './useAudioPlayer.js'
 import { media as mediaApi } from '../api/media.js'
+import { mediaHistoryEnabled } from '../player/mediaHistoryPolicy.js'
 import {
   getFilesystemPathName,
   isSameOrDescendantPath,
@@ -19,6 +20,7 @@ export const createMediaDescriptor = (
   path: node.path,
   providerId,
   kind: getMediaKind(node.name),
+  historyEnabled: mediaHistoryEnabled({ ...node, sourceType: 'provider' }, { kind: getMediaKind(node.name) }),
   preparedSource: '',
   loading: false,
   statusMessage: 'Preparing file…',
@@ -131,7 +133,7 @@ export const useMediaViewer = ({ audio = useAudioPlayer(), prepareMedia = mediaA
     const location = normalizeMediaSource(source)
     const descriptor = { ...location, name: source.name || mediaSourceLabel(location), kind: metadata.kind,
       duration: metadata.duration, tags: metadata.tags, chapters: metadata.chapters, live: metadata.live, metadataLoaded: true,
-      preparedSource: '', loading: false, error: null, historyEnabled: location.sourceType !== 'url' && !metadata.live }
+      preparedSource: '', loading: false, error: null, historyEnabled: mediaHistoryEnabled({ ...location, ...metadata }) }
     if (metadata.kind === 'audio') return audio.open({ ...descriptor, kind: 'audio' }, location.providerId)
     if (metadata.kind !== 'video') throw new Error('This source has no playable audio or video tracks')
     viewer.value = { kind: 'video', items: [descriptor], index: 0 }

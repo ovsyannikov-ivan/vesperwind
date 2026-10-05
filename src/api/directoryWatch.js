@@ -1,3 +1,4 @@
+import { traceMedia } from './mediaDiagnostics.js'
 import { backend } from './backend.js'
 import { isComputerPath } from '../../shared/localFilesystem.js'
 import { normalizeFilesystemPath } from '../utils/filesystemPath.js'
@@ -26,13 +27,17 @@ export const createDirectoryWatchRegistry = (transport, delay = 100) => {
   const ensureListeners = () => {
     if (unsubscribeEvents) return
     unsubscribeEvents = transport.subscribe('filesystem:changed', (event) => {
+      traceMedia('directory.event', { providerId: event?.providerId, path: event?.directoryPath, kind: event?.kind, error: event?.error })
       const record = directories.get(keyOf(event?.providerId, event?.directoryPath))
       if (!record) return
       if (event.error) console.error('Filesystem watcher stopped', event)
       clearTimeout(record.timer)
       record.timer = setTimeout(() => {
         record.timer = null
-        for (const callback of [...record.consumers]) callback(event)
+        for (const callback of [...record.consumers]) {
+          try { Promise.resolve(callback(event)).catch((error) => console.warn('Directory refresh failed', error)) }
+          catch (error) { console.warn('Directory refresh failed', error) }
+        }
       }, delay)
     })
     unsubscribeConnection = transport.subscribeToConnection?.((connected) => {

@@ -4,6 +4,7 @@ import ChapterControls from '../components/ChapterControls.vue'
 import MediaOsd from '../components/MediaOsd.vue'
 import { createMediaOsd } from '../player/mediaOsd.js'
 import VideoProgressRange from '../components/VideoProgressRange.vue'
+import { createControlsVisibility } from '../player/controlsVisibility.js'
 import { createSeekController, canHandleSeekKey } from '../player/seekController.js'
 import { mediaOverlay } from '../api/mediaOverlay.js'
 import { waitForOverlayPresentation } from '../player/overlayPresentation.js'
@@ -80,14 +81,12 @@ const transitionHandler = createOverlayTransitionHandler({
   },
   acknowledge: (id, error) => mediaOverlay.completeTransition(id, error).catch(() => {}),
 })
-const controlsVisible = ref(true)
+const controlsState = reactive({ visible: true, pointerInsideControls: false })
+const controlsVisible = computed(() => controlsState.visible)
 const isPlaying = computed(() => state.status === PlayerStatus.PLAYING)
-const isCursorHidden = computed(() => (
-  isPlaying.value
-  && !controlsVisible.value
-  && !activeMenu.value
-  && !state.error
-))
+const controls = createControlsVisibility({ state: controlsState,
+  getPlayback: () => ({ playing: isPlaying.value, menu: activeMenu.value, error: state.error, transitioning: transitioning.value }) })
+const isCursorHidden = computed(() => controls.cursorHidden())
 const audioTracks = computed(() => state.tracks.filter((track) => track.kind === 'audio'))
 const subtitleTracks = computed(() => state.tracks.filter((track) => track.kind === 'subtitle'))
 const diagnostics = computed(() => state.diagnostics)
@@ -95,7 +94,6 @@ const infoSections = computed(() => buildMediaInfoSections(diagnostics.value, st
 let player = null
 let unsubscribeState = null
 let unsubscribeContext = null
-let controlsTimer = 0
 
 const applyState = (snapshot) => {
   Object.assign(state, snapshot || {})
@@ -123,23 +121,11 @@ const applyContext = (value) => {
   if (value?.sessionId) void attachToSession(value.sessionId)
 }
 const formatTime = formatMediaDuration
-const clearControlsTimer = () => {
-  window.clearTimeout(controlsTimer)
-  controlsTimer = 0
+const restoreControls = (event) => {
+  if (event?.currentTarget?.classList.contains('media-overlay')) controlsState.pointerInsideControls = false
+  controls.restore()
 }
-const scheduleControlsHide = () => {
-  clearControlsTimer()
-  if (!isPlaying.value || activeMenu.value) return
-  controlsTimer = window.setTimeout(() => { controlsVisible.value = false }, 2750)
-}
-const restoreControls = () => {
-  clearControlsTimer()
-  controlsVisible.value = true
-}
-const showControls = () => {
-  controlsVisible.value = true
-  scheduleControlsHide()
-}
+const showControls = controls.show
 const toggleMenu = (menu) => {
   activeMenu.value = activeMenu.value === menu ? '' : menu
 }
@@ -189,13 +175,7 @@ const handleKeydown = (event) => {
   }
 }
 
-watch([isPlaying, activeMenu, () => state.error], ([playing, menu, error]) => {
-  if (!playing || menu || error) {
-    restoreControls()
-  } else {
-    scheduleControlsHide()
-  }
-})
+watch([isPlaying, activeMenu, () => state.error, transitioning], controls.refresh)
 
 watch(() => context.fullscreen, () => showControls())
 
@@ -212,8 +192,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   osd.dispose()
-  clearControlsTimer()
-  controlsVisible.value = true
+  controls.dispose()
   document.removeEventListener('pointerdown', handlePointerDown, true)
   document.removeEventListener('keydown', handleKeydown, true)
   seekController.reset()
@@ -236,7 +215,7 @@ onBeforeUnmount(() => {
     @pointerleave="restoreControls"
   >
     <div ref="transitionCover" class="media-overlay-transition-cover" aria-hidden="true" :class="{ 'is-active': transitioning }" />
-    <header v-if="!context.fullscreen" class="media-overlay-header">
+    <header v-if="!context.fullscreen" class="media-overlay-header" @pointerenter="controls.enter" @pointerleave="controls.leave">
       <h1 class="media-overlay-title">
         <i class="mdi mdi-movie-open-play-outline" aria-hidden="true" />
         <span class="text-truncate">{{ context.title }}</span>
@@ -256,7 +235,7 @@ onBeforeUnmount(() => {
       </div>
       <button
         v-if="context.fullscreen"
-        class="media-overlay-fullscreen-close"
+        class="media-overlay-fullscreen-close" @pointerenter="controls.enter" @pointerleave="controls.leave"
         :class="{ 'is-hidden': !controlsVisible }"
         type="button"
         title="Exit fullscreen"
@@ -268,7 +247,7 @@ onBeforeUnmount(() => {
 
       <template v-if="context.total > 1">
         <button
-          class="media-overlay-navigation is-previous"
+          class="media-overlay-navigation is-previous" @pointerenter="controls.enter" @pointerleave="controls.leave"
           :class="{ 'is-hidden': !controlsVisible }"
           type="button"
           title="Previous item"
@@ -278,7 +257,7 @@ onBeforeUnmount(() => {
           <i class="mdi mdi-chevron-left" aria-hidden="true" />
         </button>
         <button
-          class="media-overlay-navigation is-next"
+          class="media-overlay-navigation is-next" @pointerenter="controls.enter" @pointerleave="controls.leave"
           :class="{ 'is-hidden': !controlsVisible }"
           type="button"
           title="Next item"
@@ -289,7 +268,7 @@ onBeforeUnmount(() => {
         </button>
       </template>
 
-      <div class="media-overlay-controls" :class="{ 'is-hidden': !controlsVisible }" @dblclick.stop>
+      <div class="media-overlay-controls" :class="{ 'is-hidden': !controlsVisible }" @pointerenter="controls.enter" @pointerleave="controls.leave" @dblclick.stop>
         <div v-if="activeMenu === 'diagnostics' && diagnostics" class="media-overlay-info">
           <section v-for="section in infoSections" :key="section.title">
             <h2>{{ section.title }}</h2>

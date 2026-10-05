@@ -66,7 +66,7 @@ const emit = defineEmits([
   'panel-drag-candidate',
   'state-change',
 ])
-const { getRoot, listDirectory } = useFilesystem(props.providerId)
+const { getRoot, listDirectory } = useFilesystem(() => props.providerId)
 const { revision: settingsRevision } = useSettings()
 const filesystemRoot = ref(null)
 const homePath = ref('')
@@ -174,36 +174,44 @@ const stopScrollRestore = () => {
   if (!search.open && panelContentRef.value) scrollTop.value = panelContentRef.value.scrollTop
 }
 
+let rootGeneration = 0
+let panelDisposed = false
 const loadRoot = async () => {
-  loading.value = true
-  error.value = null
-  const response = await getRoot()
-  loading.value = false
-
-  if (!response?.ok) {
-    error.value = response?.error || { message: 'Unable to load filesystem root' }
-    return
+  const generation = ++rootGeneration
+  const providerId = props.providerId
+  const initialPath = root.value?.path
+  loading.value = true; error.value = null
+  try {
+    const response = await getRoot()
+    if (panelDisposed || generation !== rootGeneration || providerId !== props.providerId || initialPath !== root.value?.path) return
+    if (!response?.ok) {
+      error.value = response?.error || { message: 'Unable to load filesystem root' }
+      return
+    }
+    filesystemRoot.value = response.root
+    homePath.value = response.homePath || ''
+    const initial = response.initial || response.root
+    const view = restorePanelViewState(props.initialViewState, props.providerId, response.root, initial)
+    root.value = view.root
+    selectedNode.value = view.selectedNode
+    selectedPath.value = selectedNode.value.path
+    selectedEntries.value = view.selectedEntries
+    selectionAnchorPath.value = view.anchorPath
+    expandedPaths.value = view.expandedPaths
+    scrollTop.value = view.scrollTop
+    directoryView.value = props.initialViewState?.providerId === props.providerId && props.initialViewState.directoryView
+      ? { ...directoryView.value, ...props.initialViewState.directoryView } : directoryView.value
+    restoringScroll = view.restored
+    if (props.initialViewState?.providerId === props.providerId && props.initialViewState.search) {
+      Object.assign(search, props.initialViewState.search)
+      if (search.open && search.query.trim()) runSearch()
+    }
+    await restoreScroll()
+  } catch (failure) {
+    if (!panelDisposed && generation === rootGeneration) error.value = { message: failure.message || 'Unable to load filesystem root' }
+  } finally {
+    if (!panelDisposed && generation === rootGeneration) loading.value = false
   }
-
-  filesystemRoot.value = response.root
-  homePath.value = response.homePath || ''
-  const initial = response.initial || response.root
-  const view = restorePanelViewState(props.initialViewState, props.providerId, response.root, initial)
-  root.value = view.root
-  selectedNode.value = view.selectedNode
-  selectedPath.value = selectedNode.value.path
-  selectedEntries.value = view.selectedEntries
-  selectionAnchorPath.value = view.anchorPath
-  expandedPaths.value = view.expandedPaths
-  scrollTop.value = view.scrollTop
-  directoryView.value = props.initialViewState?.providerId === props.providerId && props.initialViewState.directoryView
-    ? { ...directoryView.value, ...props.initialViewState.directoryView } : directoryView.value
-  restoringScroll = view.restored
-  if (props.initialViewState?.providerId === props.providerId && props.initialViewState.search) {
-    Object.assign(search, props.initialViewState.search)
-    if (search.open && search.query.trim()) runSearch()
-  }
-  await restoreScroll()
 }
 
 const visibleEntries = () => Array.from(
@@ -272,6 +280,7 @@ const pruneHiddenSelection = () => {
 }
 watch(directoryView, () => { pruneHiddenSelection() }, { deep: true })
 const handleChildrenLoaded = (payload) => {
+  if (payload.providerId !== props.providerId || !isSameOrDescendantPath(root.value?.path || '', payload.path)) return
   if (payload.path === root.value?.path) rootEntries.value = payload.entries
   reconcileSelection(payload)
   pruneHiddenSelection()
@@ -475,7 +484,11 @@ watch(
   },
 )
 
-watch(() => props.providerId, () => { addressNavigation.cancel(); cancelSearch(); search.open = false; folderMenu.value = null })
+watch(() => props.providerId, () => {
+  addressNavigation.cancel(); cancelSearch(); search.open = false; folderMenu.value = null
+  rootGeneration++; root.value = null; rootEntries.value = []; filesystemRoot.value = null
+  void loadRoot()
+})
 watch(() => root.value?.path, () => { addressNavigation.cancel(); folderMenu.value = null })
 watch(
   panelState,
@@ -491,6 +504,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  panelDisposed = true; rootGeneration++
   addressNavigation.dispose()
   window.removeEventListener('dragend', clearRootDropTarget)
   window.removeEventListener('drop', clearRootDropTarget)
@@ -650,7 +664,7 @@ watch(entryChange, (change) => {
           <div class="tree-column-date"><button class="tree-column-sort" type="button" @click="toggleSort('date')">Date <i v-if="directoryView.sort === 'date'" class="mdi" :class="directoryView.direction === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'" aria-hidden="true" /></button></div>
         </div>
         <FileTree
-          :key="`${root.path}:${settingsRevision}`"
+          :key="`${providerId}:${root.path}:${settingsRevision}`"
           :root="root"
           :home-path="homePath"
           :provider-id="providerId"

@@ -77,6 +77,7 @@ struct SourceInfo {
 #[derive(Default)]
 struct Worker {
     binary: Option<PathBuf>,
+    sidecar_failure: Option<&'static str>,
     sources: VecDeque<SourceInfo>,
 }
 #[derive(Default)]
@@ -124,16 +125,16 @@ impl ThumbnailManager {
         _filesystem: &Filesystem,
         owner: &str,
         provider: Option<&str>,
-        _requested: &str,
-        diagnostics: &PlaybackDiagnostics,
-        _duration: f64,
+        requested: &str,
+        _diagnostics: &PlaybackDiagnostics,
+        duration: f64,
         cancelled: Arc<AtomicBool>,
     ) -> Result<(), NativeError> {
-        if provider.unwrap_or("local") == "local"
-            && diagnostics.video.codec.is_some()
-            && !cancelled.load(Ordering::Acquire)
-        {
+        if provider.unwrap_or("local") == "local" && !cancelled.load(Ordering::Acquire) {
             self.1.lock().unwrap_or_else(|e| e.into_inner()).owner = Some(owner.into());
+            if std::env::var_os("VESPERWIND_MEDIA_TRACE").is_some() {
+                eprintln!("[thumbnail] registered owner={owner:?} provider={provider:?} path={requested:?} duration={duration}");
+            }
         }
         Ok(())
     }
@@ -174,6 +175,14 @@ impl ThumbnailManager {
         &self,
         filesystem: &Filesystem,
         request: ThumbnailRequest,
+    ) -> Result<Thumbnail, NativeError> {
+        self.generate_with_resolver(filesystem, request, bundled_binary)
+    }
+    fn generate_with_resolver(
+        &self,
+        filesystem: &Filesystem,
+        request: ThumbnailRequest,
+        resolve_binary: impl FnOnce() -> Option<PathBuf>,
     ) -> Result<Thumbnail, NativeError> {
         if request.cancel {
             if let Some(id) = request
@@ -222,13 +231,22 @@ impl ThumbnailManager {
             return Err(NativeError::new("EINVAL", "A local video file is required"));
         }
         if worker.binary.is_none() {
-            let Some(binary) = bundled_binary() else {
+            let Some(binary) = resolve_binary() else {
+                if worker.sidecar_failure != Some("sidecar-missing") {
+                    eprintln!("[thumbnail] missing owned FFmpeg sidecar (executable={:?}); build/stage the pinned thumbnail FFmpeg", std::env::current_exe());
+                    worker.sidecar_failure = Some("sidecar-missing");
+                }
                 return Ok(Thumbnail::unavailable("sidecar-missing"));
             };
             let version = run_cancelled(&binary, &["-version".into()], MAX_LOG, &flag)?;
             if !version.success || !is_pinned_version(&String::from_utf8_lossy(&version.stdout)) {
+                if worker.sidecar_failure != Some("sidecar-version") {
+                    eprintln!("[thumbnail] incompatible FFmpeg sidecar {binary:?}: {:?}; expected FFmpeg 8.0", String::from_utf8_lossy(&version.stdout).lines().next());
+                    worker.sidecar_failure = Some("sidecar-version");
+                }
                 return Ok(Thumbnail::unavailable("sidecar-version"));
             }
+            worker.sidecar_failure = None;
             worker.binary = Some(binary);
         }
         let binary = worker.binary.as_ref().unwrap().clone();
@@ -535,6 +553,7 @@ fn run_cancelled(
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x08000000 | 0x00004000); // CREATE_NO_WINDOW
     }
+    let launched = Instant::now();
     let mut child = command
         .spawn()
         .map_err(|e| NativeError::from_io(&e, "Bundled FFmpeg could not start"))?;
@@ -542,6 +561,7 @@ fn run_cancelled(
     unsafe {
         libc::setpriority(libc::PRIO_PROCESS, child.id(), 10);
     }
+    let spawn_ms = launched.elapsed().as_secs_f64() * 1000.0;
     if std::env::var_os("VESPERWIND_THUMBNAIL_LOG").is_some() {
         eprintln!("[thumbnail] child={} single-frame/request", child.id());
     }
@@ -579,6 +599,20 @@ fn run_cancelled(
     let stdout = out.join().unwrap_or_default();
     let stderr = err.join().unwrap_or_default();
     let success = result?;
+    if std::env::var_os("VESPERWIND_MEDIA_TRACE").is_some() {
+        let phase = if args.iter().any(|a| a == "-version") {
+            "startup-version"
+        } else if args.iter().any(|a| a == "image2pipe") {
+            "seek-decode-jpeg"
+        } else {
+            "source-probe"
+        };
+        eprintln!(
+            "[thumbnail-timing] phase={phase} spawnMs={spawn_ms:.3} processMs={:.3} stdoutBytes={}",
+            launched.elapsed().as_secs_f64() * 1000.0,
+            stdout.len()
+        );
+    }
     if overflow.load(Ordering::Relaxed) {
         return Err(NativeError::new(
             "ETHUMBNAIL_LIMIT",
@@ -701,8 +735,7 @@ mod tests {
         let root = std::env::temp_dir();
         let filesystem = Filesystem::from_root(&root, root.clone()).unwrap();
         let manager = ThumbnailManager::default();
-        let mut diagnostics = PlaybackDiagnostics::default();
-        diagnostics.video.codec = Some("hevc".into());
+        let diagnostics = PlaybackDiagnostics::default();
         manager
             .start(
                 &filesystem,
@@ -721,6 +754,32 @@ mod tests {
             manager.1.lock().unwrap().owner.as_deref(),
             Some("player-one")
         );
+    }
+    #[test]
+    fn missing_sidecar_is_not_unsupported_media() {
+        let root = std::env::temp_dir().join(format!(
+            "vesperwind-missing-ffmpeg-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let video = root.join("video.mp4");
+        fs::write(&video, b"fixture").unwrap();
+        let filesystem = Filesystem::from_root(&root, root.clone()).unwrap();
+        let manager = ThumbnailManager::default();
+        let request = ThumbnailRequest {
+            path: video.to_string_lossy().into_owned(),
+            time: 0.0,
+            width: 180,
+            provider_id: Some("local".into()),
+            request_id: None,
+            cancel: false,
+        };
+        let result = manager
+            .generate_with_resolver(&filesystem, request, || None)
+            .unwrap();
+        assert_eq!(result.reason, Some("sidecar-missing"));
+        assert!(manager.1.lock().unwrap().active.is_none());
+        fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn pre_cancelled_request_never_resolves_or_opens_source() {

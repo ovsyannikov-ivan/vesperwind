@@ -15,8 +15,9 @@ capabilities without HLS.js. Unsupported streams produce a normal error.
 Native audio retains its audio-only mpv session without a surface or overlay.
 Video retains the existing renderer and hardware decoder policy. Foreground
 video pauses persistent audio without clearing its queue or resuming it on close.
-URL sources never read, write or delete `media_history`. Provider-backed audio
-imported from playlists keeps normal history, chapters and exact resume.
+URL sources never read, write or delete `media_history`. Provider-backed audiobooks imported from playlists keep chapters and exact resume
+in the persistent player; ordinary music does not use resume history. Quick Look
+audio is always a separate temporary session without history.
 
 ## M3U and HLS
 

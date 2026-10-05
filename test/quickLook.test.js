@@ -262,14 +262,14 @@ test('the existing media modal honors an immediate close after its Bootstrap ope
   assert.match(modal, /removeEventListener\('shown.bs.modal', handleShown\)/u)
 })
 
-test('native Quick Look audio bypasses HTTP preparation while remaining outside the persistent queue', async () => {
+test('native Quick Look audio prepares content without requesting an HTML source or entering the persistent queue', async () => {
   const calls = []
   const q = useQuickLook({ openMedia: () => { throw Error('must not insert into normal player') }, closeMedia: () => {},
     beforePlayback: async (kind) => calls.push(kind), selectBackend: async () => 'mpv',
-    prepareMedia: () => { throw Error('native does not need HTML source') } })
+    prepareMedia: async (location, options) => { assert.equal(options.native, true); calls.push('prepare'); return { ok: true, source: 'native-audio' } } })
   await q.open({ node: { name: 'book.m4b', path: '/book.m4b', isDirectory: false }, filesystemId: 'sftp:home' })
   assert.equal(q.preview.value.sourceUrl, 'native-audio')
   assert.equal(q.preview.value.loading, false)
-  assert.deepEqual(calls, ['audio'])
+  assert.deepEqual(calls, ['audio', 'prepare'])
   q.close()
 })

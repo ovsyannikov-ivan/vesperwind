@@ -1,3 +1,4 @@
+import { traceMedia } from '../api/mediaDiagnostics.js'
 import { backend, backendRuntimeMode } from '../api/backend.js'
 import { media } from '../api/media.js'
 import { normalizeMediaSource, mediaIdentity } from './mediaSource.js'
@@ -363,6 +364,8 @@ export class NativeMpvPlayerBackend extends MediaPlayerBackend {
     // An opening session already owns native resources. A source switch must
     // cancel it too, rather than sending a second open with the same identity.
     this.hasOpenedSession = true
+    traceMedia('player.open', { sessionId, kind: this.kind, path: logical.path, providerId: logical.providerId,
+      historyEnabled: logical.sourceType !== 'url' && this.historyEnabled })
     const response = await this.request('player:open', {
       ...logical,
       ...(logical.sourceType === 'provider' ? { filesystemId: logical.providerId } : {}),

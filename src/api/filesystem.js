@@ -21,12 +21,12 @@ const getRoot = async (providerId = LOCAL_FILESYSTEM_PROVIDER) =>
     'Unable to load filesystem root',
   )
 
-const readDir = async (location) =>
+const readDir = async (location, options = {}) =>
   normalizeApiResponse(
     await backend.request('filesystem:list', {
       filesystemId: providerIdOf(location),
       path: location?.path,
-    }),
+    }, options),
     'EFILESYSTEM_LIST',
     'Unable to read this folder',
   )

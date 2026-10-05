@@ -8,6 +8,11 @@ half-second cache bucket. Extraction and cache lookup run only after that timer
 expires. Pointer leave/cancel, source change, modal close and component unmount
 invalidate the revision, clear dwell and abort the active request.
 
+Native controls hold visible while pointer containment events report presence
+over their header, controls, seek/preview surface or owned menus. Leaving starts
+the normal 2750 ms countdown; timers recheck hover/playback/menu/error state.
+Cursor hiding follows actual controls visibility and never applies while hovered.
+
 Pending or unsupported requests display timestamp only: no rectangle, placeholder,
 spinner or image icon. A detached `Image` loads and decodes the complete JPEG
 before its URL enters Vue state. Only then is the image inserted and faded in over
@@ -17,7 +22,8 @@ Remote/SFTP and runtimes without the native backend stay time-only.
 
 ## One short-lived extraction
 
-The native open hook registers lifecycle ownership. Hover extraction resolves
+The native video open hook registers lifecycle ownership independently of history
+and incomplete early codec diagnostics. Hover extraction resolves
 the source and generates one JPEG after dwell.
 
 After dwell, a cache miss uses bundled pinned FFmpeg with **input-side `-ss`**,
@@ -92,17 +98,19 @@ ignored by Git. Development loads only
 loads only the app-adjacent `ffmpeg[.exe]`; no source-tree fallback exists in release.
 
 The recipe produces the LGPL license and source/build information alongside the
-binary. Distribution remains an explicit build choice so source checkouts without
-staged binaries still build and show the lightweight fallback:
+binary. macOS normal builds automatically merge `tauri.macos.conf.json`, which
+includes FFmpeg as a mandatory sidecar. `predev:tauri` and `prebuild:tauri` verify
+the staged 8.0 binary and fail with a build command if it is missing/incompatible.
+Common resources retain FFmpeg notices and the complete LOWA/libmpv payload.
+Stage a binary for each requested target triple before bundling. Tauri renames
+the target-specific sidecar to `ffmpeg` in the installed bundle.
+
+The optional `tauri.ffmpeg.conf.json` selects explicitly staged other targets and
+only changes externalBin, avoiding replacement of common resource arrays:
 
 ```sh
 npm run build:tauri -- --config src-tauri/tauri.ffmpeg.conf.json
 ```
-
-The overlay config adds Tauri `externalBin: ["binaries/vesperwind-archive", "binaries/ffmpeg"]` and includes the
-license/build information while preserving libmpv resources. Stage a binary for
-each requested target triple before bundling. Tauri renames the target-specific
-sidecar to `ffmpeg` in the installed bundle.
 
 For Windows, stage a separately reproducible FFmpeg 8.0 CLI with its licenses and
 build/source information; the native Unix recipe does not cross-compile Windows.
@@ -112,6 +120,9 @@ relative to the executable, and include checksums/licenses/source offers. On mac
 use executable-relative rpaths and sign/notarize the sidecar and dylibs with the app;
 on Windows place required DLLs next to the executable. Never rely on library search
 paths from the user's environment or silently borrow the system FFmpeg.
+
+Native failures distinguish `sidecar-missing` and `sidecar-version` from unsupported
+media and log those failures once per condition. No system fallback is used.
 
 ## Validation
 
