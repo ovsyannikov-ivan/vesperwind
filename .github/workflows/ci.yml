@@ -60,6 +60,10 @@ jobs:
               with:
                   node-version: 22
 
+            - name: Install frontend reader dependencies for native acceptance
+              working-directory: .
+              run: npm ci
+
             - name: Build bundled archive worker and test disk limits
               working-directory: .
               run: npm run build:archives
@@ -67,6 +71,10 @@ jobs:
             - name: Verify bundled libmpv including HTTP HTTPS and HLS
               working-directory: .
               run: node scripts/verify-libmpv-bundle.js
+
+            - name: Verify pinned LOWA payload
+              working-directory: .
+              run: node scripts/check-lowa-assets.mjs
 
             - name: Check formatting
               run: cargo fmt --check
@@ -79,6 +87,20 @@ jobs:
 
             - name: Run real archive workflow
               run: cargo test real_archive_workflow -- --ignored
+
+            - name: Build native Office regression executable
+              run: cargo build
+
+            - name: Native WKWebView Office and deletion acceptance
+              working-directory: .
+              run: node scripts/native-smoke.mjs "$RUNNER_TEMP/vesperwind-native-acceptance"
+
+            - name: Upload native acceptance diagnostics
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: native-macos-office-acceptance
+                  path: ${{ runner.temp }}/vesperwind-native-acceptance
 
     rust-windows:
         name: Rust / Windows
@@ -102,6 +124,10 @@ jobs:
               with:
                   node-version: 22
 
+            - name: Install frontend reader dependencies for native acceptance
+              working-directory: .
+              run: npm ci
+
             - name: Build bundled archive worker and test disk limits
               working-directory: .
               run: npm run build:archives
@@ -109,6 +135,10 @@ jobs:
             - name: Verify bundled libmpv including HTTP HTTPS and HLS
               working-directory: .
               run: node scripts/verify-libmpv-bundle.js
+
+            - name: Verify pinned LOWA payload
+              working-directory: .
+              run: node scripts/check-lowa-assets.mjs
 
             - name: Check formatting
               run: cargo fmt --check
@@ -121,3 +151,18 @@ jobs:
 
             - name: Run real archive workflow
               run: cargo test real_archive_workflow -- --ignored
+
+            - name: Build native Office regression executable
+              run: cargo build
+
+            - name: Native WebView2 Office and deletion acceptance
+              working-directory: .
+              shell: powershell
+              run: ./scripts/run-native-smoke.ps1 -Output "$env:RUNNER_TEMP/vesperwind-native-acceptance"
+
+            - name: Upload native acceptance diagnostics
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: native-windows-office-acceptance
+                  path: ${{ runner.temp }}/vesperwind-native-acceptance

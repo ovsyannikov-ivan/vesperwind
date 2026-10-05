@@ -15,8 +15,10 @@ for playback and document controls. Directories are ignored.
 - Audio uses CustomMediaPlayer in a temporary modal with autoplay enabled and
   history disabled. Inspection starts at the beginning and neither reads nor
   writes the normal audiobook resume position.
-- PDFs use PdfViewer with isolated view state, zoom, text selection and search.
-- DOCX uses the existing loader and OOXML library's `view` surface without editor
+- PDFs and converted PPTX use PdfViewer with isolated view state, thumbnails,
+  navigation, zoom, text selection and search. Native PPTX conversion uses the
+  same lazy LOWA broker as normal open; closing invalidates/cancels the request.
+- DOCX and converted DOC/RTF use the existing loader and OOXML library's `view` surface without editor
   chrome, Save handlers or registration in the document runtime.
 - XLS/XLSX uses the existing SheetJS loader/model with a selectable HTML grid,
   sheet selection and bounded pages of 100 rows by 26 columns. Stored values and

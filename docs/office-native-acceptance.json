@@ -1,0 +1,371 @@
+{
+  "platform": "macOS arm64 bundled debug .app / WKWebView",
+  "code": 0,
+  "finished": true,
+  "buildId": "3535f71caafa356c07ea849a1c71941cf32d36d943bfcf52746c7ba8f010a50d",
+  "coldConversionMs": 9463.748916,
+  "initMs": 8540.6,
+  "warmMedianMs": 288.43225,
+  "peakSummedRssBytes": 1712324608,
+  "rssMethod": "250ms requested RSS sampling; host plus newly appearing WebKit processes. Temporal attribution of launchd-owned WebKit XPC processes can include other apps; sum can double-count shared pages.",
+  "events": [
+    {
+      "converterAbsent": true,
+      "epochMs": 1791222788586,
+      "phase": "before-office"
+    },
+    {
+      "buildId": "3535f71caafa356c07ea849a1c71941cf32d36d943bfcf52746c7ba8f010a50d",
+      "bytes": 21405,
+      "conversionMs": 9463.748916,
+      "epochMs": 1791222802405,
+      "generation": 1,
+      "initMs": 8540.6,
+      "input": "minimal.pptx",
+      "phase": "converted"
+    },
+    {
+      "buildId": "3535f71caafa356c07ea849a1c71941cf32d36d943bfcf52746c7ba8f010a50d",
+      "bytes": 73188,
+      "conversionMs": 1028.398791,
+      "epochMs": 1791222803435,
+      "generation": 1,
+      "initMs": 8540.6,
+      "input": "representative.pptx",
+      "phase": "converted"
+    },
+    {
+      "buildId": "3535f71caafa356c07ea849a1c71941cf32d36d943bfcf52746c7ba8f010a50d",
+      "bytes": 24484,
+      "conversionMs": 288.43225,
+      "epochMs": 1791222803725,
+      "generation": 1,
+      "initMs": 8540.6,
+      "input": "standard-4-3.pptx",
+      "phase": "converted"
+    },
+    {
+      "buildId": "3535f71caafa356c07ea849a1c71941cf32d36d943bfcf52746c7ba8f010a50d",
+      "bytes": 24708,
+      "conversionMs": 260.41429100000005,
+      "epochMs": 1791222803987,
+      "generation": 1,
+      "initMs": 8540.6,
+      "input": "custom-size.pptx",
+      "phase": "converted"
+    },
+    {
+      "buildId": "3535f71caafa356c07ea849a1c71941cf32d36d943bfcf52746c7ba8f010a50d",
+      "bytes": 73191,
+      "conversionMs": 521.5470829999999,
+      "epochMs": 1791222804511,
+      "generation": 1,
+      "initMs": 8540.6,
+      "input": "chart-workbook-cached.pptx",
+      "phase": "converted"
+    },
+    {
+      "buildId": "3535f71caafa356c07ea849a1c71941cf32d36d943bfcf52746c7ba8f010a50d",
+      "bytes": 71491,
+      "conversionMs": 480.944125,
+      "epochMs": 1791222804994,
+      "generation": 1,
+      "initMs": 8540.6,
+      "input": "chart-workbook-no-cache.pptx",
+      "phase": "converted"
+    },
+    {
+      "buildId": "3535f71caafa356c07ea849a1c71941cf32d36d943bfcf52746c7ba8f010a50d",
+      "bytes": 5534,
+      "conversionMs": 182.316333,
+      "epochMs": 1791222805179,
+      "generation": 1,
+      "initMs": 8540.6,
+      "input": "cocoa-structured.doc",
+      "phase": "converted"
+    },
+    {
+      "buildId": "3535f71caafa356c07ea849a1c71941cf32d36d943bfcf52746c7ba8f010a50d",
+      "bytes": 11454,
+      "conversionMs": 240.55499999999998,
+      "epochMs": 1791222805420,
+      "generation": 1,
+      "initMs": 8540.6,
+      "input": "structured.rtf",
+      "phase": "converted"
+    },
+    {
+      "epochMs": 1791222805421,
+      "phase": "warm-office"
+    },
+    {
+      "converterAbsent": true,
+      "epochMs": 1791222895490,
+      "phase": "after-idle"
+    },
+    {
+      "code": "ECANCELLED",
+      "epochMs": 1791222917706,
+      "phase": "cancelled"
+    },
+    {
+      "deleteRegression": true,
+      "epochMs": 1791222935670,
+      "phase": "finished"
+    }
+  ],
+  "readback": [
+    {
+      "name": "after-cancel.docx",
+      "bytes": 5534,
+      "wordReaderAccepted": true,
+      "mainDocumentPart": "/word/document.xml"
+    },
+    {
+      "name": "after-idle.pdf",
+      "bytes": 0,
+      "pages": 1,
+      "textCharacters": 90,
+      "pdfjsAccepted": true
+    },
+    {
+      "name": "chart-workbook-cached.pptx.pdf",
+      "bytes": 0,
+      "pages": 8,
+      "textCharacters": 911,
+      "pdfjsAccepted": true
+    },
+    {
+      "name": "chart-workbook-no-cache.pptx.pdf",
+      "bytes": 0,
+      "pages": 8,
+      "textCharacters": 890,
+      "pdfjsAccepted": true
+    },
+    {
+      "name": "cocoa-structured.doc.docx",
+      "bytes": 5534,
+      "wordReaderAccepted": true,
+      "mainDocumentPart": "/word/document.xml"
+    },
+    {
+      "name": "custom-size.pptx.pdf",
+      "bytes": 0,
+      "pages": 3,
+      "textCharacters": 282,
+      "pdfjsAccepted": true
+    },
+    {
+      "name": "minimal.pptx.pdf",
+      "bytes": 0,
+      "pages": 1,
+      "textCharacters": 90,
+      "pdfjsAccepted": true
+    },
+    {
+      "name": "representative.pptx.pdf",
+      "bytes": 0,
+      "pages": 8,
+      "textCharacters": 911,
+      "pdfjsAccepted": true
+    },
+    {
+      "name": "standard-4-3.pptx.pdf",
+      "bytes": 0,
+      "pages": 3,
+      "textCharacters": 285,
+      "pdfjsAccepted": true
+    },
+    {
+      "name": "structured.rtf.docx",
+      "bytes": 11454,
+      "wordReaderAccepted": true,
+      "mainDocumentPart": "/word/document.xml"
+    }
+  ],
+  "before-officeMedianRssBytes": 365641728,
+  "warm-officeMedianRssBytes": 1440366592,
+  "after-idleMedianRssBytes": 292732928,
+  "securityProbeAcceptance": {
+    "code": 0,
+    "finished": true,
+    "externalFetchBlocked": true,
+    "events": [
+      {
+        "converterAbsent": true,
+        "epochMs": 1791230255144,
+        "phase": "before-office"
+      },
+      {
+        "buildId": "3535f71caafa356c07ea849a1c71941cf32d36d943bfcf52746c7ba8f010a50d",
+        "bytes": 21405,
+        "conversionMs": 17884.604792000002,
+        "epochMs": 1791230280371,
+        "generation": 1,
+        "initMs": 16955.98,
+        "input": "minimal.pptx",
+        "phase": "converted"
+      },
+      {
+        "buildId": "3535f71caafa356c07ea849a1c71941cf32d36d943bfcf52746c7ba8f010a50d",
+        "bytes": 73188,
+        "conversionMs": 1023.312875,
+        "epochMs": 1791230281395,
+        "generation": 1,
+        "initMs": 16955.98,
+        "input": "representative.pptx",
+        "phase": "converted"
+      },
+      {
+        "buildId": "3535f71caafa356c07ea849a1c71941cf32d36d943bfcf52746c7ba8f010a50d",
+        "bytes": 24484,
+        "conversionMs": 240.16479199999998,
+        "epochMs": 1791230281635,
+        "generation": 1,
+        "initMs": 16955.98,
+        "input": "standard-4-3.pptx",
+        "phase": "converted"
+      },
+      {
+        "buildId": "3535f71caafa356c07ea849a1c71941cf32d36d943bfcf52746c7ba8f010a50d",
+        "bytes": 24708,
+        "conversionMs": 189.947958,
+        "epochMs": 1791230281826,
+        "generation": 1,
+        "initMs": 16955.98,
+        "input": "custom-size.pptx",
+        "phase": "converted"
+      },
+      {
+        "buildId": "3535f71caafa356c07ea849a1c71941cf32d36d943bfcf52746c7ba8f010a50d",
+        "bytes": 73191,
+        "conversionMs": 424.62974999999994,
+        "epochMs": 1791230282251,
+        "generation": 1,
+        "initMs": 16955.98,
+        "input": "chart-workbook-cached.pptx",
+        "phase": "converted"
+      },
+      {
+        "buildId": "3535f71caafa356c07ea849a1c71941cf32d36d943bfcf52746c7ba8f010a50d",
+        "bytes": 71491,
+        "conversionMs": 595.1155,
+        "epochMs": 1791230282847,
+        "generation": 1,
+        "initMs": 16955.98,
+        "input": "chart-workbook-no-cache.pptx",
+        "phase": "converted"
+      },
+      {
+        "buildId": "3535f71caafa356c07ea849a1c71941cf32d36d943bfcf52746c7ba8f010a50d",
+        "bytes": 5534,
+        "conversionMs": 177.239666,
+        "epochMs": 1791230283025,
+        "generation": 1,
+        "initMs": 16955.98,
+        "input": "cocoa-structured.doc",
+        "phase": "converted"
+      },
+      {
+        "buildId": "3535f71caafa356c07ea849a1c71941cf32d36d943bfcf52746c7ba8f010a50d",
+        "bytes": 11454,
+        "conversionMs": 146.637875,
+        "epochMs": 1791230283172,
+        "generation": 1,
+        "initMs": 16955.98,
+        "input": "structured.rtf",
+        "phase": "converted"
+      },
+      {
+        "epochMs": 1791230283199,
+        "externalFetchBlocked": true,
+        "phase": "warm-office"
+      },
+      {
+        "converterAbsent": true,
+        "epochMs": 1791230373429,
+        "phase": "after-idle"
+      },
+      {
+        "code": "ECANCELLED",
+        "epochMs": 1791230398930,
+        "phase": "cancelled"
+      },
+      {
+        "deleteRegression": true,
+        "epochMs": 1791230420776,
+        "phase": "finished"
+      }
+    ],
+    "readback": [
+      {
+        "name": "after-cancel.docx",
+        "bytes": 5534,
+        "wordReaderAccepted": true,
+        "mainDocumentPart": "/word/document.xml"
+      },
+      {
+        "name": "after-idle.pdf",
+        "bytes": 0,
+        "pages": 1,
+        "textCharacters": 90,
+        "pdfjsAccepted": true
+      },
+      {
+        "name": "chart-workbook-cached.pptx.pdf",
+        "bytes": 0,
+        "pages": 8,
+        "textCharacters": 911,
+        "pdfjsAccepted": true
+      },
+      {
+        "name": "chart-workbook-no-cache.pptx.pdf",
+        "bytes": 0,
+        "pages": 8,
+        "textCharacters": 890,
+        "pdfjsAccepted": true
+      },
+      {
+        "name": "cocoa-structured.doc.docx",
+        "bytes": 5534,
+        "wordReaderAccepted": true,
+        "mainDocumentPart": "/word/document.xml"
+      },
+      {
+        "name": "custom-size.pptx.pdf",
+        "bytes": 0,
+        "pages": 3,
+        "textCharacters": 282,
+        "pdfjsAccepted": true
+      },
+      {
+        "name": "minimal.pptx.pdf",
+        "bytes": 0,
+        "pages": 1,
+        "textCharacters": 90,
+        "pdfjsAccepted": true
+      },
+      {
+        "name": "representative.pptx.pdf",
+        "bytes": 0,
+        "pages": 8,
+        "textCharacters": 911,
+        "pdfjsAccepted": true
+      },
+      {
+        "name": "standard-4-3.pptx.pdf",
+        "bytes": 0,
+        "pages": 3,
+        "textCharacters": 285,
+        "pdfjsAccepted": true
+      },
+      {
+        "name": "structured.rtf.docx",
+        "bytes": 11454,
+        "wordReaderAccepted": true,
+        "mainDocumentPart": "/word/document.xml"
+      }
+    ],
+    "note": "Run performed during source scratch cleanup; timing/RSS table uses the earlier bundled app acceptance in this same receipt."
+  }
+}

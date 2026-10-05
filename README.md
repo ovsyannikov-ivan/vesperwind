@@ -17,11 +17,12 @@ between applications.
 - **Search & filtering:** recursive name/path search, per-panel filters and sorting,
   and automatic refresh for local folders.
 - **Quick Look:** press Space on a selected file for a temporary read-only preview
-  of media, text, PDF, DOCX or XLS/XLSX without opening an editor tab.
+  of media, text, PDF, PPTX, DOCX/DOC/RTF or XLS/XLSX without opening an editor tab.
 - **Text & code:** multi-tab Monaco editor with syntax highlighting, minimap,
   document search and indentation controls. Edit local or remote files.
-- **Documents:** edit DOCX and XLSX/XLS; import DOC and RTF through LibreOffice.
-- **PDFs:** thumbnails, page navigation, zoom, text selection and search.
+- **Documents:** edit DOCX and XLSX/XLS; import DOC and RTF with bundled LOWA in desktop builds.
+- **PDFs & presentations:** read-only PPTX preview through bundled LOWA; thumbnails,
+  page navigation, zoom, text selection and search through PDF.js.
 - **Media:** view images and play local or remote audio/video with seeking,
   track selection and fullscreen controls, including M4B audiobooks and M4R ringtones.
   The audio player saves its queue between launches, with drag reordering, repeat,
@@ -41,6 +42,7 @@ For setup and build instructions, see the [development guide](docs/development.m
 
 ## Learn more
 
+- [Office conversion](docs/office-conversion.md) and [bounded file operations](docs/file-operation-lifecycle.md)
 - [Word documents](docs/word-documents.md) and [spreadsheets](docs/spreadsheets.md)
 - [Quick Look and playback coordination](docs/quick-look.md)
 - [Media URLs, HLS and persistent playlists](docs/media-player.md)

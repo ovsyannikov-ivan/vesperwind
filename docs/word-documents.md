@@ -8,17 +8,17 @@ when its tab closes. The handler uses only the provider-neutral binary API.
 
 ## Imports
 
-RTF and binary Word DOC are import-only. A local LibreOffice executable is
-discovered when either format opens. Vesperwind reads source bytes through the
-chosen provider, sends them to the local backend, and runs LibreOffice with
-separate arguments, no shell, a private temporary directory, isolated profile,
-and a 60-second process limit. The temporary input and DOCX are removed even
-on failure. Conversion does not change the source file. The imported tab is
-marked dirty until Save As writes a new `.docx` destination. LibreOffice is
-optional and is never bundled or started at application launch. The backend
-looks in the normal application location on macOS and Windows, then on PATH;
-`VESPERWIND_LIBREOFFICE` can point to a custom executable.
+RTF and binary Word DOC are import-only. Native Tauri converts their provider
+bytes with the pinned embedded LOWA backend, then uses the existing OOXML reader
+and editor. The original is unchanged, the imported tab stays dirty, and first
+Save requires Save As DOCX. No native executable discovery or installed
+LibreOffice fallback remains. The converter is lazy, serialized, cancelled by
+native WebView destruction and released after 90 seconds idle; see
+[Office conversion](office-conversion.md).
 
+Browser/SEA intentionally retains its separate Node converter using optional
+installed LibreOffice, private temporary files/profile and a process timeout.
+Its `VESPERWIND_LIBREOFFICE` override applies only to that backend.
 An RTF rendering-only JavaScript library would lose structural fidelity during
 the next DOCX conversion. LibreOffice's established RTF and Word Binary import
 filters are used for both sources. Conversion can still change unsupported
