@@ -53,6 +53,41 @@
       "sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2"
     },
     {
+      "path": "licenses/emscripten/AUTHORS.txt",
+      "bytes": 28933,
+      "sha256": "56f7df65203d4858dac19cafe3a84a8c49abaff56b67d32d2d463d5fef6e440b"
+    },
+    {
+      "path": "licenses/emscripten/LICENSE.txt",
+      "bytes": 5093,
+      "sha256": "620a78084fc7ca97c0b5dea9abf891f3ffcadfdbf305276f099c9c4e12fc1d86"
+    },
+    {
+      "path": "licenses/emscripten/compiler-rt-LICENSE.txt",
+      "bytes": 16708,
+      "sha256": "1a8f1058753f1ba890de984e48f0242a3a5c29a6a8f2ed9fd813f36985387e8d"
+    },
+    {
+      "path": "licenses/emscripten/libcxx-LICENSE.txt",
+      "bytes": 16703,
+      "sha256": "539dd7aed86e8a4f12cbdd0e6c50c189c7d74847e4fecc64ce2c6ee3a01da38b"
+    },
+    {
+      "path": "licenses/emscripten/libcxxabi-LICENSE.txt",
+      "bytes": 16706,
+      "sha256": "e2b35be49f7284a45b7baca8fc7b3ab7440e7902392b2528a457816b5bb2a15c"
+    },
+    {
+      "path": "licenses/emscripten/libunwind-LICENSE.txt",
+      "bytes": 16706,
+      "sha256": "b5efebcaca80879234098e52d1725e6d9eb8fb96a19fce625d39184b705f7b6d"
+    },
+    {
+      "path": "licenses/emscripten/musl-COPYRIGHT.txt",
+      "bytes": 6204,
+      "sha256": "f9bc4423732350eb0b3f7ed7e91d530298476f8fec0c6c427a1c04ade22655af"
+    },
+    {
       "path": "licenses/selected/argon2/LICENSE",
       "bytes": 17879,
       "sha256": "220f8736a89ff51c92ef3d497f413b48e6cf1df3d6278bc909c6308c78e1718e"
@@ -889,8 +924,8 @@
     },
     {
       "path": "web/office_thread.js",
-      "bytes": 2097,
-      "sha256": "c02bfe07d115811324c6771da68370712ce5e4b99799707907d7d922ba93a251"
+      "bytes": 2217,
+      "sha256": "a14b768b745fe84098f8a524c962516b4da19d11d8e6f11a0c6a03a99cc1c490"
     },
     {
       "path": "web/vendor/LICENSE-ZetaJS.txt",

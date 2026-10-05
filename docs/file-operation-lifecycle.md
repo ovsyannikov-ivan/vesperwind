@@ -12,7 +12,11 @@ watchdog owns the operation independently of the invoking WebView.
 
 Every native filesystem operation runs in a child of the same executable with
 `--filesystem-helper`, before constructing Tauri. Requests/results use bounded
-anonymous pipes. SFTP helpers obtain private connection snapshots through stdin
+anonymous pipes. A length-prefixed request keeps its stdin pipe open as an
+ownership signal. On EOF, an independent helper thread terminates the entire
+helper using `_exit`/`TerminateProcess`, so even abrupt parent loss cannot turn
+it into a persistent deletion service. The native regression exercises this
+with a controlled idle helper and never starts a destructive operation. SFTP helpers obtain private connection snapshots through stdin
 and open independent sessions with explicit socket/session timeouts. Credentials
 are not written to files or logged. A failed helper cannot hold the application's
 filesystem/session locks. On timeout/cancellation the parent kills the helper,

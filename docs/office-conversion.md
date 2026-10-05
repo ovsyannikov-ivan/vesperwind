@@ -12,7 +12,9 @@ Rust `ConversionBroker`. On the first request it verifies the pinned assets,
 creates an ephemeral **127.0.0.1** HTTP origin and one hidden, incognito Tauri
 WebView. ZetaJS starts LOWA in that WebView's worker. The direct headless
 `XLoadable` model loader uses explicit filters; macros and document updates are
-disabled, and interaction requests abort. The interactive WebView never loads
+disabled with explicitly typed UNO short values (both 0), and interaction requests abort.
+See the upstream [MacroExecMode](https://api.libreoffice.org/docs/idl/ref/namespacecom_1_1sun_1_1star_1_1document_1_1MacroExecMode.html)
+and [UpdateDocMode](https://api.libreoffice.org/docs/idl/ref/namespacecom_1_1sun_1_1star_1_1document_1_1UpdateDocMode.html) definitions. The interactive WebView never loads
 LOWA. macOS background throttling is disabled for the converter.
 
 The converter and its HTTP origin are absent at startup. Successful requests
@@ -62,8 +64,8 @@ that backend or installed `soffice`.
 
 `src-tauri/vendor/lowa/ASSETS.json` lists exact byte sizes and SHA-256 for every
 runtime file. Its SHA-256 is the converter build identity returned with outputs:
-`3535f71caafa356c07ea849a1c71941cf32d36d943bfcf52746c7ba8f010a50d`.
-The current runtime files total **66,097,255 bytes (63.04 MiB)**, excluding the
+`6e0bba40764a43a3f619bd1731c33655ca796ef1b30d399e9835810b247a8290`.
+The current runtime files total **66,204,428 bytes (63.14 MiB)**, excluding the
 manifest itself. The four accepted Brotli engine files total
 **47,921,150 bytes (45.70 MiB)**:
 
@@ -90,7 +92,8 @@ ZetaJS revision: `b3dec98af5dc4c059a260afd6db0bf0fe38c6384`.
 `FS-INVENTORY.json` records its VFS. LibreOffice retains MPL-2.0 and its upstream
 license notices, ZetaJS uses MIT, and fonts/selected dependencies retain their
 actual individual licenses. Vesperwind's MIT license does not relicense LOWA.
-Full texts are under `licenses/`; source pins, the exact production patch,
+Full texts are under `licenses/`, including the pinned Emscripten MIT/NCSA
+notice/authors and selected libc++/libc++abi/compiler-rt/libunwind/musl notices; source pins, the exact production patch,
 modified source forms, download list/hashes and rebuild scripts are under
 `vendor/lowa-build/`. See `THIRD_PARTY_NOTICES.md`.
 
@@ -114,14 +117,17 @@ The compact receipt is [`office-native-acceptance.json`](office-native-acceptanc
 
 | Observation | Integrated macOS value |
 | --- | ---: |
-| Cold conversion including initialization | 9.464 s |
-| Engine initialization | 8.541 s |
-| Warm conversion median | 288 ms |
-| Before LOWA, median summed RSS | 348.70 MiB |
-| Warm, median summed RSS | 1373.64 MiB |
-| After idle teardown, median summed RSS | 279.17 MiB |
-| Peak summed RSS | 1632.999 MiB |
-| Idle teardown from last conversion | 90.070 s |
+| Cold conversion including initialization | 8.357 s |
+| Engine initialization | 7.376 s |
+| Warm conversion median | 271 ms |
+| Before LOWA, median summed RSS | 338.59 MiB |
+| Warm, median summed RSS | 1874.91 MiB |
+| After idle teardown, median summed RSS | 560.98 MiB |
+| Peak summed RSS | 1875.00 MiB |
+| Idle teardown from last conversion | 90.363 s |
+
+Conversion timing starts after asset verification and WebView construction; it
+includes worker initialization, but excludes provider reads and queue wait.
 
 RSS is sampled at 250 ms for the app plus newly appearing WebKit processes.
 WebKit XPC processes are owned by launchd, so temporal attribution can include
@@ -159,11 +165,10 @@ regressions. The Office research tree and its three obsolete reports are removed
 The mounted source/build scratch was emptied and detached, and its 13.57 GB
 backing image removed. Alternate payloads, CDN downloads, candidate harnesses,
 transfer data and generated comparisons are removed from `/private/tmp`.
-The external directory `/Volumes/WD 1TB/vesperwind-lowa-build` still contains
-source/SDK download archives and an unmodified Emscripten source checkout:
-automatic approval review rejected deleting that entire directory. These paths
-are recorded as `externalRemaining` in the cleanup receipt and remain pending
-explicit authorization. The repository and runtime do not depend on them.
+The external source/SDK directory `/Volumes/WD 1TB/vesperwind-lowa-build` was
+also removed after the user explicitly approved that whole-directory cleanup.
+Production source pins, modified forms, recipes and required notices remain in
+the repository.
 The root `.gitignore` had no research-only rules, so it is unchanged. The eight
 nested Office research rules disappeared with its `.gitignore`; legitimate
 project ignores remain. No `git clean` or reset was used.

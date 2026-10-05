@@ -1,3 +1,4 @@
+import vm from 'node:vm'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
@@ -53,7 +54,8 @@ test('native conversion has no external Office discovery, uses direct model load
   const [command, worker, host, main] = await Promise.all(['src-tauri/src/commands/document.rs', 'src-tauri/vendor/lowa/web/office_thread.js', 'src-tauri/src/office.rs', 'src-tauri/src/lib.rs'].map(source))
   assert.doesNotMatch(command, /Command|soffice|PATH|LibreOffice\.app|VESPERWIND_LIBREOFFICE/)
   assert.doesNotMatch(worker, /loadComponentFromURL/)
-  assert.match(worker, /MacroExecutionMode', 4/); assert.match(worker, /UpdateDocMode', 0/)
+  assert.match(worker, /MacroExecutionMode', new z\.Any\(z\.type\.short, 0\)/)
+  assert.match(worker, /UpdateDocMode', new z\.Any\(z\.type\.short, 0\)/)
   assert.match(host, /background_throttling[\s\S]*BackgroundThrottlingPolicy::Disabled/)
   assert.match(host, /NewWindowResponse::Deny/)
   assert.match(main, /starts_with\("office-converter-"\)[\s\S]*IPC is disabled/)
@@ -67,5 +69,32 @@ test('imported DOC and RTF keep source bytes and require Save As DOCX after LOWA
     assert.equal((await loadDocument(tab, {}, io, async () => ({ ok: true, bytes: docx }))).ok, true)
     assert.equal(tab.dirty, true); assert.equal(tab.fileName, name)
     assert.equal((await saveDocument(tab, null, io)).error.code, 'EDOCX_SAVE_AS_REQUIRED'); assert.equal(writes, 0)
+  }
+})
+
+
+test('worker passes typed NEVER_EXECUTE and NO_UPDATE to every real loader call and aborts interactions', async () => {
+  const worker = await source('src-tauri/vendor/lowa/web/office_thread.js')
+  const loads = [], stores = [], port = {}, short = Symbol('UNO short')
+  class Any { constructor(type, val) { this.type = type; this.val = val } }
+  const model = { close() {}, load(properties) { loads.push(properties) }, storeToURL(url) { stores.push(url) } }
+  const helper = {
+    zetajs: { Any, type: { short }, unoObject: (_types, object) => object },
+    css: { beans: { PropertyValue: class { constructor(value) { Object.assign(this, value) } } },
+      task: { XInteractionAbort: { query: (continuation) => continuation } } },
+    context: { getServiceManager: () => ({ createInstanceWithContext: () => model }) },
+    thrPort: Object.assign(port, { postMessage() {} }),
+  }
+  vm.runInNewContext(worker.replace(/^import .*$/m, ''), { ZetaHelperThread: class { constructor() { return helper } } })
+  for (const format of ['pptx', 'doc', 'rtf']) port.onmessage({ data: { cmd: 'convert', from: `/input.${format}`, to: '/output', target: format === 'pptx' ? 'pdf' : 'docx', id: format } })
+  assert.equal(loads.length, 3); assert.equal(stores.length, 3)
+  for (const properties of loads) {
+    for (const name of ['MacroExecutionMode', 'UpdateDocMode']) {
+      const value = properties.find((p) => p.Name === name).Value
+      assert.ok(value instanceof Any); assert.equal(value.type, short); assert.equal(value.val, 0)
+    }
+    let aborted = false
+    properties.find((p) => p.Name === 'InteractionHandler').Value.handle({ getContinuations: () => [{ select: () => { aborted = true } }] })
+    assert.equal(aborted, true)
   }
 })

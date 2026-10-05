@@ -87,7 +87,8 @@ build flags, production patches and modified source forms are recorded in
 `src-tauri/vendor/lowa/BUILD-INFO.json` and `vendor/lowa-build/`. Full LibreOffice
 LICENSE, NOTICE and copying texts are bundled under
 `src-tauri/vendor/lowa/licenses/`, together with the actual selected dependency
-notices. `ASSETS.json` pins every runtime resource; the application bundles these
+notices. The pinned Emscripten MIT/NCSA and LLVM/libc runtime notices are
+retained under `licenses/emscripten`. `ASSETS.json` pins every runtime resource; the application bundles these
 notices on both target platforms.
 
 ZetaJS at revision `b3dec98af5dc4c059a260afd6db0bf0fe38c6384` retains its MIT

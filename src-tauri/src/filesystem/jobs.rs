@@ -89,6 +89,9 @@ impl OperationJobs {
 
 #[derive(Serialize, Deserialize)]
 struct Input {
+    #[cfg(debug_assertions)]
+    #[serde(default)]
+    parent_probe: bool,
     request: OperationRequest,
     root: PathBuf,
     home: PathBuf,
@@ -121,6 +124,8 @@ pub fn execute(
     }
     let remote = ssh.operation_connections(&request)?;
     let input = Input {
+        #[cfg(debug_assertions)]
+        parent_probe: false,
         request,
         root: filesystem.root().to_owned(),
         home: filesystem.home().to_owned(),
@@ -164,7 +169,13 @@ pub fn execute(
     // The worker only reads stdin before any OS operation. This payload is
     // bounded to 2 MiB, and includes credentials solely in an anonymous pipe.
     let mut stdin = child.stdin.take().unwrap();
-    let writer = std::thread::spawn(move || stdin.write_all(&encoded));
+    let writer = std::thread::spawn(move || {
+        stdin.write_all(&(encoded.len() as u32).to_le_bytes())?;
+        stdin.write_all(&encoded)?;
+        // Keep the pipe open in this thread's result until the child exits.
+        // Closing it (including parent death) is the worker's lifetime signal.
+        Ok::<_, std::io::Error>(stdin)
+    });
     let result = loop {
         if cancelled.load(Ordering::Acquire) || Instant::now() >= deadline {
             let _ = child.kill();
@@ -239,13 +250,47 @@ pub fn run_filesystem_helper() -> bool {
         return false;
     }
     let result = (|| {
-        let mut bytes = vec![];
-        std::io::stdin()
-            .take(2 * 1024 * 1024)
-            .read_to_end(&mut bytes)
+        let mut stdin = std::io::stdin();
+        let mut length = [0u8; 4];
+        stdin
+            .read_exact(&mut length)
+            .map_err(|e| NativeError::from_io(&e, "Unable to read operation frame"))?;
+        let length = u32::from_le_bytes(length) as usize;
+        if length == 0 || length > 2 * 1024 * 1024 {
+            return Err(NativeError::new("EINVAL", "Invalid operation frame"));
+        }
+        let mut bytes = vec![0; length];
+        stdin
+            .read_exact(&mut bytes)
             .map_err(|e| NativeError::from_io(&e, "Unable to read operation"))?;
         let input: Input = serde_json::from_slice(&bytes)
             .map_err(|_| NativeError::new("EINVAL", "Invalid operation request"))?;
+        std::thread::spawn(move || {
+            let mut byte = [0];
+            // No further protocol bytes are allowed. EOF means the owning
+            // process disappeared; stop even if the operation thread is stuck.
+            loop {
+                match stdin.read(&mut byte) {
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                    _ => break,
+                }
+            }
+            #[cfg(unix)]
+            unsafe {
+                libc::_exit(3);
+            }
+            #[cfg(windows)]
+            unsafe {
+                use windows_sys::Win32::System::Threading::{GetCurrentProcess, TerminateProcess};
+                TerminateProcess(GetCurrentProcess(), 3);
+            }
+            #[cfg(not(any(unix, windows)))]
+            std::process::exit(3);
+        });
+        #[cfg(debug_assertions)]
+        if input.parent_probe {
+            std::thread::sleep(Duration::from_secs(30));
+        }
         DEADLINE.with(|d| {
             d.set(Some(
                 Instant::now()

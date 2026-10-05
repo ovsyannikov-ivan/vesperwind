@@ -25,7 +25,9 @@ helper.thrPort.onmessage = ({ data: request }) => {
     model.load([
       property('URL', `file://${request.from}`), property('FilterName', filter),
       property('Hidden', true), property('ReadOnly', true),
-      property('MacroExecutionMode', 4), property('UpdateDocMode', 0),
+      // UNO short constants: NEVER_EXECUTE = 0, NO_UPDATE = 0.
+      property('MacroExecutionMode', new z.Any(z.type.short, 0)),
+      property('UpdateDocMode', new z.Any(z.type.short, 0)),
       property('InteractionHandler', abortInteractions),
     ])
     model.storeToURL(`file://${request.to}`, [property('Overwrite', true),

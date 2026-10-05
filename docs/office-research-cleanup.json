@@ -132,7 +132,8 @@
     "/private/tmp/vw-lowa-pinned-emscripten.mk",
     "/private/tmp/vw-office2pdf-feature-raster.log",
     "/private/tmp/vw-lowa-rtf-1.png",
-    "/Volumes/WD 1TB/vesperwind-lowa-build/scratch.sparseimage"
+    "/Volumes/WD 1TB/vesperwind-lowa-build/scratch.sparseimage",
+    "/Volumes/WD 1TB/vesperwind-lowa-build"
   ],
   "observedAllocatedKiB": {
     "research/office-formats": 2001768,
@@ -140,13 +141,11 @@
   },
   "finished": true,
   "sourceScratchMountDetached": "/private/tmp/vw-lowa-build",
-  "externalRemaining": [
-    "/Volumes/WD 1TB/vesperwind-lowa-build/core-efaf067.tar.gz",
-    "/Volumes/WD 1TB/vesperwind-lowa-build/emscripten-releases-tags-3.1.65.json",
-    "/Volumes/WD 1TB/vesperwind-lowa-build/wasm-binaries-3.1.65-arm64.tar.xz",
-    "/Volumes/WD 1TB/vesperwind-lowa-build/emsdk-manifest-3.1.65.json",
-    "/Volumes/WD 1TB/vesperwind-lowa-build/emscripten-949ee1d40467b80e90a9fdc67155d443426fef2d",
-    "/Volumes/WD 1TB/vesperwind-lowa-build/emscripten-949ee1d.tar.gz"
-  ],
-  "externalCleanupBlocked": "Automatic approval review rejected recursive removal of the external source/SDK directory; no bypass attempted."
+  "externalRemaining": [],
+  "externalCleanupAuthorized": "User explicitly approved deletion of the entire remaining external source/SDK directory.",
+  "nativeAcceptanceScratchRemoved": [
+    "/private/tmp/vesperwind-native-office-macros-final",
+    "/private/tmp/vesperwind-native-office-delivery",
+    "/private/tmp/vesperwind-native-office-final-bundle"
+  ]
 }
