@@ -23,4 +23,6 @@ settings.local.json
 
 # Generated pinned thumbnail sidecars (built from the checked-in recipe).
 src-tauri/binaries/ffmpeg-*
+!src-tauri/binaries/FFmpeg-LGPL-2.1.txt
+!src-tauri/binaries/FFmpeg-BUILD-INFO.txt
 src-tauri/binaries/vesperwind-archive-*

@@ -1,0 +1,4 @@
+FFmpeg 8.0 source: https://codeload.github.com/FFmpeg/FFmpeg/tar.gz/refs/tags/n8.0
+Source SHA256: dd4030dbfdc34d9ff255a116bdd1caade42500ac2981efa27f8b151cc54c7b9e
+Build recipe: scripts/build-thumbnail-ffmpeg.sh
+libav* are statically linked; only OS runtime libraries remain.
