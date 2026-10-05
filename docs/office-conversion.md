@@ -113,7 +113,8 @@ and existing Word reader readback. The native runner also probes a separate
 owned network origin from inside the converter WebView to verify CSP rejection.
 It verified lazy startup, warm reuse, actual
 90-second idle destruction, reconstruction, native hard cancellation and recovery.
-The compact receipt is [`office-native-acceptance.json`](office-native-acceptance.json).
+The native smoke scripts write diagnostics to their chosen output directory; CI
+uploads those files as workflow artifacts.
 
 | Observation | Integrated macOS value |
 | --- | ---: |
@@ -156,19 +157,3 @@ and displayed deletion error/Close) is still pending: the CUA kernel rejected
 this session's symlinked writable root, System Events lacked Accessibility
 permission, and screen capture yielded no usable image. Native engine/helper
 acceptance and frontend regressions do not replace that visual acceptance.
-
-## Research cleanup
-
-`docs/office-research-cleanup.json` records the named disposable paths removed
-after moving production assets, notices, exact source forms/recipes, fixtures and
-regressions. The Office research tree and its three obsolete reports are removed.
-The mounted source/build scratch was emptied and detached, and its 13.57 GB
-backing image removed. Alternate payloads, CDN downloads, candidate harnesses,
-transfer data and generated comparisons are removed from `/private/tmp`.
-The external source/SDK directory `/Volumes/WD 1TB/vesperwind-lowa-build` was
-also removed after the user explicitly approved that whole-directory cleanup.
-Production source pins, modified forms, recipes and required notices remain in
-the repository.
-The root `.gitignore` had no research-only rules, so it is unchanged. The eight
-nested Office research rules disappeared with its `.gitignore`; legitimate
-project ignores remain. No `git clean` or reset was used.
