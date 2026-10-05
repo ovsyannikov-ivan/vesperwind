@@ -17,6 +17,8 @@ const requestCommands = Object.freeze({
   'filesystem:write-binary': 'filesystem_write_binary',
   'document:convert': 'document_convert',
   'filesystem:operate': 'filesystem_operate',
+  'filesystem:operation-cancel': 'filesystem_operation_cancel',
+  'document:cancel': 'document_cancel',
   'desktop:operate': 'desktop_operate',
   'content:prepare': 'content_prepare',
   'content:status': 'content_status',
@@ -72,22 +74,45 @@ const normalizeInvokeError = (error) => ({
   },
 })
 
-const request = async (eventName, payload = {}) => {
+// Each invocation has one terminal state. Native job cancellation complements
+// this UI deadline; a late invoke response can never resolve a newer request.
+export const createTauriRequester = (invokeNative) => (eventName, payload = {}, options = {}) => {
   const command = requestCommands[eventName]
-
-  if (!command) {
-    return normalizeInvokeError({
-      code: 'ENOTSUPPORTED',
-      message: `Unsupported native backend request: ${eventName}`,
-    })
-  }
-
-  try {
-    return await invoke(command, { payload })
-  } catch (error) {
-    return normalizeInvokeError(error)
-  }
+  if (!command) return Promise.resolve(normalizeInvokeError({
+    code: 'ENOTSUPPORTED', message: `Unsupported native backend request: ${eventName}`,
+  }))
+  const timeout = Number.isFinite(options.timeout) && options.timeout > 0 ? options.timeout : 15_000
+  const cancellable = eventName === 'filesystem:operate' || eventName === 'document:convert'
+  const operationId = cancellable ? crypto.randomUUID() : null
+  const args = cancellable ? { ...payload, operationId, timeoutMs: Math.max(1, timeout - 250) } : payload
+  return new Promise((resolve) => {
+    let settled = false
+    let timer
+    const finish = (response) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      options.signal?.removeEventListener('abort', abort)
+      resolve(response)
+    }
+    const stop = (code, message) => {
+      if (settled) return
+      // Sent before completing the UI request. Native watchdog also owns a
+      // deadline, so cancellation remains effective if this WebView disappears.
+      if (cancellable) void invokeNative(eventName === 'filesystem:operate'
+        ? 'filesystem_operation_cancel' : 'document_cancel', { payload: { operationId } }).catch(() => {})
+      finish({ ok: false, error: { code, message, path: payload.sourcePath } })
+    }
+    const abort = () => stop('ECANCELLED', 'The operation was cancelled')
+    timer = setTimeout(() => stop('ETIMEDOUT', 'The operation did not complete within the allowed time. Vesperwind is ready for another operation.'), timeout)
+    options.signal?.addEventListener('abort', abort, { once: true })
+    if (options.signal?.aborted) { abort(); return }
+    Promise.resolve().then(() => invokeNative(command, { payload: args }))
+      .then(finish, (error) => finish(normalizeInvokeError(error)))
+  })
 }
+
+const request = createTauriRequester(invoke)
 
 const send = (eventName, payload = {}) => {
   const command = sendCommands[eventName]

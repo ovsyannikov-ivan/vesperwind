@@ -13,7 +13,7 @@ const getSocket = () => {
   return socket
 }
 
-const request = (eventName, payload = {}, options = {}) => {
+export const createSocketRequester = (socketOf) => (eventName, payload = {}, options = {}) => {
   if (eventName === 'content:prepare') {
     return Promise.resolve({
       ok: true,
@@ -34,7 +34,7 @@ const request = (eventName, payload = {}, options = {}) => {
   return new Promise((resolve) => {
     const timeout = options.timeout || DEFAULT_REQUEST_TIMEOUT
 
-    getSocket().timeout(timeout).emit(eventName, payload, (timeoutError, response) => {
+    socketOf().timeout(timeout).emit(eventName, payload, (timeoutError, response) => {
       if (timeoutError) {
         resolve({
           ok: false,
@@ -50,6 +50,8 @@ const request = (eventName, payload = {}, options = {}) => {
     })
   })
 }
+
+const request = createSocketRequester(getSocket)
 
 const send = (eventName, payload = {}) => {
   getSocket().emit(eventName, payload)

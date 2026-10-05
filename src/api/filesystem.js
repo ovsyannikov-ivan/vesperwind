@@ -100,9 +100,11 @@ const writeBinary = async (location, bytes, options) => {
   )
 }
 
-const OPERATION_TIMEOUT = 10 * 60 * 1000
+export const OPERATION_TIMEOUT = 10 * 60 * 1000
+export const DELETE_TIMEOUT = 30_000
+export const REMOTE_OPERATION_TIMEOUT = 120_000
 
-const operate = async ({ action, source, target = null, name }) => {
+const operate = async ({ action, source, target = null, name, options = {} }) => {
   if (action === 'copy' && source?.isDirectory !== true) {
     const preparation = await content.prepare(source)
     if (!preparation.ok) return preparation
@@ -119,7 +121,8 @@ const operate = async ({ action, source, target = null, name }) => {
         targetFilesystemId: target ? providerIdOf(target) : null,
         targetDirectory: target?.path,
       },
-      { timeout: OPERATION_TIMEOUT },
+      { ...options, timeout: action === 'delete' ? DELETE_TIMEOUT
+        : [source, target].some((value) => providerIdOf(value).startsWith('sftp:')) ? REMOTE_OPERATION_TIMEOUT : OPERATION_TIMEOUT },
     ),
     'EFILE_OPERATION',
     'The file operation failed',
@@ -140,7 +143,7 @@ export const filesystem = Object.freeze({
   copy: (source, target) => operate({ action: 'copy', source, target }),
   move: (source, target) => operate({ action: 'move', source, target }),
   link: (source, target) => operate({ action: 'link', source, target }),
-  remove: (source) => operate({ action: 'delete', source }),
+  remove: (source, options) => operate({ action: 'delete', source, options }),
   createFile: (target, name) => operate({ action: 'create-file', target, name }),
   createFolder: (target, name) => operate({ action: 'create-folder', target, name }),
   rename: (source, name) => operate({ action: 'rename', source, name }),

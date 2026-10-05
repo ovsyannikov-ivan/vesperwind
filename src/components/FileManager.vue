@@ -1,5 +1,6 @@
 <script setup>
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { settleFileOperation } from '../composables/fileOperationLifecycle.js'
 import { isComputerPath } from '../../shared/localFilesystem.js'
 import { connection } from '../api/connection.js'
 import { useEditorWorkspace } from '../composables/useEditorWorkspace.js'
@@ -142,6 +143,8 @@ const activeOperation = ref('')
 const operationError = ref('')
 const confirmationRequest = ref(null)
 const confirmationBusy = ref(false)
+let operationGeneration = 0
+let confirmationGeneration = 0
 const confirmationError = ref('')
 const entryContextRequest = ref(null)
 const entryContextBusy = ref(false)
@@ -539,21 +542,25 @@ const runFileOperation = (action, source, targetDirectory) => {
   })
 }
 
-const runFileOperations = async (action, sources, targetDirectory, requestDetails) => {
+const runFileOperations = async (action, sources, targetDirectory, requestDetails, isCurrent) => {
   const effectiveSources = transferSources(sources)
   const processedSources = []
   for (const source of effectiveSources) {
+    if (!isCurrent()) return { ok: false, processedSources, error: { code: 'ECANCELLED' } }
     let response
     try {
       response = await runFileOperation(action, source, targetDirectory)
     } catch (error) {
       response = { ok: false, error: { message: error?.message || 'The file operation failed' } }
     }
+    if (!isCurrent()) return { ok: false, processedSources, error: { code: 'ECANCELLED' } }
     if (!response?.ok) {
+      // A recursive operation can fail after changing children. Refresh even
+      // when no top-level source has completed. Never imply rollback.
       return {
         ok: false,
         processedSources,
-        error: { message: `${source.name}: ${response?.error?.message || 'The file operation failed'} (${processedSources.length} completed)` },
+        error: { ...response?.error, message: `${source.name}: ${response?.error?.message || 'The file operation failed'}${response?.error?.path ? `: ${response.error.path}` : ''} (${processedSources.length} completed)` },
       }
     }
     syncAfterFileOperation({ ...requestDetails, action, source, target: targetDirectory }, response)
@@ -571,6 +578,7 @@ const finishTransferredSelection = (action, sourcePanel, sources) => {
 const openFileOperationMenu = (requestDetails) => {
   entryContextRequest.value = null
   activePanel.value = requestDetails.targetPanel
+  operationGeneration++
   dropRequest.value = {
     ...requestDetails,
     sources: requestDetails.source.sources || [requestDetails.source],
@@ -681,13 +689,14 @@ const executeFileOperation = async (action) => {
   operationBusy.value = true
   activeOperation.value = action
   operationError.value = ''
-  const response = await runFileOperations(
-    action,
-    dropRequest.value.sources,
-    dropRequest.value.target,
-    requestDetails,
-  )
-  operationBusy.value = false
+  const generation = ++operationGeneration
+  const response = await settleFileOperation({
+    run: () => runFileOperations(action, requestDetails.sources, requestDetails.target, requestDetails, () => generation === operationGeneration),
+    setBusy: (value) => { operationBusy.value = value },
+    refresh: () => { filesystemRevision.value += 1 },
+    isCurrent: () => generation === operationGeneration,
+  })
+  if (generation !== operationGeneration) return
 
   if (!response?.ok) {
     activeOperation.value = ''
@@ -723,6 +732,7 @@ const openCommanderConfirmation = (action) => {
 
   entryContextRequest.value = null
   confirmationError.value = ''
+  confirmationGeneration++
   confirmationRequest.value = {
     action,
     source: sourcePanel.selected,
@@ -739,6 +749,7 @@ const closeCommanderConfirmation = () => {
     return
   }
 
+  confirmationGeneration++
   confirmationRequest.value = null
   confirmationError.value = ''
 }
@@ -758,13 +769,14 @@ const executeCommanderOperation = async () => {
   const requestDetails = confirmationRequest.value
   confirmationBusy.value = true
   confirmationError.value = ''
-  const response = await runFileOperations(
-    requestDetails.action,
-    requestDetails.sources,
-    requestDetails.targetDirectory,
-    requestDetails,
-  )
-  confirmationBusy.value = false
+  const generation = ++confirmationGeneration
+  const response = await settleFileOperation({
+    run: () => runFileOperations(requestDetails.action, requestDetails.sources, requestDetails.targetDirectory, requestDetails, () => generation === confirmationGeneration),
+    setBusy: (value) => { confirmationBusy.value = value },
+    refresh: () => { filesystemRevision.value += 1 },
+    isCurrent: () => generation === confirmationGeneration,
+  })
+  if (generation !== confirmationGeneration) return
 
   if (!response?.ok) {
     confirmationError.value =
@@ -837,6 +849,12 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  operationGeneration++
+  confirmationGeneration++
+  operationBusy.value = false
+  confirmationBusy.value = false
+  confirmationRequest.value = null
+  dropRequest.value = null
   quickLook.close()
   archiveJob?.dispose()
   clearPanelDrag()

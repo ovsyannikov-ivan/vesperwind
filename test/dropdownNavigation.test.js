@@ -58,7 +58,7 @@ test('all dropdown surfaces share primary interaction states and no item receive
   }
   assert.match(toolbar, /class="dropdown-menu toolbar-create-menu shadow"/u)
   assert.match(terminal, /<h2 class="dropdown-header">Remote<\/h2>/u)
-  assert.match(toolbar, /document\.addEventListener\('pointerdown', closeCreateOnOutsidePointer, true\)/u)
+  assert.match(toolbar, /document\.addEventListener\(['"]pointerdown['"], closeCreateOnOutsidePointer, true\)/u)
   assert.match(toolbar, /!createButton\.value\?\.contains\(event\.target\) && !createMenu\.value\?\.contains\(event\.target\)/u)
   assert.match(toolbar, /createDropdown\?\.hide\(\)/u)
 })
