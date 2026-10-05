@@ -1,6 +1,7 @@
 pub mod alias;
 pub mod archives;
 pub mod availability;
+pub mod jobs;
 pub mod network;
 pub mod operations;
 pub mod paths;
@@ -345,6 +346,8 @@ mod desktop_tests {
         perform(
             &desktop,
             OperationRequest {
+                operation_id: None,
+                timeout_ms: None,
                 action: "create-file".into(),
                 source_path: None,
                 target_directory: Some(outside.to_string_lossy().into()),

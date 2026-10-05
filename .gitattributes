@@ -51,3 +51,10 @@
 
 # Unified diff patches require a space prefix on empty context lines.
 /scripts/patches/*.patch whitespace=-blank-at-eol,-blank-at-eof
+
+# LOWA runtime is verified by ASSETS.json; never normalize its pinned bytes.
+/src-tauri/vendor/lowa/** -text
+/src-tauri/vendor/lowa/licenses/** whitespace=-blank-at-eol,-blank-at-eof
+# Preserve the accepted source forms and unified patch verbatim.
+/vendor/lowa-build/modified-source/** -text whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab
+/vendor/lowa-build/production.patch -text whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab

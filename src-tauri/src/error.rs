@@ -1,7 +1,7 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{io, path::Path};
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NativeError {
     pub code: String,
@@ -41,9 +41,13 @@ impl NativeError {
             io::ErrorKind::NotADirectory => "ENOTDIR",
             io::ErrorKind::IsADirectory => "EISDIR",
             io::ErrorKind::DirectoryNotEmpty => "ENOTEMPTY",
+            io::ErrorKind::ReadOnlyFilesystem => "EROFS",
+            io::ErrorKind::ResourceBusy => "EBUSY",
+            io::ErrorKind::TimedOut => "ETIMEDOUT",
+            io::ErrorKind::Interrupted => "ECANCELLED",
             _ => "EIO",
         };
 
-        Self::new(code, fallback)
+        Self::new(code, fallback).with_native_error(error.to_string())
     }
 }

@@ -4,6 +4,9 @@ mod error;
 mod filesystem;
 mod media;
 mod mpv;
+#[cfg(debug_assertions)]
+mod native_regression;
+mod office;
 mod provider_content;
 mod settings;
 mod ssh;
@@ -26,8 +29,12 @@ use tauri::Emitter;
 use tauri::Manager;
 use terminal::TerminalManager;
 
+pub use filesystem::jobs::run_filesystem_helper;
+
 pub struct AppState {
     filesystem: Arc<Filesystem>,
+    operation_jobs: Arc<filesystem::jobs::OperationJobs>,
+    conversion: Arc<office::ConversionBroker>,
     content: Arc<ContentManager>,
     media_http: Arc<media::http::MediaHttpServer>,
     settings: Arc<SettingsStore>,
@@ -140,6 +147,8 @@ pub fn run() {
 
     let app = builder
         .manage(AppState {
+            operation_jobs: Arc::new(filesystem::jobs::OperationJobs::default()),
+            conversion: Arc::new(office::ConversionBroker::default()),
             filesystem,
             content,
             media_http,
@@ -171,6 +180,13 @@ pub fn run() {
             if let Some(webview) = app.get_webview("main") {
                 webview.set_background_color(Some(background))?;
             }
+            #[cfg(debug_assertions)]
+            {
+                if std::env::args().nth(1).as_deref() == Some("--native-regression") {
+                    window.hide()?;
+                }
+                native_regression::start(app.handle());
+            }
             Ok(())
         })
         .register_asynchronous_uri_scheme_protocol(
@@ -183,60 +199,79 @@ pub fn run() {
                 });
             },
         )
-        .invoke_handler(tauri::generate_handler![
-            commands::filesystem::filesystem_root,
-            commands::archive::archive_start,
-            commands::archive::archive_cancel,
-            commands::filesystem::filesystem_resolve_location,
-            commands::filesystem::filesystem_list,
-            commands::filesystem::filesystem_search,
-            commands::filesystem::filesystem_search_cancel,
-            commands::filesystem::filesystem_watch,
-            commands::filesystem::filesystem_unwatch,
-            commands::filesystem::filesystem_read_text,
-            commands::filesystem::filesystem_write_text,
-            commands::filesystem::filesystem_read_binary,
-            commands::filesystem::filesystem_write_binary,
-            commands::document::document_convert,
-            commands::filesystem::filesystem_operate,
-            commands::desktop::desktop_operate,
-            commands::content::content_prepare,
-            commands::content::content_status,
-            commands::content::content_cancel,
-            commands::runtime::runtime_info,
-            commands::media::media_source,
-            commands::media::video_thumbnail,
-            commands::media::media_history,
-            commands::media::media_chapters,
-            commands::media::media_metadata,
-            commands::media::media_cancel_metadata,
-            commands::player::player_capabilities,
-            commands::player::player_open,
-            commands::player::player_play,
-            commands::player::player_pause,
-            commands::player::player_seek,
-            commands::player::player_set_volume,
-            commands::player::player_set_muted,
-            commands::player::player_select_track,
-            commands::player::player_set_subtitle_delay,
-            commands::player::player_set_geometry,
-            commands::player::player_set_visible,
-            commands::player::player_set_overlay,
-            commands::player::player_set_transition_cover,
-            commands::player::player_overlay_snapshot,
-            commands::player::player_snapshot,
-            commands::player::player_close,
-            commands::settings::settings_get,
-            commands::settings::settings_update,
-            commands::settings::settings_reset,
-            commands::terminal::terminal_create,
-            commands::terminal::terminal_input,
-            commands::terminal::terminal_resize,
-            commands::terminal::terminal_close,
-            commands::ssh::ssh_connect,
-            commands::ssh::ssh_disconnect,
-            commands::ssh::ssh_status,
-        ])
+        .invoke_handler({
+            let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
+                commands::filesystem::filesystem_root,
+                commands::archive::archive_start,
+                commands::archive::archive_cancel,
+                commands::filesystem::filesystem_resolve_location,
+                commands::filesystem::filesystem_list,
+                commands::filesystem::filesystem_search,
+                commands::filesystem::filesystem_search_cancel,
+                commands::filesystem::filesystem_watch,
+                commands::filesystem::filesystem_unwatch,
+                commands::filesystem::filesystem_read_text,
+                commands::filesystem::filesystem_write_text,
+                commands::filesystem::filesystem_read_binary,
+                commands::filesystem::filesystem_write_binary,
+                commands::document::document_convert,
+                commands::document::document_cancel,
+                commands::filesystem::filesystem_operate,
+                commands::filesystem::filesystem_operation_cancel,
+                commands::desktop::desktop_operate,
+                commands::content::content_prepare,
+                commands::content::content_status,
+                commands::content::content_cancel,
+                commands::runtime::runtime_info,
+                commands::media::media_source,
+                commands::media::video_thumbnail,
+                commands::media::media_history,
+                commands::media::media_chapters,
+                commands::media::media_metadata,
+                commands::media::media_cancel_metadata,
+                commands::player::player_capabilities,
+                commands::player::player_open,
+                commands::player::player_play,
+                commands::player::player_pause,
+                commands::player::player_seek,
+                commands::player::player_set_volume,
+                commands::player::player_set_muted,
+                commands::player::player_select_track,
+                commands::player::player_set_subtitle_delay,
+                commands::player::player_set_geometry,
+                commands::player::player_set_visible,
+                commands::player::player_set_overlay,
+                commands::player::player_set_transition_cover,
+                commands::player::player_overlay_snapshot,
+                commands::player::player_snapshot,
+                commands::player::player_close,
+                commands::settings::settings_get,
+                commands::settings::settings_update,
+                commands::settings::settings_reset,
+                commands::terminal::terminal_create,
+                commands::terminal::terminal_input,
+                commands::terminal::terminal_resize,
+                commands::terminal::terminal_close,
+                commands::ssh::ssh_connect,
+                commands::ssh::ssh_disconnect,
+                commands::ssh::ssh_status,
+            ];
+            move |invoke| {
+                if invoke
+                    .message
+                    .webview()
+                    .label()
+                    .starts_with("office-converter-")
+                {
+                    invoke
+                        .resolver
+                        .reject("IPC is disabled in the isolated Office converter");
+                    true
+                } else {
+                    handler(invoke)
+                }
+            }
+        })
         .build(context)
         .expect("error while running Vesperwind");
 
@@ -254,6 +289,8 @@ pub fn run() {
             {
                 cancel.store(true, std::sync::atomic::Ordering::Release);
             }
+            app_handle.state::<AppState>().conversion.shutdown();
+            app_handle.state::<AppState>().operation_jobs.shutdown();
             shutdown_terminal.shutdown();
             shutdown_player.close_all();
             shutdown_thumbnails.shutdown();

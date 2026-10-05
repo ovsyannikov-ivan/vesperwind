@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "origin": "User-provided Windows native WebView2 corpus",
+  "outputs": 80,
+  "pdfOutputs": 60,
+  "docxOutputs": 20,
+  "allReadbackAccepted": true,
+  "instances": 5,
+  "activeDestroyReconstructCycles": 4,
+  "finished": true,
+  "nativeExitCode": null,
+  "runnerBookkeepingBug": "Redirected Start-Process returned null; completed conversion corpus remains accepted. New production runner uses System.Diagnostics.Process and checks exit plus finished receipt.",
+  "sampledPeakSumRssBytes": 1134428160,
+  "payloadManifestSha256": "67264dd7b9a7c58dba2932b674898dbe25535928012acfa453eb315b0a0ac8d9",
+  "readbackSha256": "a9b9a51d9c238086e0dd1a2a1e17d8a5cb91b267cc3e37f125368b8ae6211c41"
+}

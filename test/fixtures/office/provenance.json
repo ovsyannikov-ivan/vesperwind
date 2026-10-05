@@ -1,0 +1,48 @@
+{
+  "license": "CC0-1.0",
+  "author": "Vesperwind research",
+  "generator": "@oai/artifact-tool 2.8.59; own JSZip OOXML mutations",
+  "note": "Structural/geometry oracle only; no PowerPoint ground truth is available. All raster/vector images generated from owned test patterns. XML declaration whitespace and chart paths normalized.",
+  "decks": [
+    {
+      "file": "representative.pptx",
+      "widthCssPx": 960,
+      "heightCssPx": 540,
+      "slides": 8,
+      "bytes": 35052,
+      "sha256": "d1ad8ae5b56ccdc1329a6289969a032f5f99b2b0cff5ea9790b7d01038181986"
+    },
+    {
+      "file": "standard-4-3.pptx",
+      "widthCssPx": 800,
+      "heightCssPx": 600,
+      "slides": 3,
+      "bytes": 18116,
+      "sha256": "068ab0c064497447109c0b117f8747c99e3f99046f2e48e63812602cf88ce0ce"
+    },
+    {
+      "file": "custom-size.pptx",
+      "widthCssPx": 1000,
+      "heightCssPx": 400,
+      "slides": 3,
+      "bytes": 18109,
+      "sha256": "a9594596884cff8e4a4bf02de21a69f931ae979d03a0914de1f788418991f622"
+    },
+    {
+      "file": "large-64.pptx",
+      "widthCssPx": 960,
+      "heightCssPx": 540,
+      "slides": 64,
+      "bytes": 163295,
+      "sha256": "d5b4a9086a47f22bc8c25092b3e6d6a877c0c4c8419625f6dace2d5b83bcf387"
+    },
+    {
+      "file": "minimal.pptx",
+      "widthCssPx": 960,
+      "heightCssPx": 540,
+      "slides": 1,
+      "bytes": 13345,
+      "sha256": "0aa9b4d0a003d026b28e1d008ebdb0ec1b7f23cbb5d2cbf22ecfdb607ab9ea75"
+    }
+  ]
+}

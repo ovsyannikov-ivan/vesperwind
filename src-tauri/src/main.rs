@@ -4,5 +4,8 @@
 )]
 
 fn main() {
+    if vesperwind_lib::run_filesystem_helper() {
+        return;
+    }
     vesperwind_lib::run();
 }

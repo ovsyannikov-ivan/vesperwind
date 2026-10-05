@@ -489,39 +489,43 @@ pub async fn filesystem_operate(
     state: State<'_, AppState>,
     payload: OperationRequest,
 ) -> Result<Value, String> {
-    let remote = payload
-        .filesystem_id
-        .as_deref()
-        .is_some_and(|value| value.starts_with("sftp:"))
-        || payload
-            .target_filesystem_id
-            .as_deref()
-            .is_some_and(|value| value.starts_with("sftp:"));
-    if remote {
-        let filesystem: Arc<filesystem::Filesystem> = Arc::clone(&state.filesystem);
-        let ssh = Arc::clone(&state.ssh);
-        return Ok(
-            match tauri::async_runtime::spawn_blocking(move || ssh.operate(&filesystem, payload))
-                .await
-            {
-                Ok(Ok(result)) => success("result", result),
-                Ok(Err(error)) => failure(error),
-                Err(error) => failure(NativeError::new("EFILE_OPERATION", error.to_string())),
-            },
-        );
-    }
-    let filesystem: Arc<filesystem::Filesystem> = Arc::clone(&state.filesystem);
+    let jobs = Arc::clone(&state.operation_jobs);
+    let filesystem = Arc::clone(&state.filesystem);
+    let ssh = Arc::clone(&state.ssh);
+    // Register before spawning so cancellation can also stop a queued job.
+    let id = payload
+        .operation_id
+        .clone()
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let cancelled = jobs.register(&id);
     Ok(
         match tauri::async_runtime::spawn_blocking(move || {
-            filesystem::operations::perform(&filesystem, payload)
+            let result = filesystem::jobs::execute(&filesystem, &ssh, payload, &cancelled);
+            jobs.finish(&id);
+            result
         })
         .await
         {
             Ok(Ok(result)) => success("result", result),
             Ok(Err(error)) => failure(error),
-            Err(error) => failure(NativeError::new("EFILE_OPERATION", error.to_string())),
+            Err(error) => failure(NativeError::new("EWORKER_LOST", error.to_string())),
         },
     )
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OperationCancelPayload {
+    operation_id: String,
+}
+
+#[tauri::command]
+pub fn filesystem_operation_cancel(
+    state: State<'_, AppState>,
+    payload: OperationCancelPayload,
+) -> Value {
+    state.operation_jobs.cancel(&payload.operation_id);
+    json!({"ok":true})
 }
 
 fn validate_text_metadata(metadata: &fs::Metadata) -> Result<(), NativeError> {

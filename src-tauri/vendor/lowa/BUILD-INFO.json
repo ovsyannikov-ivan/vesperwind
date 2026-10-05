@@ -1,0 +1,399 @@
+{
+  "schemaVersion": 1,
+  "recipe": {
+    "schemaVersion": 1,
+    "coreCommit": "efaf0670b4d055f838a2849becb10f08aa06a257",
+    "compilerCommit": "949ee1d40467b80e90a9fdc67155d443426fef2d",
+    "profileName": "128-grow-512",
+    "profile": {
+      "initialMiB": 128,
+      "maximumMiB": 512,
+      "growth": true
+    },
+    "trim": true,
+    "source": "/private/tmp/vw-lowa-build/core-efaf0670b4d055f838a2849becb10f08aa06a257",
+    "build": "/private/tmp/vw-lowa-build/build-headless",
+    "options": [
+      "--host=wasm32-local-emscripten",
+      "--disable-gui",
+      "--with-wasm-module=writer impress",
+      "--with-package-format=emscripten",
+      "--enable-mpl-subset",
+      "--disable-debug",
+      "--disable-symbols",
+      "--disable-qt5",
+      "--disable-qt6",
+      "--without-java",
+      "--enable-python=no",
+      "--disable-scripting",
+      "--disable-extensions",
+      "--disable-extension-integration",
+      "--disable-extension-update",
+      "--disable-database-connectivity",
+      "--disable-report-builder",
+      "--disable-firebird-sdbc",
+      "--disable-postgresql-sdbc",
+      "--disable-coinmp",
+      "--disable-odk",
+      "--disable-crashdump",
+      "--disable-online-update",
+      "--disable-online-update-mar",
+      "--disable-emscripten-proxy-posix-sockets",
+      "--disable-avmedia",
+      "--disable-gstreamer-1-0",
+      "--disable-dbus",
+      "--disable-dconf",
+      "--disable-cups",
+      "--disable-gtk3",
+      "--disable-gtk4",
+      "--disable-pdfimport",
+      "--disable-pdfium",
+      "--without-help",
+      "--without-helppack-integration",
+      "--with-galleries=no",
+      "--with-templates=no",
+      "--without-myspell-dicts",
+      "--without-lxml",
+      "--disable-compiler-plugins",
+      "--disable-ccache",
+      "--with-lang=en-US",
+      "--enable-dependency-tracking",
+      "--enable-bogus-pkg-config",
+      "--with-build-platform-configure-options=--enable-bogus-pkg-config",
+      "--with-external-tar=/private/tmp/vw-lowa-build/tarballs",
+      "--disable-curl",
+      "--disable-breakpad",
+      "--disable-libcmis",
+      "--without-webdav",
+      "--with-theme=no"
+    ],
+    "configureEnv": {
+      "test_libcdr": "no",
+      "test_libvisio": "no",
+      "test_libmspub": "no",
+      "test_libfreehand": "no",
+      "test_libpagemaker": "no",
+      "test_libqxp": "no",
+      "test_libzmf": "no",
+      "test_libstaroffice": "no",
+      "test_libmwaw": "no",
+      "test_libwps": "no",
+      "test_libwpd": "no",
+      "test_libwpg": "no",
+      "test_libabw": "no",
+      "test_libebook": "no",
+      "test_libetonyek": "no",
+      "test_libodfgen": "no",
+      "test_librevenge": "no"
+    },
+    "changes": [
+      {
+        "relative": "solenv/gbuild/platform/EMSCRIPTEN_INTEL_GCC.mk",
+        "originalSha256": "d55660f02b9987a45076f93f75b97a0be42a56859cc2460dce988caf8b22b018",
+        "patchedSha256": "b4c90e892a9458831f251dad577b96f5ac345b5da772d3feb3dde5fe4b3c4bb3"
+      },
+      {
+        "relative": "static/CustomTarget_emscripten_fs_image.mk",
+        "originalSha256": "d8cbce11662ab599844b27c3f4bf88b463ace32656b56743a254104672e8b26a",
+        "patchedSha256": "bfaf053494a6009a5fdb148dc2f5b50d5067d03ff1fd80bcfc0aafb3e20cce6c"
+      },
+      {
+        "relative": "RepositoryFixes.mk",
+        "originalSha256": "0c0ddc4ddf14f992eb5cc138ca833d4c420f8dc01baca40b1db8786e462d6936",
+        "patchedSha256": "370df242f53a9f03363e06c96c30ca107b1dc92ee0d5c0a0061d92e7c3005586"
+      },
+      {
+        "relative": "instsetoo_native/CustomTarget_setup.mk",
+        "originalSha256": "92ece121c45fa26fd6d26ad1a0a0d095c19bf5b3473f5803a426f795d31de3f8",
+        "patchedSha256": "1723454b2f5cb2850dad94e4baf62dde174cb5658fd54df2991398e3340d8201"
+      },
+      {
+        "relative": "external/openssl/ExternalProject_openssl.mk",
+        "originalSha256": "a88b664d8cb9ad3fb0aaace6021953a2e7db1485c3a352fe8ff0e8a54d2382b7",
+        "patchedSha256": "2ff5fd6af94da63a3c1c76d734c2c7718e24651e4f541b2a3cf639a39ad6dc7e"
+      },
+      {
+        "relative": "external/argon2/ExternalProject_argon2.mk",
+        "originalSha256": "272ded8f9f7794049e09e1018a27fe4885e1e21ae6510ca73b037d760e77956b",
+        "patchedSha256": "5c63ce3445b95b55537d4a5774ddcacb09f9dd0455ff8387c2a3937d6451e295"
+      },
+      {
+        "relative": "external/argon2/UnpackedTarball_argon2.mk",
+        "originalSha256": "f8a5b3c48ea02b9f006fdec72297c03a87e4d43d2451cbe3f191dcff0c39239f",
+        "patchedSha256": "b6de79cf55a2e6711e7df887f6b15f0c757276aac4ea8d5c83688723c0c01eb6"
+      },
+      {
+        "relative": "external/argon2/vesperwind-cross-ar.patch.0",
+        "originalSha256": null,
+        "patchedSha256": "2315de16c29864164601646383f05796225bf61a54d8971707e921682a3fe7bc"
+      },
+      {
+        "relative": "extras/CustomTarget_autotextshare.mk",
+        "originalSha256": "5ab4891bf917cf9f4f91fcea3bb4b85277b1928720fccfb90b3c70d027e4e43c",
+        "patchedSha256": "f13f0f20fbe736e213e9578de6b277ee085a71faa3c40b38921168d3f4ef7c81"
+      },
+      {
+        "relative": "RepositoryModule_host.mk",
+        "originalSha256": "f668206ff6ad8de6c9eaa797fd2a3b8c6ca87192654924c5234235c9dcfe50e0",
+        "patchedSha256": "bb83302cfd948ea8a049b37184befbaca18fd67ca5ea55c11d60639a69608d1e"
+      },
+      {
+        "relative": "solenv/gbuild/platform/unxgcc.mk",
+        "originalSha256": "6c149aeb1689ae67ac4c7c51e04af8e41986d75b3e475983804712defb9ae77d",
+        "patchedSha256": "d10d7d6cee75532bbc86e1bc7e0036f41f747c82d3df1988a55a62521eea21cd"
+      },
+      {
+        "relative": "solenv/gbuild/Conditions.mk",
+        "originalSha256": "247df5264b0316b4b66d48e340d36160f90a64570ff68635b82ef8d17739b014",
+        "patchedSha256": "3cd21cd32b35a88d45bfce1e3e2f6ae4b9a1055e3ad97e8013769b7d8208776e"
+      }
+    ],
+    "buildCompleted": false,
+    "reproducibilityVerified": false
+  },
+  "buildReceipt": {
+    "schemaVersion": 1,
+    "stage": "build",
+    "startedAt": "2026-10-05T15:04:54.031Z",
+    "finishedAt": "2026-10-05T15:10:45.916Z",
+    "code": 0,
+    "signal": null,
+    "recipeSha256": "0e7148f726ac799a4193f37555b7e3af87613359a14db0fc9a39f9a317ec52c4",
+    "recipe": {
+      "schemaVersion": 1,
+      "coreCommit": "efaf0670b4d055f838a2849becb10f08aa06a257",
+      "compilerCommit": "949ee1d40467b80e90a9fdc67155d443426fef2d",
+      "profileName": "128-grow-512",
+      "profile": {
+        "initialMiB": 128,
+        "maximumMiB": 512,
+        "growth": true
+      },
+      "trim": true,
+      "source": "/private/tmp/vw-lowa-build/core-efaf0670b4d055f838a2849becb10f08aa06a257",
+      "build": "/private/tmp/vw-lowa-build/build-headless",
+      "options": [
+        "--host=wasm32-local-emscripten",
+        "--disable-gui",
+        "--with-wasm-module=writer impress",
+        "--with-package-format=emscripten",
+        "--enable-mpl-subset",
+        "--disable-debug",
+        "--disable-symbols",
+        "--disable-qt5",
+        "--disable-qt6",
+        "--without-java",
+        "--enable-python=no",
+        "--disable-scripting",
+        "--disable-extensions",
+        "--disable-extension-integration",
+        "--disable-extension-update",
+        "--disable-database-connectivity",
+        "--disable-report-builder",
+        "--disable-firebird-sdbc",
+        "--disable-postgresql-sdbc",
+        "--disable-coinmp",
+        "--disable-odk",
+        "--disable-crashdump",
+        "--disable-online-update",
+        "--disable-online-update-mar",
+        "--disable-emscripten-proxy-posix-sockets",
+        "--disable-avmedia",
+        "--disable-gstreamer-1-0",
+        "--disable-dbus",
+        "--disable-dconf",
+        "--disable-cups",
+        "--disable-gtk3",
+        "--disable-gtk4",
+        "--disable-pdfimport",
+        "--disable-pdfium",
+        "--without-help",
+        "--without-helppack-integration",
+        "--with-galleries=no",
+        "--with-templates=no",
+        "--without-myspell-dicts",
+        "--without-lxml",
+        "--disable-compiler-plugins",
+        "--disable-ccache",
+        "--with-lang=en-US",
+        "--enable-dependency-tracking",
+        "--enable-bogus-pkg-config",
+        "--with-build-platform-configure-options=--enable-bogus-pkg-config",
+        "--with-external-tar=/private/tmp/vw-lowa-build/tarballs",
+        "--disable-curl",
+        "--disable-breakpad",
+        "--disable-libcmis",
+        "--without-webdav",
+        "--with-theme=no"
+      ],
+      "configureEnv": {
+        "test_libcdr": "no",
+        "test_libvisio": "no",
+        "test_libmspub": "no",
+        "test_libfreehand": "no",
+        "test_libpagemaker": "no",
+        "test_libqxp": "no",
+        "test_libzmf": "no",
+        "test_libstaroffice": "no",
+        "test_libmwaw": "no",
+        "test_libwps": "no",
+        "test_libwpd": "no",
+        "test_libwpg": "no",
+        "test_libabw": "no",
+        "test_libebook": "no",
+        "test_libetonyek": "no",
+        "test_libodfgen": "no",
+        "test_librevenge": "no"
+      },
+      "changes": [
+        {
+          "relative": "solenv/gbuild/platform/EMSCRIPTEN_INTEL_GCC.mk",
+          "originalSha256": "d55660f02b9987a45076f93f75b97a0be42a56859cc2460dce988caf8b22b018",
+          "patchedSha256": "b4c90e892a9458831f251dad577b96f5ac345b5da772d3feb3dde5fe4b3c4bb3"
+        },
+        {
+          "relative": "static/CustomTarget_emscripten_fs_image.mk",
+          "originalSha256": "d8cbce11662ab599844b27c3f4bf88b463ace32656b56743a254104672e8b26a",
+          "patchedSha256": "bfaf053494a6009a5fdb148dc2f5b50d5067d03ff1fd80bcfc0aafb3e20cce6c"
+        },
+        {
+          "relative": "RepositoryFixes.mk",
+          "originalSha256": "0c0ddc4ddf14f992eb5cc138ca833d4c420f8dc01baca40b1db8786e462d6936",
+          "patchedSha256": "370df242f53a9f03363e06c96c30ca107b1dc92ee0d5c0a0061d92e7c3005586"
+        },
+        {
+          "relative": "instsetoo_native/CustomTarget_setup.mk",
+          "originalSha256": "92ece121c45fa26fd6d26ad1a0a0d095c19bf5b3473f5803a426f795d31de3f8",
+          "patchedSha256": "1723454b2f5cb2850dad94e4baf62dde174cb5658fd54df2991398e3340d8201"
+        },
+        {
+          "relative": "external/openssl/ExternalProject_openssl.mk",
+          "originalSha256": "a88b664d8cb9ad3fb0aaace6021953a2e7db1485c3a352fe8ff0e8a54d2382b7",
+          "patchedSha256": "2ff5fd6af94da63a3c1c76d734c2c7718e24651e4f541b2a3cf639a39ad6dc7e"
+        },
+        {
+          "relative": "external/argon2/ExternalProject_argon2.mk",
+          "originalSha256": "272ded8f9f7794049e09e1018a27fe4885e1e21ae6510ca73b037d760e77956b",
+          "patchedSha256": "5c63ce3445b95b55537d4a5774ddcacb09f9dd0455ff8387c2a3937d6451e295"
+        },
+        {
+          "relative": "external/argon2/UnpackedTarball_argon2.mk",
+          "originalSha256": "f8a5b3c48ea02b9f006fdec72297c03a87e4d43d2451cbe3f191dcff0c39239f",
+          "patchedSha256": "b6de79cf55a2e6711e7df887f6b15f0c757276aac4ea8d5c83688723c0c01eb6"
+        },
+        {
+          "relative": "external/argon2/vesperwind-cross-ar.patch.0",
+          "originalSha256": null,
+          "patchedSha256": "2315de16c29864164601646383f05796225bf61a54d8971707e921682a3fe7bc"
+        },
+        {
+          "relative": "extras/CustomTarget_autotextshare.mk",
+          "originalSha256": "5ab4891bf917cf9f4f91fcea3bb4b85277b1928720fccfb90b3c70d027e4e43c",
+          "patchedSha256": "f13f0f20fbe736e213e9578de6b277ee085a71faa3c40b38921168d3f4ef7c81"
+        },
+        {
+          "relative": "RepositoryModule_host.mk",
+          "originalSha256": "f668206ff6ad8de6c9eaa797fd2a3b8c6ca87192654924c5234235c9dcfe50e0",
+          "patchedSha256": "bb83302cfd948ea8a049b37184befbaca18fd67ca5ea55c11d60639a69608d1e"
+        },
+        {
+          "relative": "solenv/gbuild/platform/unxgcc.mk",
+          "originalSha256": "6c149aeb1689ae67ac4c7c51e04af8e41986d75b3e475983804712defb9ae77d",
+          "patchedSha256": "d10d7d6cee75532bbc86e1bc7e0036f41f747c82d3df1988a55a62521eea21cd"
+        },
+        {
+          "relative": "solenv/gbuild/Conditions.mk",
+          "originalSha256": "247df5264b0316b4b66d48e340d36160f90a64570ff68635b82ef8d17739b014",
+          "patchedSha256": "3cd21cd32b35a88d45bfce1e3e2f6ae4b9a1055e3ad97e8013769b7d8208776e"
+        }
+      ],
+      "buildCompleted": false,
+      "reproducibilityVerified": false
+    },
+    "host": {
+      "platform": "darwin",
+      "architecture": "arm64",
+      "release": "27.0.0",
+      "node": "v26.8.2",
+      "python": "Python 3.13.5",
+      "xcode": "Xcode 27.0\nBuild version 27A266a"
+    },
+    "relink": {
+      "previousBuildLog": "build-256-fixed-1791212122555.log",
+      "previousProfile": "256-fixed",
+      "previousJsSha256": "797786bdabfdac2098174e124e5f428a1a7e07b21e3f1c37aafb79c74e880d8d",
+      "target": "/private/tmp/vw-lowa-build/build-headless/instdir/program/soffice.js",
+      "backup": "/private/tmp/vw-lowa-build/build-headless/build-128-grow-512-1791212694301-previous-soffice.js"
+    },
+    "configurationSha256": "b18699f29cb2b15ae19c72e0bb2d8de944a01a781d00ce05736910f83dabbfc7",
+    "jobs": 8,
+    "log": "build-128-grow-512-1791212694301.log",
+    "coreCommit": "efaf0670b4d055f838a2849becb10f08aa06a257",
+    "compilerCommit": "949ee1d40467b80e90a9fdc67155d443426fef2d"
+  },
+  "assets": [
+    {
+      "name": "soffice.js",
+      "bytes": 758495,
+      "sha256": "2f967d899194987aa10edacc8767c009bf21ba087e8b6c089fae4b5ae9598d01",
+      "brBytes": 126773,
+      "brSha256": "69b23250a4c01738decf3c0494cada8ab6125c8074a21d1250080f20c5626595"
+    },
+    {
+      "name": "soffice.wasm",
+      "bytes": 125346364,
+      "sha256": "d33b1d212ac87ee5f243a8248dc713291ee0d421bdd1dfa059ba14d7e9991fc3",
+      "brBytes": 33214184,
+      "brSha256": "e291393a84b7c4065a6472b5bd6bce621200aa08c61a32df1832fbe320697e32"
+    },
+    {
+      "name": "soffice.data",
+      "bytes": 62144586,
+      "sha256": "d8557932b19ff91cf34edcd6910f5e9e4c1b3d81f44ffced43e78ed7c2ce3fc0",
+      "brBytes": 14577174,
+      "brSha256": "da9139da30381ff3d5263154d0467b670869fea34422744a070de698e42b4113"
+    },
+    {
+      "name": "soffice.data.js.metadata",
+      "bytes": 20338,
+      "sha256": "86310e9e8ad332801d6050b5080a8add6a78661698f595b3f441c46df1372924",
+      "brBytes": 3019,
+      "brSha256": "f3928b051ac6233a50b9963c056bedf32c0de1bc9e2fb31ed22f6a0fe2216929"
+    }
+  ],
+  "installedRuntimeBytes": 188269783,
+  "compressedRuntimeBytes": 47921150,
+  "brotliQuality": 8,
+  "fsFileCount": 210,
+  "fsGroups": {
+    "fonts": {
+      "files": 119,
+      "bytes": 54426656
+    },
+    "registry": {
+      "files": 21,
+      "bytes": 4093601
+    },
+    "presentationDefaults": {
+      "files": 3,
+      "bytes": 21977
+    },
+    "gui": {
+      "files": 0,
+      "bytes": 0
+    },
+    "templatesGallery": {
+      "files": 0,
+      "bytes": 0
+    },
+    "scriptsExecutables": {
+      "files": 0,
+      "bytes": 0
+    }
+  },
+  "notes": [
+    "Raw and Brotli variants coexist here for experiments; installed size is ONE raw set, not their sum.",
+    "Stock CDN compression may use a different level; do not treat compressed size as a same-level comparison.",
+    "Pins/build success are not a completed bit-identical rebuild or license/SBOM acceptance."
+  ]
+}

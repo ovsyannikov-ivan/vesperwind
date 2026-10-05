@@ -2,14 +2,20 @@ use super::{availability::require_content_ready, paths, Filesystem};
 use crate::error::NativeError;
 use filetime::FileTime;
 use serde::{Deserialize, Serialize};
+#[cfg(windows)]
+use std::os::windows::fs::FileTypeExt;
 use std::{
     fs, io,
     path::{Path, PathBuf},
 };
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OperationRequest {
+    #[serde(default)]
+    pub operation_id: Option<String>,
+    #[serde(default)]
+    pub timeout_ms: Option<u64>,
     pub action: String,
     pub source_path: Option<String>,
     pub target_directory: Option<String>,
@@ -18,7 +24,7 @@ pub struct OperationRequest {
     pub target_filesystem_id: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OperationResult {
     pub action: String,
@@ -31,6 +37,7 @@ pub fn perform(
     filesystem: &Filesystem,
     request: OperationRequest,
 ) -> Result<OperationResult, NativeError> {
+    super::jobs::checkpoint()?;
     Filesystem::require_local(request.filesystem_id.as_deref())?;
     if let Some(provider) = request.target_filesystem_id.as_deref() {
         Filesystem::require_local(Some(provider))?;
@@ -123,7 +130,9 @@ fn operate_existing(
             .parent()
             .ok_or_else(|| NativeError::new("EINVAL", "Invalid source path"))?;
         paths::verify_existing_inside_root(filesystem, parent)?;
-        remove_entry(&source, &source_metadata).map_err(|error| operation_io_error(&error))?;
+        let physical = paths::verify_existing_inside_root(filesystem, parent)?
+            .join(source.file_name().unwrap());
+        remove_bounded(&physical)?;
         return Ok(operation_result(&request.action, Some(source), None, None));
     }
 
@@ -315,6 +324,42 @@ fn prepare_copy_content(
     require_content_ready(filesystem, Some("local"), &source.to_string_lossy()).map(|_| ())
 }
 
+// Iterative postorder traversal: bounded stack and deadline checkpoints. Never
+// dereference a symlink. The helper process is the hard stop for blocking syscalls.
+pub(crate) fn remove_bounded(path: &Path) -> Result<(), NativeError> {
+    let mut pending = vec![(path.to_path_buf(), false)];
+    while let Some((path, visited)) = pending.pop() {
+        super::jobs::checkpoint().map_err(|e| e.with_path(&path))?;
+        let metadata =
+            fs::symlink_metadata(&path).map_err(|e| operation_io_error(&e).with_path(&path))?;
+        if metadata.is_dir() && !metadata.file_type().is_symlink() {
+            if visited {
+                fs::remove_dir(&path).map_err(|e| operation_io_error(&e).with_path(&path))?;
+            } else {
+                pending.push((path.clone(), true));
+                for entry in
+                    fs::read_dir(&path).map_err(|e| operation_io_error(&e).with_path(&path))?
+                {
+                    super::jobs::checkpoint()?;
+                    let entry = entry.map_err(|e| operation_io_error(&e).with_path(&path))?;
+                    pending.push((entry.path(), false));
+                }
+            }
+        } else {
+            #[cfg(windows)]
+            let result = if metadata.file_type().is_symlink_dir() {
+                fs::remove_dir(&path)
+            } else {
+                fs::remove_file(&path)
+            };
+            #[cfg(not(windows))]
+            let result = fs::remove_file(&path);
+            result.map_err(|e| operation_io_error(&e).with_path(&path))?;
+        }
+    }
+    Ok(())
+}
+
 fn remove_entry(path: &Path, metadata: &fs::Metadata) -> io::Result<()> {
     if metadata.is_dir() && !metadata.file_type().is_symlink() {
         fs::remove_dir_all(path)
@@ -384,7 +429,14 @@ fn copy_symlink(source: &Path, destination: &Path) -> io::Result<()> {
 fn operation_io_error(error: &io::Error) -> NativeError {
     let mut result = NativeError::from_io(error, "The file operation failed");
     result.message = match result.code.as_str() {
-        "EACCES" => "Permission denied",
+        "EACCES" => {
+            "The operating system did not allow Vesperwind to change this item: permission denied"
+        }
+        "EROFS" => "The filesystem is read-only",
+        "EBUSY" => "The item is in use by another process",
+        "ENOTEMPTY" => "The folder is not empty; some items could not be removed",
+        "ETIMEDOUT" => "The file operation timed out",
+        "ECANCELLED" => "The file operation was cancelled",
         "ENOENT" => "The source or destination no longer exists",
         "ENOTDIR" => "The drop target is not a folder",
         "EEXIST" => "An item with this name already exists in the destination folder",
@@ -423,7 +475,7 @@ fn operation_result(
 
 #[cfg(test)]
 mod tests {
-    use super::{perform, relative_path, OperationRequest};
+    use super::{perform, relative_path, remove_bounded, OperationRequest};
     #[cfg(unix)]
     use crate::filesystem::paths;
     use crate::filesystem::Filesystem;
@@ -467,6 +519,8 @@ mod tests {
         let filesystem = Filesystem::from_root(&root, root.clone()).unwrap();
 
         let request = |action: &str, source: &Path, name: Option<&str>| OperationRequest {
+            operation_id: None,
+            timeout_ms: None,
             action: action.to_string(),
             source_path: Some(source.to_string_lossy().into_owned()),
             target_directory: None,
@@ -487,6 +541,48 @@ mod tests {
         assert!(target.exists());
         assert!(!renamed.exists());
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn bounded_recursive_delete_cannot_follow_a_directory_link() {
+        let root =
+            std::env::temp_dir().join(format!("vesperwind-bounded-delete-{}", Uuid::new_v4()));
+        fs::create_dir_all(root.join("target")).unwrap();
+        fs::write(root.join("target/keep"), b"survive").unwrap();
+        fs::create_dir_all(root.join("delete/nested")).unwrap();
+        fs::write(root.join("delete/nested/remove"), b"remove").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(root.join("target"), root.join("delete/link")).unwrap();
+        #[cfg(windows)]
+        {
+            // Hosted Windows runners may not grant symlink privilege. The
+            // traversal and real no-symlink fixtures still run on those hosts.
+            let _ =
+                std::os::windows::fs::symlink_dir(root.join("target"), root.join("delete/link"));
+        }
+        remove_bounded(&root.join("delete")).unwrap();
+        assert!(root.join("target/keep").exists());
+        assert!(!root.join("delete").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[cfg(unix)]
+    #[test]
+    fn denied_delete_returns_native_details_and_allows_next_delete() {
+        use std::os::unix::fs::PermissionsExt;
+        let root =
+            std::env::temp_dir().join(format!("vesperwind-denied-delete-{}", Uuid::new_v4()));
+        fs::create_dir_all(root.join("denied")).unwrap();
+        fs::write(root.join("denied/keep"), b"safe").unwrap();
+        fs::set_permissions(root.join("denied"), fs::Permissions::from_mode(0o555)).unwrap();
+        let result = remove_bounded(&root.join("denied"));
+        fs::set_permissions(root.join("denied"), fs::Permissions::from_mode(0o755)).unwrap();
+        let error = result.unwrap_err();
+        assert_eq!(error.code, "EACCES");
+        assert!(error.path.is_some());
+        assert!(error.native_error.is_some());
+        fs::write(root.join("next"), b"safe").unwrap();
+        remove_bounded(&root.join("next")).unwrap();
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -512,6 +608,8 @@ mod tests {
                        source: Option<PathBuf>,
                        target: Option<PathBuf>,
                        name: Option<&str>| OperationRequest {
+            operation_id: None,
+            timeout_ms: None,
             action: action.to_string(),
             source_path: source.map(|value| value.to_string_lossy().into_owned()),
             target_directory: target.map(|value| value.to_string_lossy().into_owned()),
@@ -593,6 +691,8 @@ mod tests {
         let result = perform(
             &filesystem,
             OperationRequest {
+                operation_id: None,
+                timeout_ms: None,
                 action: "link".to_string(),
                 source_path: Some(
                     test_root

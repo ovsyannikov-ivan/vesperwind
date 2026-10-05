@@ -1,0 +1,911 @@
+{
+  "schemaVersion": 1,
+  "profile": "128-grow-512",
+  "files": [
+    {
+      "path": "BUILD-INFO.json",
+      "bytes": 15176,
+      "sha256": "67264dd7b9a7c58dba2932b674898dbe25535928012acfa453eb315b0a0ac8d9"
+    },
+    {
+      "path": "FONT-INVENTORY.json",
+      "bytes": 235162,
+      "sha256": "0e4182d958eeb9ff24e726d753eb14a7ca1208117c5fa302f2947b9192dffdb2"
+    },
+    {
+      "path": "FS-INVENTORY.json",
+      "bytes": 19665,
+      "sha256": "75197e1597a877f80344b6db4decf8e8665a0fec89886b5092f7f0bf9307ebb6"
+    },
+    {
+      "path": "fonts/NotoSansCJKjp-Regular.otf",
+      "bytes": 16467736,
+      "sha256": "68a3fc98800b2a27b371f2fb79991daf3633bd89309d4ffaa6946fd587f375b5"
+    },
+    {
+      "path": "licenses/COPYING.LGPL.txt",
+      "bytes": 7639,
+      "sha256": "a853c2ffec17057872340eee242ae4d96cbf2b520ae27d903e1b2fef1a5f9d1c"
+    },
+    {
+      "path": "licenses/COPYING.MPL.txt",
+      "bytes": 16725,
+      "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5"
+    },
+    {
+      "path": "licenses/LibreOffice-COPYING.txt",
+      "bytes": 35147,
+      "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+    },
+    {
+      "path": "licenses/LibreOffice-LICENSE.txt",
+      "bytes": 198900,
+      "sha256": "2c82dea3c99a2d69c59fafa818467d9de5daf71038761f2fa3804e1a60d2e906"
+    },
+    {
+      "path": "licenses/LibreOffice-NOTICE.txt",
+      "bytes": 2534,
+      "sha256": "710268df71b1ace277778e12d308aed448bc592f0bd808a3117fa83bf2a43001"
+    },
+    {
+      "path": "licenses/OFL-1.1.txt",
+      "bytes": 4301,
+      "sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2"
+    },
+    {
+      "path": "licenses/selected/argon2/LICENSE",
+      "bytes": 17879,
+      "sha256": "220f8736a89ff51c92ef3d497f413b48e6cf1df3d6278bc909c6308c78e1718e"
+    },
+    {
+      "path": "licenses/selected/boost/LICENSE_1_0.txt",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/algorithm/LICENSE",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/assign/LICENSE",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/beast/LICENSE_1_0.txt",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/callable_traits/LICENSE.md",
+      "bytes": 1373,
+      "sha256": "754f0d4ecb5f254feaa1b0d3e4180696a8af2abcc2969e5abf590834a63610e5"
+    },
+    {
+      "path": "licenses/selected/boost/libs/compute/LICENSE_1_0.txt",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/concept_check/LICENSE",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/container/LICENSE_1_0.txt",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/contract/LICENSE_1_0.txt",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/date_time/LICENSE",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/dynamic_bitset/LICENSE",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/exception/LICENSE_1_0.txt",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/format/LICENSE",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/geometry/LICENSE_1_0.txt",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/gil/LICENSE.txt",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/hana/LICENSE.md",
+      "bytes": 1372,
+      "sha256": "367ef0a8422dcd9cf3285610f6eb2a499de12e8b1c7af6154009addf088c903d"
+    },
+    {
+      "path": "licenses/selected/boost/libs/histogram/LICENSE",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/hof/LICENSE.md",
+      "bytes": 1373,
+      "sha256": "859bddbbef21decf692e6bd16bd8a6c96cde1b989fa88ddd63bd2bde98b58b2e"
+    },
+    {
+      "path": "licenses/selected/boost/libs/iostreams/LICENSE",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/json/LICENSE_1_0.txt",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/leaf/LICENSE_1_0.txt",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/locale/LICENSE",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/logic/LICENSE",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/math/LICENSE",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/move/LICENSE",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/mpl/LICENSE",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/multiprecision/LICENSE",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/mysql/LICENSE_1_0.txt",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/nowide/LICENSE",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/pfr/LICENSE_1_0.txt",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/pool/LICENSE",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/property_map/LICENSE",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/ptr_container/LICENSE",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/python/LICENSE_1_0.txt",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/qvm/LICENSE_1_0.txt",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/rational/LICENSE",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/safe_numerics/LICENSE_1_0.txt",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/signals2/LICENSE",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/static_string/LICENSE_1_0.txt",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/stl_interfaces/LICENSE_1_0.txt",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/tokenizer/LICENSE",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/unordered/LICENSE",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/url/LICENSE_1_0.txt",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/uuid/LICENSE",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/libs/yap/LICENSE_1_0.txt",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/tools/bcp/licence_info.cpp",
+      "bytes": 44212,
+      "sha256": "4b74d6e2e6f849d22f51033f1acb3b01b1592aea0df9c8ab63f62e1cdaca0000"
+    },
+    {
+      "path": "licenses/selected/boost/tools/bcp/licence_info.hpp",
+      "bytes": 1120,
+      "sha256": "ea35f89f0810bf38316bf6f6615ddade662d0b9ca1b7a6d5ef8630045e61ca16"
+    },
+    {
+      "path": "licenses/selected/boost/tools/build/LICENSE.txt",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/tools/docca/LICENSE_1_0.txt",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/boost/tools/inspect/copyright_check.cpp",
+      "bytes": 1000,
+      "sha256": "c31b259287510e3c04f78bb7b36796d45834dc1d86f528eff59381d2a3746e0f"
+    },
+    {
+      "path": "licenses/selected/boost/tools/inspect/copyright_check.hpp",
+      "bytes": 1037,
+      "sha256": "5f5945fabdc65a3444bd858fc5088d9042ceaafa062ef2883acc61d6e676483b"
+    },
+    {
+      "path": "licenses/selected/boost/tools/inspect/license_check.cpp",
+      "bytes": 1398,
+      "sha256": "9ff54c34e5db5121c98ec80b3cb9dd9539090589a4bd201ac45e88cf62423fbc"
+    },
+    {
+      "path": "licenses/selected/boost/tools/inspect/license_check.hpp",
+      "bytes": 1113,
+      "sha256": "f1598455d2cb69634f6db48596e010fcf49db8f25a5d21ed3fcb2a402f0a485f"
+    },
+    {
+      "path": "licenses/selected/box2d/LICENSE",
+      "bytes": 1066,
+      "sha256": "9b77e0763d3e1f5bb34aa54be173dd34377a29baf3cc4111fb48cf758b21efd8"
+    },
+    {
+      "path": "licenses/selected/cairo/COPYING",
+      "bytes": 1576,
+      "sha256": "67228a9f7c5f9b67c58f556f1be178f62da4d9e2e6285318d8c74d567255abdf"
+    },
+    {
+      "path": "licenses/selected/cairo/COPYING-LGPL-2.1",
+      "bytes": 26533,
+      "sha256": "9e9e8608c4cdda51a78cc3a385f4ec9a2e4c96d5ecad74ac8bca5fca3e563b7d"
+    },
+    {
+      "path": "licenses/selected/cairo/COPYING-MPL-1.1",
+      "bytes": 25755,
+      "sha256": "53692a2ed6c6a2c6ec9b32dd0b820dfae91e0a1fcdf625ca9ed0bdf8705fcc4f"
+    },
+    {
+      "path": "licenses/selected/cairo/perf/COPYING",
+      "bytes": 229,
+      "sha256": "6f93b45ea874706058ae35bc02df79c3f9daf00948672eea8394cc25d1327d49"
+    },
+    {
+      "path": "licenses/selected/cairo/test/COPYING",
+      "bytes": 1026,
+      "sha256": "a37812e0e27a211272d4c27fa45028c3653e78bb708acccb77c94128dc72b98e"
+    },
+    {
+      "path": "licenses/selected/cairo/util/COPYING",
+      "bytes": 138,
+      "sha256": "008e976b6e5e7155ee24322073f42cab7cd6daf90bc2322f1d5c3aacab94111c"
+    },
+    {
+      "path": "licenses/selected/cairo/util/cairo-script/COPYING",
+      "bytes": 656,
+      "sha256": "25f4d4ce651b1ee6aff713ff986275d6c190a8537e36437886f8bf1497b0a174"
+    },
+    {
+      "path": "licenses/selected/cairo/util/cairo-trace/COPYING",
+      "bytes": 179,
+      "sha256": "421158645572270264a980b8b130dd988138e4dae20144e22455446e0ef90902"
+    },
+    {
+      "path": "licenses/selected/cairo/util/cairo-trace/COPYING-GPL-3",
+      "bytes": 35147,
+      "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+    },
+    {
+      "path": "licenses/selected/dragonbox/LICENSE-Apache2-LLVM",
+      "bytes": 12262,
+      "sha256": "9e45e856bedccee9f67254082ca11851d954de2fed7448c4bed19ad9aab99a91"
+    },
+    {
+      "path": "licenses/selected/dragonbox/LICENSE-Boost",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/selected/expat/COPYING",
+      "bytes": 1144,
+      "sha256": "122f2c27000472a201d337b9b31f7eb2b52d091b02857061a8880371612d9534"
+    },
+    {
+      "path": "licenses/selected/font_alef/OFL-license.txt",
+      "bytes": 4646,
+      "sha256": "e2cea1ac583114beb06554f7bd5b7fe7ec1147ee35693d21734e7259f0a2fdbf"
+    },
+    {
+      "path": "licenses/selected/font_amiri/OFL.txt",
+      "bytes": 4387,
+      "sha256": "72598f78a098644c6b4ac04665e0bad7a69841c0dc504e81a8399d963a23e50d"
+    },
+    {
+      "path": "licenses/selected/font_carlito/LICENSE",
+      "bytes": 4250,
+      "sha256": "bbcf8ce9c8acc91355ab5d263ec9e37d498de2222336e7d42e589f791afe56c4"
+    },
+    {
+      "path": "licenses/selected/font_dejavu/LICENSE",
+      "bytes": 8816,
+      "sha256": "7a083b136e64d064794c3419751e5c7dd10d2f64c108fe5ba161eae5e5958a93"
+    },
+    {
+      "path": "licenses/selected/font_gentium/OFL-FAQ.txt",
+      "bytes": 58025,
+      "sha256": "5d7519b9db1e8f743936e470d45a4c5215fd816ce79e934a5909cd8045bf0860"
+    },
+    {
+      "path": "licenses/selected/font_gentium/OFL.txt",
+      "bytes": 4508,
+      "sha256": "bd77eae571de83ba3884c74c7983e8ac5cdf858badc36906179346dcd7e82454"
+    },
+    {
+      "path": "licenses/selected/font_liberation/LICENSE",
+      "bytes": 4414,
+      "sha256": "93fed46019c38bbe566b479d22148e2e8a1e85ada614accb0211c37b2c61c19b"
+    },
+    {
+      "path": "licenses/selected/font_liberation_narrow/COPYING",
+      "bytes": 17987,
+      "sha256": "ab15fd526bd8dd18a9e77ebc139656bf4d33e97fc7238cd11bf60e2b9b8666c6"
+    },
+    {
+      "path": "licenses/selected/font_liberation_narrow/License.txt",
+      "bytes": 4012,
+      "sha256": "c40dd6adebad817defd68c7edad151d9c13d2ac3b4e1790ce2b727b024438b6d"
+    },
+    {
+      "path": "licenses/selected/font_libertineg/LICENCE.txt",
+      "bytes": 1180,
+      "sha256": "73e4f0243fc4fd7a1bafaf13439e708c7194ac154942f52c86f30339c5395470"
+    },
+    {
+      "path": "licenses/selected/font_libertineg/OFL.txt",
+      "bytes": 4386,
+      "sha256": "f9279e36b60940c3460c8f60c942f13b6e6c119f12a83f7630663a0a54884fa8"
+    },
+    {
+      "path": "licenses/selected/font_libre_hebrew/OFL.txt",
+      "bytes": 4352,
+      "sha256": "4e0f7904c0a8195616b3f2d20827321544f3b6b7bec0e9380b920a8e9f8a3335"
+    },
+    {
+      "path": "licenses/selected/font_noto_kufi_arabic/OFL.txt",
+      "bytes": 4382,
+      "sha256": "07fc70bfeb985cc1a87a8587d0a0c80bab11c86c9dc3fd95b6f0cb332f983e96"
+    },
+    {
+      "path": "licenses/selected/font_noto_naskh_arabic/OFL.txt",
+      "bytes": 4382,
+      "sha256": "07fc70bfeb985cc1a87a8587d0a0c80bab11c86c9dc3fd95b6f0cb332f983e96"
+    },
+    {
+      "path": "licenses/selected/font_noto_sans/OFL.txt",
+      "bytes": 4396,
+      "sha256": "cee9892f9f0cc8fe882c9e9537ee6a89621d86ee7ceaf70b02e2b2b1c25c061a"
+    },
+    {
+      "path": "licenses/selected/font_noto_sans_arabic/OFL.txt",
+      "bytes": 4382,
+      "sha256": "07fc70bfeb985cc1a87a8587d0a0c80bab11c86c9dc3fd95b6f0cb332f983e96"
+    },
+    {
+      "path": "licenses/selected/font_noto_sans_armenian/OFL.txt",
+      "bytes": 4384,
+      "sha256": "0468358b316f69f405b55cadf8a8314e16e3610b8feaad96772bd5d968112d02"
+    },
+    {
+      "path": "licenses/selected/font_noto_sans_georgian/OFL.txt",
+      "bytes": 4384,
+      "sha256": "8c02263c5d73d40544f9ed91e30c4e947407057a3cc430d7b786189aeceff6df"
+    },
+    {
+      "path": "licenses/selected/font_noto_sans_hebrew/OFL.txt",
+      "bytes": 4382,
+      "sha256": "9b9fe028b5ba74d231659a1bbaf0ed09b11e759d1ca6a070999e16d151616b47"
+    },
+    {
+      "path": "licenses/selected/font_noto_sans_lao/OFL.txt",
+      "bytes": 4379,
+      "sha256": "a42993999944845fb5af693ea678a372a053db1f0981d55e911dcfa9d330f279"
+    },
+    {
+      "path": "licenses/selected/font_noto_sans_lisu/OFL.txt",
+      "bytes": 4380,
+      "sha256": "1f65bfdc26d6bd6e57249c60a86ea355761fb9150694e50206175d3fa8d3c166"
+    },
+    {
+      "path": "licenses/selected/font_noto_serif/OFL.txt",
+      "bytes": 4396,
+      "sha256": "cee9892f9f0cc8fe882c9e9537ee6a89621d86ee7ceaf70b02e2b2b1c25c061a"
+    },
+    {
+      "path": "licenses/selected/font_noto_serif_armenian/OFL.txt",
+      "bytes": 4384,
+      "sha256": "0468358b316f69f405b55cadf8a8314e16e3610b8feaad96772bd5d968112d02"
+    },
+    {
+      "path": "licenses/selected/font_noto_serif_georgian/OFL.txt",
+      "bytes": 4384,
+      "sha256": "8c02263c5d73d40544f9ed91e30c4e947407057a3cc430d7b786189aeceff6df"
+    },
+    {
+      "path": "licenses/selected/font_noto_serif_hebrew/OFL.txt",
+      "bytes": 4382,
+      "sha256": "9b9fe028b5ba74d231659a1bbaf0ed09b11e759d1ca6a070999e16d151616b47"
+    },
+    {
+      "path": "licenses/selected/font_noto_serif_lao/OFL.txt",
+      "bytes": 4379,
+      "sha256": "a42993999944845fb5af693ea678a372a053db1f0981d55e911dcfa9d330f279"
+    },
+    {
+      "path": "licenses/selected/font_reem/OFL.txt",
+      "bytes": 4435,
+      "sha256": "a47faab82e777098f311394dc21415ca18613bb231a5f452fe79b5e91b09c647"
+    },
+    {
+      "path": "licenses/selected/font_scheherazade/OFL-FAQ.txt",
+      "bytes": 58443,
+      "sha256": "53f27cbff163b45b8c201f85c0bcee21814844f1f6ffa85629063464601bc954"
+    },
+    {
+      "path": "licenses/selected/font_scheherazade/OFL.txt",
+      "bytes": 4501,
+      "sha256": "75a083ef521a1d060f73d15ad2765b87dd317e55020d93c0c18daaf8d984154f"
+    },
+    {
+      "path": "licenses/selected/fontconfig/COPYING",
+      "bytes": 8616,
+      "sha256": "51a51aa9823704fd90bccc616cdd17ebabb5b2b3e9cbde886ca02c7002288067"
+    },
+    {
+      "path": "licenses/selected/freetype/LICENSE.TXT",
+      "bytes": 2074,
+      "sha256": "2e3bbb7d7c5c396368dd0853a790ec29ce5b8647163dde42a0493fb0d6556b2b"
+    },
+    {
+      "path": "licenses/selected/graphite/COPYING",
+      "bytes": 1235,
+      "sha256": "2c272829ff23f182c8bf7ea12fedea69b0ae148663123ed5240c117cb129c9c1"
+    },
+    {
+      "path": "licenses/selected/graphite/LICENSE",
+      "bytes": 26527,
+      "sha256": "a9bdde5616ecdd1e980b44f360600ee8783b1f99b8cc83a2beb163a0a390e861"
+    },
+    {
+      "path": "licenses/selected/harfbuzz/COPYING",
+      "bytes": 1971,
+      "sha256": "ba8f810f2455c2f08e2d56bb49b72f37fcf68f1f4fade38977cfd7372050ad64"
+    },
+    {
+      "path": "licenses/selected/harfbuzz/test/COPYING",
+      "bytes": 4370,
+      "sha256": "9b35b8485f69cd298fccbb3c40a827dc06cf1185553bef827903497d2944a8d7"
+    },
+    {
+      "path": "licenses/selected/hunspell/COPYING",
+      "bytes": 18093,
+      "sha256": "640d90f6ee401241ff62834d0d1b33f83049e99b8bfdfa04ed1b0a1635dde3e7"
+    },
+    {
+      "path": "licenses/selected/hunspell/COPYING.LESSER",
+      "bytes": 26531,
+      "sha256": "7c6699c75f87b52bdc542db26d6b1b92892577cda46e20eceb79e2790a1c291b"
+    },
+    {
+      "path": "licenses/selected/hunspell/COPYING.MPL",
+      "bytes": 25755,
+      "sha256": "53692a2ed6c6a2c6ec9b32dd0b820dfae91e0a1fcdf625ca9ed0bdf8705fcc4f"
+    },
+    {
+      "path": "licenses/selected/hunspell/license.hunspell",
+      "bytes": 1973,
+      "sha256": "3f7ddd07c296edbfe0a47c7bcc82038ad347a2c4f672345b24f95c624db68513"
+    },
+    {
+      "path": "licenses/selected/hunspell/license.myspell",
+      "bytes": 2912,
+      "sha256": "dcda061adeed22b26f276c01ec374f930789ae0d684e5aa8f8be309dd680ff20"
+    },
+    {
+      "path": "licenses/selected/hyphen/COPYING",
+      "bytes": 890,
+      "sha256": "8674da7542da10dec11e50a0d3cdad219a79de80f405bc54894fb20207944d94"
+    },
+    {
+      "path": "licenses/selected/hyphen/COPYING.LGPL",
+      "bytes": 26532,
+      "sha256": "5bbcbb737e60fe9deba08ecbd00920cfcc3403ba2e534c64fdeea49d6bb87509"
+    },
+    {
+      "path": "licenses/selected/hyphen/COPYING.MPL",
+      "bytes": 25755,
+      "sha256": "53692a2ed6c6a2c6ec9b32dd0b820dfae91e0a1fcdf625ca9ed0bdf8705fcc4f"
+    },
+    {
+      "path": "licenses/selected/icu/LICENSE",
+      "bytes": 25505,
+      "sha256": "f3005e195ff74d8812cc1f182a1c446fab678d70a10e3dada497585befee5416"
+    },
+    {
+      "path": "licenses/selected/icu/license.html",
+      "bytes": 622,
+      "sha256": "c62d7697c03979f5056d28b338fafc7a1152820f7b379adf4a9d88cd37160f96"
+    },
+    {
+      "path": "licenses/selected/lcms2/LICENSE",
+      "bytes": 1080,
+      "sha256": "6dbd60437f8ef91d8de1f08ad75882547fd4931bfcc3566a0735f28db1484d31"
+    },
+    {
+      "path": "licenses/selected/lcms2/plugins/fast_float/COPYING.GPL3",
+      "bytes": 35146,
+      "sha256": "c53a65c2fd561c87eaabf1072ef5dcab8653042bc15308465f52413585eb6271"
+    },
+    {
+      "path": "licenses/selected/lcms2/plugins/threaded/COPYING.GPL3",
+      "bytes": 35146,
+      "sha256": "c53a65c2fd561c87eaabf1072ef5dcab8653042bc15308465f52413585eb6271"
+    },
+    {
+      "path": "licenses/selected/lcms2/utils/jpgicc/LICENSE_iccjpeg",
+      "bytes": 3234,
+      "sha256": "8baac37d14eed89b82ffcb041677dd701164eb5cc0f26e165fe47eb11afa0dca"
+    },
+    {
+      "path": "licenses/selected/libjpeg-turbo/LICENSE.md",
+      "bytes": 5213,
+      "sha256": "60c756742db3ad1913304e8b13f0e86e22e51adb50cc0b3333c163f7e45ceec1"
+    },
+    {
+      "path": "licenses/selected/libjpeg-turbo/release/License.rtf",
+      "bytes": 2178,
+      "sha256": "d26120ab237f87dea10aa4fa7fd4243cadffd26e54eb2f3903d5fb0f8ed336b2"
+    },
+    {
+      "path": "licenses/selected/liblangtag/COPYING",
+      "bytes": 7651,
+      "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768"
+    },
+    {
+      "path": "licenses/selected/libnumbertext/COPYING",
+      "bytes": 1475,
+      "sha256": "796cd2a7d16296a2f00e3070950c056430a3d0efa4a9010ad6a7d1c1bd18db63"
+    },
+    {
+      "path": "licenses/selected/liborcus/LICENSE",
+      "bytes": 16725,
+      "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5"
+    },
+    {
+      "path": "licenses/selected/libpng/LICENSE",
+      "bytes": 5345,
+      "sha256": "7317e078e2d3b5d7ba5a6159e650945153262b44b76f6700f8e9edb261c5143e"
+    },
+    {
+      "path": "licenses/selected/libpng/ci/LICENSE_MIT.txt",
+      "bytes": 1036,
+      "sha256": "508a77d2e7b51d98adeed32648ad124b7b30241a8e70b2e72c99f92d8e5874d1"
+    },
+    {
+      "path": "licenses/selected/libpng/contrib/gregbook/COPYING",
+      "bytes": 18097,
+      "sha256": "d6cb0e9e560f51085556949a84af12b79a00f10ab8b66c752537faf7cd665572"
+    },
+    {
+      "path": "licenses/selected/libpng/contrib/gregbook/LICENSE",
+      "bytes": 2373,
+      "sha256": "b6a03c1803eb58ffb1f1278d5c7d4096c4c116e66dce8a7553e8c77d163c3438"
+    },
+    {
+      "path": "licenses/selected/libpng/contrib/pngexif/LICENSE_MIT.txt",
+      "bytes": 1036,
+      "sha256": "508a77d2e7b51d98adeed32648ad124b7b30241a8e70b2e72c99f92d8e5874d1"
+    },
+    {
+      "path": "licenses/selected/libpng/contrib/pngminus/LICENSE.txt",
+      "bytes": 1165,
+      "sha256": "eeb50cca0bf0537aeeef00874e1e22f0de50cb035f5db37e36036dc9b8218e8d"
+    },
+    {
+      "path": "licenses/selected/libtiff/LICENSE.md",
+      "bytes": 1164,
+      "sha256": "0780558a8bfba0af1160ec1ff11ade4f41c0d7deafd6ecfc796b492a788e380d"
+    },
+    {
+      "path": "licenses/selected/libtiff/doc/project/license.rst",
+      "bytes": 1181,
+      "sha256": "02e86af3b805e0f2075ebb5ac512831f6ab2a97ddeb186de076c418956418ba1"
+    },
+    {
+      "path": "licenses/selected/libwebp/COPYING",
+      "bytes": 1496,
+      "sha256": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf"
+    },
+    {
+      "path": "licenses/selected/libxml2/Copyright",
+      "bytes": 1289,
+      "sha256": "7fb0a66f3989f9bd5c7e5438a3de02cd4a7a47dde0aea2f7ea2ba2ff454ee6a4"
+    },
+    {
+      "path": "licenses/selected/libxslt/Copyright",
+      "bytes": 2968,
+      "sha256": "7e48e290b6bfccc2ec1b297023a1d77f2fd87417f71fbb9f50aabef40a851819"
+    },
+    {
+      "path": "licenses/selected/mdds/LICENSE",
+      "bytes": 1062,
+      "sha256": "559cdfad8d02644df807f40fa43e9895c021d516f2e1c87bda406dbd1c69e4b5"
+    },
+    {
+      "path": "licenses/selected/mythes/COPYING",
+      "bytes": 1707,
+      "sha256": "253031afa265c7bec5d2e195c659129a7ff254f9d57c57a08eba4a9051868840"
+    },
+    {
+      "path": "licenses/selected/openssl/LICENSE.txt",
+      "bytes": 10175,
+      "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a"
+    },
+    {
+      "path": "licenses/selected/pixman/COPYING",
+      "bytes": 2087,
+      "sha256": "fac9270f0987b96ff4533fca3548c633e02083cbba4a0172a3b149b2e4019793"
+    },
+    {
+      "path": "licenses/selected/raptor/COPYING",
+      "bytes": 17987,
+      "sha256": "ab15fd526bd8dd18a9e77ebc139656bf4d33e97fc7238cd11bf60e2b9b8666c6"
+    },
+    {
+      "path": "licenses/selected/raptor/COPYING.LIB",
+      "bytes": 26527,
+      "sha256": "a9bdde5616ecdd1e980b44f360600ee8783b1f99b8cc83a2beb163a0a390e861"
+    },
+    {
+      "path": "licenses/selected/raptor/LICENSE-2.0.txt",
+      "bytes": 11358,
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "licenses/selected/raptor/LICENSE.html",
+      "bytes": 3911,
+      "sha256": "2330265688c239939cc8b91f1339359cd6a40b07b8e6a29eeec54fbe162793ac"
+    },
+    {
+      "path": "licenses/selected/raptor/LICENSE.txt",
+      "bytes": 2967,
+      "sha256": "0f0c719a05c9f7a0be2051ab83c1470837f595ed23e34989f46fd8eb45cfc251"
+    },
+    {
+      "path": "licenses/selected/raptor/NOTICE",
+      "bytes": 180,
+      "sha256": "9cb542a679b36ffefa60760ac94237d80083de20785a223d35885132436e4c08"
+    },
+    {
+      "path": "licenses/selected/rasqal/COPYING",
+      "bytes": 17987,
+      "sha256": "ab15fd526bd8dd18a9e77ebc139656bf4d33e97fc7238cd11bf60e2b9b8666c6"
+    },
+    {
+      "path": "licenses/selected/rasqal/COPYING.LIB",
+      "bytes": 26527,
+      "sha256": "a9bdde5616ecdd1e980b44f360600ee8783b1f99b8cc83a2beb163a0a390e861"
+    },
+    {
+      "path": "licenses/selected/rasqal/LICENSE-2.0.txt",
+      "bytes": 11358,
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "licenses/selected/rasqal/LICENSE.html",
+      "bytes": 3596,
+      "sha256": "515fb5daba93d02aa49957b404521031086f597ef5283feb95a1704e5036aad9"
+    },
+    {
+      "path": "licenses/selected/rasqal/LICENSE.txt",
+      "bytes": 2853,
+      "sha256": "e5f4cc7d46b4328fda2b4ae8b3921c257c1ec547369fb9b525b5848aa526f978"
+    },
+    {
+      "path": "licenses/selected/rasqal/NOTICE",
+      "bytes": 180,
+      "sha256": "9cb542a679b36ffefa60760ac94237d80083de20785a223d35885132436e4c08"
+    },
+    {
+      "path": "licenses/selected/rasqal/libsv/COPYING",
+      "bytes": 18002,
+      "sha256": "231f7edcc7352d7734a96eef0b8030f77982678c516876fcb81e25b32d68564c"
+    },
+    {
+      "path": "licenses/selected/rasqal/libsv/COPYING.LIB",
+      "bytes": 26532,
+      "sha256": "5bbcbb737e60fe9deba08ecbd00920cfcc3403ba2e534c64fdeea49d6bb87509"
+    },
+    {
+      "path": "licenses/selected/redland/COPYING",
+      "bytes": 17987,
+      "sha256": "ab15fd526bd8dd18a9e77ebc139656bf4d33e97fc7238cd11bf60e2b9b8666c6"
+    },
+    {
+      "path": "licenses/selected/redland/COPYING.LIB",
+      "bytes": 26527,
+      "sha256": "a9bdde5616ecdd1e980b44f360600ee8783b1f99b8cc83a2beb163a0a390e861"
+    },
+    {
+      "path": "licenses/selected/redland/LICENSE-2.0.txt",
+      "bytes": 11358,
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "licenses/selected/redland/LICENSE.html",
+      "bytes": 3722,
+      "sha256": "fb2578a174f4bacab03095ed01f20f19d997e3b45f5afe86f0d6ec119fbc432a"
+    },
+    {
+      "path": "licenses/selected/redland/LICENSE.txt",
+      "bytes": 3383,
+      "sha256": "4353d442a39648337ef63d6e2ef24f2c2d2b66c6f6adedff71ec479dc1743961"
+    },
+    {
+      "path": "licenses/selected/redland/NOTICE",
+      "bytes": 180,
+      "sha256": "9cb542a679b36ffefa60760ac94237d80083de20785a223d35885132436e4c08"
+    },
+    {
+      "path": "licenses/selected/redland/libltdl/COPYING.LIB",
+      "bytes": 26542,
+      "sha256": "f18a0811fa0e220ccbc42f661545e77f0388631e209585ed582a1c693029c6aa"
+    },
+    {
+      "path": "licenses/selected/xmlsec/COPYING",
+      "bytes": 55,
+      "sha256": "4e30be4eb29927f30d7024a0d4e13e711e98e23c051f4d2acb83b820df2efb2e"
+    },
+    {
+      "path": "licenses/selected/xmlsec/Copyright",
+      "bytes": 6674,
+      "sha256": "273fc68d0cb0308bb3c7c4edc6184a18195e7d97f3b18db6f5e973f5373e8373"
+    },
+    {
+      "path": "licenses/selected/zlib/LICENSE",
+      "bytes": 1002,
+      "sha256": "845efc77857d485d91fb3e0b884aaa929368c717ae8186b66fe1ed2495753243"
+    },
+    {
+      "path": "licenses/selected/zlib/contrib/dotzlib/LICENSE_1_0.txt",
+      "bytes": 1359,
+      "sha256": "36266a8fd073568394cb81cdb2b124f7fdae2c64c1a7ed09db34b4d22efa2951"
+    },
+    {
+      "path": "soffice.data.br",
+      "bytes": 14577174,
+      "sha256": "da9139da30381ff3d5263154d0467b670869fea34422744a070de698e42b4113"
+    },
+    {
+      "path": "soffice.data.js.metadata.br",
+      "bytes": 3019,
+      "sha256": "f3928b051ac6233a50b9963c056bedf32c0de1bc9e2fb31ed22f6a0fe2216929"
+    },
+    {
+      "path": "soffice.js.br",
+      "bytes": 126773,
+      "sha256": "69b23250a4c01738decf3c0494cada8ab6125c8074a21d1250080f20c5626595"
+    },
+    {
+      "path": "soffice.wasm.br",
+      "bytes": 33214184,
+      "sha256": "e291393a84b7c4065a6472b5bd6bce621200aa08c61a32df1832fbe320697e32"
+    },
+    {
+      "path": "web/boot.js",
+      "bytes": 3147,
+      "sha256": "4abae1dfaff2a9c8c11d83e27e55e05e88051dd3c207e80de3f7e4a601e2279d"
+    },
+    {
+      "path": "web/index.html",
+      "bytes": 193,
+      "sha256": "f7cada34a513005ca2585e413893d84930643064773849617dab48e5c7f23ec2"
+    },
+    {
+      "path": "web/office_thread.js",
+      "bytes": 2097,
+      "sha256": "c02bfe07d115811324c6771da68370712ce5e4b99799707907d7d922ba93a251"
+    },
+    {
+      "path": "web/vendor/LICENSE-ZetaJS.txt",
+      "bytes": 1098,
+      "sha256": "a8c9b7d037ed112c3b9f85d5a1122aedd218947b21cf3f2c4200d13d7fe1a7d9"
+    },
+    {
+      "path": "web/vendor/zeta.js",
+      "bytes": 42951,
+      "sha256": "ee633709bfa1de3221e8f68beb395f68fd5ff00cab9e33ba22e97e8271b348b4"
+    },
+    {
+      "path": "web/vendor/zetaHelper.js",
+      "bytes": 7974,
+      "sha256": "3f38dfd266f4462966a211b2d260dcd28673cf5248e5e0b85af30ad18155d997"
+    }
+  ]
+}

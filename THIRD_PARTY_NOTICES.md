@@ -78,5 +78,24 @@ for interface strings. No `@docx-editor.dev/pro`, `@docx-editor.dev/editor-api`,
 React adapter, remote font service, or remote conversion service is included.
 Project source and bundled notices: <https://github.com/eigenpal/docx-editor>.
 
-RTF and legacy DOC import can call a separately installed local LibreOffice.
-LibreOffice is discovered only at import time and is not bundled with Vesperwind.
+## Embedded Office converter
+
+Native PPTX, DOC and RTF conversion bundles a conversion-only LOWA build of
+LibreOffice, not a separately installed executable. LibreOffice retains MPL-2.0
+and its upstream licensing notices; it is not MIT. The exact core/SDK revisions,
+build flags, production patches and modified source forms are recorded in
+`src-tauri/vendor/lowa/BUILD-INFO.json` and `vendor/lowa-build/`. Full LibreOffice
+LICENSE, NOTICE and copying texts are bundled under
+`src-tauri/vendor/lowa/licenses/`, together with the actual selected dependency
+notices. `ASSETS.json` pins every runtime resource; the application bundles these
+notices on both target platforms.
+
+ZetaJS at revision `b3dec98af5dc4c059a260afd6db0bf0fe38c6384` retains its MIT
+license in `src-tauri/vendor/lowa/web/vendor/LICENSE-ZetaJS.txt`. Bundled fonts retain OFL/GUST/Apache and other
+individual notices as applicable; `FONT-INVENTORY.json` preserves font names,
+hashes and embedded copyright/license metadata. Additional Noto Sans CJK JP
+Regular retains its embedded copyright and OFL-1.1 text. See
+`docs/office-conversion.md` for the complete artifact/source/update contract.
+
+Browser/SEA DOC/RTF conversion remains an optional separately installed local
+LibreOffice capability. It is not a native Tauri fallback.

@@ -1,0 +1,842 @@
+[
+  {
+    "name": "/instdir/presets/config/autotbl.fmt",
+    "bytes": 35313
+  },
+  {
+    "name": "/instdir/program/bootstraprc",
+    "bytes": 93
+  },
+  {
+    "name": "/instdir/program/fundamentalrc",
+    "bytes": 2289
+  },
+  {
+    "name": "/instdir/program/lounorc",
+    "bytes": 1059
+  },
+  {
+    "name": "/instdir/program/resource/common/fonts/opens___.ttf",
+    "bytes": 207992
+  },
+  {
+    "name": "/instdir/program/services.rdb",
+    "bytes": 8724
+  },
+  {
+    "name": "/instdir/program/services/services.rdb",
+    "bytes": 173590
+  },
+  {
+    "name": "/instdir/program/setuprc",
+    "bytes": 61
+  },
+  {
+    "name": "/instdir/program/sofficerc",
+    "bytes": 520
+  },
+  {
+    "name": "/instdir/program/types.rdb",
+    "bytes": 57713
+  },
+  {
+    "name": "/instdir/program/types/offapi.rdb",
+    "bytes": 694196
+  },
+  {
+    "name": "/instdir/program/types/oovbaapi.rdb",
+    "bytes": 355409
+  },
+  {
+    "name": "/instdir/program/unorc",
+    "bytes": 239
+  },
+  {
+    "name": "/instdir/program/versionrc",
+    "bytes": 342
+  },
+  {
+    "name": "/instdir/share/config/soffice.cfg/simpress/layoutlist.xml",
+    "bytes": 7058
+  },
+  {
+    "name": "/instdir/share/config/soffice.cfg/simpress/objectlist.xml",
+    "bytes": 2900
+  },
+  {
+    "name": "/instdir/share/config/soffice.cfg/simpress/styles.xml",
+    "bytes": 12019
+  },
+  {
+    "name": "/instdir/share/filter/oox-drawingml-adj-names",
+    "bytes": 6288
+  },
+  {
+    "name": "/instdir/share/filter/oox-drawingml-cs-presets",
+    "bytes": 1484580
+  },
+  {
+    "name": "/instdir/share/filter/vml-shape-types",
+    "bytes": 126322
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/05-reset-dirs-sample.conf",
+    "bytes": 213
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/09-autohint-if-no-hinting.conf",
+    "bytes": 717
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/10-autohint.conf",
+    "bytes": 630
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/10-hinting-full.conf",
+    "bytes": 616
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/10-hinting-medium.conf",
+    "bytes": 620
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/10-hinting-none.conf",
+    "bytes": 616
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/10-hinting-slight.conf",
+    "bytes": 620
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/10-no-antialias.conf",
+    "bytes": 260
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/10-scale-bitmap-fonts.conf",
+    "bytes": 2068
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/10-sub-pixel-bgr.conf",
+    "bytes": 672
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/10-sub-pixel-none.conf",
+    "bytes": 647
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/10-sub-pixel-rgb.conf",
+    "bytes": 672
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/10-sub-pixel-vbgr.conf",
+    "bytes": 682
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/10-sub-pixel-vrgb.conf",
+    "bytes": 682
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/10-unhinted.conf",
+    "bytes": 625
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/10-yes-antialias.conf",
+    "bytes": 258
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/11-lcdfilter-default.conf",
+    "bytes": 695
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/11-lcdfilter-legacy.conf",
+    "bytes": 692
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/11-lcdfilter-light.conf",
+    "bytes": 689
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/20-unhint-small-vera.conf",
+    "bytes": 1377
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/25-unhint-nonlatin.conf",
+    "bytes": 3329
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/30-metric-aliases.conf",
+    "bytes": 13234
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/35-lang-normalize.conf",
+    "bytes": 42037
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/40-nonlatin.conf",
+    "bytes": 7775
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/45-generic.conf",
+    "bytes": 3490
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/45-latin.conf",
+    "bytes": 7055
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/48-spacing.conf",
+    "bytes": 441
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/49-sansserif.conf",
+    "bytes": 639
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/50-user.conf",
+    "bytes": 751
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/51-local.conf",
+    "bytes": 263
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/60-generic.conf",
+    "bytes": 1911
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/60-latin.conf",
+    "bytes": 2136
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/65-fonts-persian.conf",
+    "bytes": 10132
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/65-khmer.conf",
+    "bytes": 304
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/65-nonlatin.conf",
+    "bytes": 9291
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/69-unifont.conf",
+    "bytes": 687
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/70-no-bitmaps.conf",
+    "bytes": 327
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/70-yes-bitmaps.conf",
+    "bytes": 327
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/80-delicious.conf",
+    "bytes": 437
+  },
+  {
+    "name": "/instdir/share/fontconfig/conf.d/90-synthetic.conf",
+    "bytes": 1757
+  },
+  {
+    "name": "/instdir/share/fontconfig/fonts.conf",
+    "bytes": 2705
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/Alef-Bold.ttf",
+    "bytes": 92660
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/Alef-Regular.ttf",
+    "bytes": 91360
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/Amiri-Bold.ttf",
+    "bytes": 429088
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/Amiri-BoldItalic.ttf",
+    "bytes": 426584
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/Amiri-Italic.ttf",
+    "bytes": 451684
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/Amiri-Regular.ttf",
+    "bytes": 453396
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/AmiriQuran.ttf",
+    "bytes": 140892
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/Caladea-Bold.ttf",
+    "bytes": 58892
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/Caladea-BoldItalic.ttf",
+    "bytes": 61828
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/Caladea-Italic.ttf",
+    "bytes": 61860
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/Caladea-Regular.ttf",
+    "bytes": 58964
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/Carlito-Bold.ttf",
+    "bytes": 690516
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/Carlito-BoldItalic.ttf",
+    "bytes": 816716
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/Carlito-Italic.ttf",
+    "bytes": 623416
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/Carlito-Regular.ttf",
+    "bytes": 635996
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/DavidLibre-Bold.ttf",
+    "bytes": 121848
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/DavidLibre-Regular.ttf",
+    "bytes": 116676
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/DejaVuMathTeXGyre.ttf",
+    "bytes": 577708
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/DejaVuSans-Bold.ttf",
+    "bytes": 705684
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/DejaVuSans-BoldOblique.ttf",
+    "bytes": 643292
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/DejaVuSans-ExtraLight.ttf",
+    "bytes": 355380
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/DejaVuSans-Oblique.ttf",
+    "bytes": 635416
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/DejaVuSans.ttf",
+    "bytes": 757076
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/DejaVuSansCondensed-Bold.ttf",
+    "bytes": 665028
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/DejaVuSansCondensed-BoldOblique.ttf",
+    "bytes": 611836
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/DejaVuSansCondensed-Oblique.ttf",
+    "bytes": 599292
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/DejaVuSansCondensed.ttf",
+    "bytes": 680264
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/DejaVuSansMono-Bold.ttf",
+    "bytes": 331992
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/DejaVuSansMono-BoldOblique.ttf",
+    "bytes": 253580
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/DejaVuSansMono-Oblique.ttf",
+    "bytes": 251932
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/DejaVuSansMono.ttf",
+    "bytes": 340712
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/DejaVuSerif-Bold.ttf",
+    "bytes": 356088
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/DejaVuSerif-BoldItalic.ttf",
+    "bytes": 347460
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/DejaVuSerif-Italic.ttf",
+    "bytes": 345996
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/DejaVuSerif.ttf",
+    "bytes": 380132
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/DejaVuSerifCondensed-Bold.ttf",
+    "bytes": 331244
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/DejaVuSerifCondensed-BoldItalic.ttf",
+    "bytes": 346508
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/DejaVuSerifCondensed-Italic.ttf",
+    "bytes": 345324
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/DejaVuSerifCondensed.ttf",
+    "bytes": 346664
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/FrankRuhlHofshi-Bold.otf",
+    "bytes": 61952
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/FrankRuhlHofshi-Regular.otf",
+    "bytes": 61680
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/GenBasB.ttf",
+    "bytes": 266840
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/GenBasBI.ttf",
+    "bytes": 245852
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/GenBasI.ttf",
+    "bytes": 258680
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/GenBasR.ttf",
+    "bytes": 264216
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/GenBkBasB.ttf",
+    "bytes": 267024
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/GenBkBasBI.ttf",
+    "bytes": 245096
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/GenBkBasI.ttf",
+    "bytes": 261328
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/GenBkBasR.ttf",
+    "bytes": 267604
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/LiberationMono-Bold.ttf",
+    "bytes": 307856
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/LiberationMono-BoldItalic.ttf",
+    "bytes": 283932
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/LiberationMono-Italic.ttf",
+    "bytes": 281400
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/LiberationMono-Regular.ttf",
+    "bytes": 319368
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/LiberationSans-Bold.ttf",
+    "bytes": 415428
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/LiberationSans-BoldItalic.ttf",
+    "bytes": 410248
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/LiberationSans-Italic.ttf",
+    "bytes": 416880
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/LiberationSans-Regular.ttf",
+    "bytes": 411860
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/LiberationSansNarrow-Bold.ttf",
+    "bytes": 110260
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/LiberationSansNarrow-BoldItalic.ttf",
+    "bytes": 128476
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/LiberationSansNarrow-Italic.ttf",
+    "bytes": 132460
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/LiberationSansNarrow-Regular.ttf",
+    "bytes": 113036
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/LiberationSerif-Bold.ttf",
+    "bytes": 369860
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/LiberationSerif-BoldItalic.ttf",
+    "bytes": 376512
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/LiberationSerif-Italic.ttf",
+    "bytes": 375368
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/LiberationSerif-Regular.ttf",
+    "bytes": 393336
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/LinBiolinum_RB_G.ttf",
+    "bytes": 1988092
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/LinBiolinum_RI_G.ttf",
+    "bytes": 2001216
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/LinBiolinum_R_G.ttf",
+    "bytes": 1937644
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/LinLibertine_DR_G.ttf",
+    "bytes": 2007364
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/LinLibertine_RBI_G.ttf",
+    "bytes": 1578296
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/LinLibertine_RB_G.ttf",
+    "bytes": 2105948
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/LinLibertine_RI_G.ttf",
+    "bytes": 2050040
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/LinLibertine_RZI_G.ttf",
+    "bytes": 1955464
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/LinLibertine_RZ_G.ttf",
+    "bytes": 1972756
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/LinLibertine_R_G.ttf",
+    "bytes": 2567492
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/MiriamLibre-Bold.otf",
+    "bytes": 65920
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/MiriamLibre-Regular.otf",
+    "bytes": 64252
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoKufiArabic-Bold.ttf",
+    "bytes": 295948
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoKufiArabic-Regular.ttf",
+    "bytes": 273304
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoNaskhArabic-Bold.ttf",
+    "bytes": 326044
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoNaskhArabic-Regular.ttf",
+    "bytes": 293176
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoSans-Bold.ttf",
+    "bytes": 789328
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoSans-BoldItalic.ttf",
+    "bytes": 811424
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoSans-Italic.ttf",
+    "bytes": 796408
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoSans-Regular.ttf",
+    "bytes": 775892
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoSansArabic-Bold.ttf",
+    "bytes": 260904
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoSansArabic-Regular.ttf",
+    "bytes": 250880
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoSansArmenian-Bold.ttf",
+    "bytes": 68972
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoSansArmenian-Regular.ttf",
+    "bytes": 69172
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoSansGeorgian-Bold.ttf",
+    "bytes": 89988
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoSansGeorgian-Regular.ttf",
+    "bytes": 88428
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoSansHebrew-Bold.ttf",
+    "bytes": 66608
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoSansHebrew-Regular.ttf",
+    "bytes": 66156
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoSansLao-Bold.ttf",
+    "bytes": 76096
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoSansLao-Regular.ttf",
+    "bytes": 75480
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoSansLisu-Bold.ttf",
+    "bytes": 54280
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoSansLisu-Regular.ttf",
+    "bytes": 54508
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoSerif-Bold.ttf",
+    "bytes": 769364
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoSerif-BoldItalic.ttf",
+    "bytes": 777288
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoSerif-Italic.ttf",
+    "bytes": 752236
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoSerif-Regular.ttf",
+    "bytes": 738828
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoSerifArmenian-Bold.ttf",
+    "bytes": 77348
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoSerifArmenian-Regular.ttf",
+    "bytes": 76808
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoSerifGeorgian-Bold.ttf",
+    "bytes": 108636
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoSerifGeorgian-Regular.ttf",
+    "bytes": 104660
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoSerifHebrew-Bold.ttf",
+    "bytes": 79304
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoSerifHebrew-Regular.ttf",
+    "bytes": 77536
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoSerifLao-Bold.ttf",
+    "bytes": 93356
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/NotoSerifLao-Regular.ttf",
+    "bytes": 89808
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/ReemKufi-Bold.ttf",
+    "bytes": 92544
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/ReemKufi-Regular.ttf",
+    "bytes": 93232
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/Rubik-Bold.ttf",
+    "bytes": 140396
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/Rubik-BoldItalic.ttf",
+    "bytes": 146128
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/Rubik-Italic.ttf",
+    "bytes": 143392
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/Rubik-Regular.ttf",
+    "bytes": 136624
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/Scheherazade-Bold.ttf",
+    "bytes": 547772
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/Scheherazade-Regular.ttf",
+    "bytes": 500396
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/fc_local.conf",
+    "bytes": 1578
+  },
+  {
+    "name": "/instdir/share/fonts/truetype/opens___.ttf",
+    "bytes": 207992
+  },
+  {
+    "name": "/instdir/share/liblangtag/common/bcp47/calendar.xml",
+    "bytes": 3291
+  },
+  {
+    "name": "/instdir/share/liblangtag/common/bcp47/collation.xml",
+    "bytes": 7459
+  },
+  {
+    "name": "/instdir/share/liblangtag/common/bcp47/currency.xml",
+    "bytes": 22104
+  },
+  {
+    "name": "/instdir/share/liblangtag/common/bcp47/number.xml",
+    "bytes": 7528
+  },
+  {
+    "name": "/instdir/share/liblangtag/common/bcp47/timezone.xml",
+    "bytes": 45405
+  },
+  {
+    "name": "/instdir/share/liblangtag/common/bcp47/transform.xml",
+    "bytes": 3877
+  },
+  {
+    "name": "/instdir/share/liblangtag/common/bcp47/transform_ime.xml",
+    "bytes": 1437
+  },
+  {
+    "name": "/instdir/share/liblangtag/common/bcp47/transform_keyboard.xml",
+    "bytes": 4694
+  },
+  {
+    "name": "/instdir/share/liblangtag/common/bcp47/transform_mt.xml",
+    "bytes": 943
+  },
+  {
+    "name": "/instdir/share/liblangtag/common/bcp47/transform_private_use.xml",
+    "bytes": 760
+  },
+  {
+    "name": "/instdir/share/liblangtag/common/bcp47/variant.xml",
+    "bytes": 1509
+  },
+  {
+    "name": "/instdir/share/liblangtag/common/supplemental/likelySubtags.xml",
+    "bytes": 209479
+  },
+  {
+    "name": "/instdir/share/liblangtag/common/supplemental/supplementalMetadata.xml",
+    "bytes": 171029
+  },
+  {
+    "name": "/instdir/share/liblangtag/language-subtag-registry.xml",
+    "bytes": 1341074
+  },
+  {
+    "name": "/instdir/share/registry/Langpack-en-US.xcd",
+    "bytes": 481
+  },
+  {
+    "name": "/instdir/share/registry/calc.xcd",
+    "bytes": 165385
+  },
+  {
+    "name": "/instdir/share/registry/cjk.xcd",
+    "bytes": 1136
+  },
+  {
+    "name": "/instdir/share/registry/ctl.xcd",
+    "bytes": 474
+  },
+  {
+    "name": "/instdir/share/registry/ctlseqcheck.xcd",
+    "bytes": 180
+  },
+  {
+    "name": "/instdir/share/registry/draw.xcd",
+    "bytes": 49966
+  },
+  {
+    "name": "/instdir/share/registry/graphicfilter.xcd",
+    "bytes": 74377
+  },
+  {
+    "name": "/instdir/share/registry/impress.xcd",
+    "bytes": 216837
+  },
+  {
+    "name": "/instdir/share/registry/lingucomponent.xcd",
+    "bytes": 2112
+  },
+  {
+    "name": "/instdir/share/registry/main.xcd",
+    "bytes": 1879580
+  },
+  {
+    "name": "/instdir/share/registry/math.xcd",
+    "bytes": 19129
+  },
+  {
+    "name": "/instdir/share/registry/res/fcfg_langpack_en-US.xcd",
+    "bytes": 30847
+  },
+  {
+    "name": "/instdir/share/registry/res/registry_en-US.xcd",
+    "bytes": 6290
+  },
+  {
+    "name": "/instdir/share/registry/static.xcd",
+    "bytes": 2898
+  },
+  {
+    "name": "/instdir/share/registry/writer.xcd",
+    "bytes": 340128
+  },
+  {
+    "name": "/instdir/share/registry/xsltfilter.xcd",
+    "bytes": 14149
+  }
+]

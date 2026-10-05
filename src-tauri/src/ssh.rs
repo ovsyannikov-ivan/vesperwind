@@ -78,7 +78,7 @@ struct RemoteConnection {
     initial: String,
     home: String,
     connected: AtomicBool,
-    app: AppHandle,
+    app: Option<AppHandle>,
 }
 
 enum TerminalCommand {
@@ -90,6 +90,16 @@ enum TerminalCommand {
 pub struct SshManager {
     connections: Mutex<HashMap<String, Arc<RemoteConnection>>>,
     terminals: Mutex<HashMap<String, mpsc::Sender<TerminalCommand>>>,
+}
+
+// Sent only over the helper's private stdin pipe; never logged or persisted.
+#[derive(Serialize, Deserialize)]
+pub(crate) struct OperationConnection {
+    profile: ConnectionProfile,
+    secret: String,
+    root: String,
+    initial: String,
+    home: String,
 }
 
 impl SshManager {
@@ -142,7 +152,7 @@ impl SshManager {
             initial,
             home: home.clone(),
             connected: AtomicBool::new(true),
-            app: app.clone(),
+            app: Some(app.clone()),
         });
         let root_entry = connection.root_entry();
         let initial_entry = connection.initial_entry();
@@ -172,7 +182,7 @@ impl SshManager {
                     .is_some_and(|current| Arc::ptr_eq(current, &connection))
             });
             if is_current {
-                let _ = connection.app.emit(
+                let _ = connection.emit(
                     "ssh:status",
                     serde_json::json!({"connectionId":connection_id,"status":"disconnected"}),
                 );
@@ -257,7 +267,9 @@ impl SshManager {
                 NativeError::new("ESSH_DISCONNECTED", "The remote connection is disconnected")
             })?;
         self.connect(
-            stale.app.clone(),
+            stale.app.clone().ok_or_else(|| {
+                NativeError::new("ESSH_DISCONNECTED", "Helper connection cannot reconnect")
+            })?,
             stale.profile.clone(),
             stale.secret.clone(),
         )
@@ -285,7 +297,7 @@ impl SshManager {
             Ok(entries) => Ok(entries),
             Err(error) if matches!(error.code.as_str(), "ESFTP" | "ESSH" | "ESSH_DISCONNECTED") => {
                 connection.connected.store(false, Ordering::Release);
-                let _ = connection.app.emit(
+                let _ = connection.emit(
                     "ssh:status",
                     serde_json::json!({"connectionId":connection.profile.id,"status":"disconnected"}),
                 );
@@ -313,7 +325,7 @@ impl SshManager {
             Ok(result) => Ok(result),
             Err(error) if matches!(error.code.as_str(), "ESFTP" | "ESSH" | "ESSH_DISCONNECTED") => {
                 connection.connected.store(false, Ordering::Release);
-                let _ = connection.app.emit(
+                let _ = connection.emit(
                     "ssh:status",
                     serde_json::json!({"connectionId":connection.profile.id,"status":"disconnected"}),
                 );
@@ -375,6 +387,58 @@ impl SshManager {
         let connection = self.ensure(provider_id)?;
         let path = connection.resolve(requested)?;
         connection.sftp.open(Path::new(&path)).map_err(sftp_error)
+    }
+
+    pub(crate) fn operation_connections(
+        &self,
+        request: &OperationRequest,
+    ) -> Result<Vec<OperationConnection>, NativeError> {
+        let mut ids = vec![];
+        let mut result = vec![];
+        for provider in [&request.filesystem_id, &request.target_filesystem_id]
+            .into_iter()
+            .flatten()
+        {
+            if !provider.starts_with("sftp:") || ids.contains(provider) {
+                continue;
+            }
+            ids.push(provider.clone());
+            let connection = self.get(provider)?;
+            result.push(OperationConnection {
+                profile: connection.profile.clone(),
+                secret: connection.secret.clone(),
+                root: connection.root.clone(),
+                initial: connection.initial.clone(),
+                home: connection.home.clone(),
+            });
+        }
+        Ok(result)
+    }
+
+    pub(crate) fn from_operation_connections(
+        inputs: Vec<OperationConnection>,
+    ) -> Result<Arc<Self>, NativeError> {
+        let manager = Self::new();
+        for input in inputs {
+            crate::filesystem::jobs::checkpoint()?;
+            let session = connect_session(&input.profile, &input.secret).map_err(|e| e.error)?;
+            let sftp = session.sftp().map_err(sftp_error)?;
+            manager.connections.lock().unwrap().insert(
+                input.profile.id.clone(),
+                Arc::new(RemoteConnection {
+                    profile: input.profile,
+                    secret: input.secret,
+                    session,
+                    sftp,
+                    root: input.root,
+                    initial: input.initial,
+                    home: input.home,
+                    connected: AtomicBool::new(true),
+                    app: None,
+                }),
+            );
+        }
+        Ok(manager)
     }
 
     pub fn operate(
@@ -644,6 +708,14 @@ impl SshManager {
 }
 
 impl RemoteConnection {
+    fn emit(&self, event: &str, payload: serde_json::Value) -> tauri::Result<()> {
+        if let Some(app) = &self.app {
+            app.emit(event, payload)
+        } else {
+            Ok(())
+        }
+    }
+
     fn resolve(&self, requested: &str) -> Result<String, NativeError> {
         let value = normalize_remote(requested)?;
         if value != self.root
@@ -809,6 +881,7 @@ impl RemoteConnection {
     }
 
     fn remove(&self, requested: &str) -> Result<(), NativeError> {
+        crate::filesystem::jobs::checkpoint()?;
         let path = self.resolve(requested)?;
         let stat = self.sftp.lstat(Path::new(&path)).map_err(sftp_error)?;
         if is_directory(&stat) {
@@ -847,6 +920,7 @@ fn connect_session(profile: &ConnectionProfile, secret: &str) -> Result<Session,
     tcp.set_read_timeout(Some(Duration::from_secs(20))).ok();
     tcp.set_write_timeout(Some(Duration::from_secs(20))).ok();
     let mut session = Session::new().map_err(|e| connect_native(e, "Unable to initialize SSH"))?;
+    session.set_timeout(20_000);
     session.set_tcp_stream(tcp);
     session
         .handshake()
@@ -1031,6 +1105,7 @@ fn copy_entry(
     target_remote: Option<&RemoteConnection>,
     destination: &str,
 ) -> Result<(), NativeError> {
+    crate::filesystem::jobs::checkpoint()?;
     let resolved_source = if let Some(remote) = source_remote {
         remote.resolve(source)?
     } else {
