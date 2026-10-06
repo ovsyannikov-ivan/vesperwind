@@ -340,7 +340,7 @@ impl ThumbnailManager {
     }
 }
 
-fn bundled_binary() -> Option<PathBuf> {
+pub(crate) fn bundled_binary() -> Option<PathBuf> {
     let name = if cfg!(windows) {
         "ffmpeg.exe"
     } else {
@@ -368,7 +368,7 @@ fn bundled_binary() -> Option<PathBuf> {
         .find(|p| p.is_absolute() && p.is_file())
 }
 
-fn is_pinned_version(log: &str) -> bool {
+pub(crate) fn is_pinned_version(log: &str) -> bool {
     let version = log
         .strip_prefix("ffmpeg version ")
         .and_then(|s| s.split_whitespace().next());
@@ -390,7 +390,7 @@ fn is_hdr(log: &str) -> bool {
 }
 // Only the first video stream is extracted. Metadata of other streams must
 // not decide its conversion policy (e.g. an SDR main stream plus HDR alternate).
-fn first_video_stream(log: &str) -> String {
+pub(crate) fn first_video_stream(log: &str) -> String {
     let mut lines = log
         .lines()
         .skip_while(|line| !(line.contains("Stream #0:") && line.contains("Video:")));
@@ -410,9 +410,16 @@ fn color_policy(log: &str) -> ColorPolicy {
         return ColorPolicy::Sdr;
     }
     let lower = log.to_ascii_lowercase();
-    let unsupported_dovi = ["profile: 5", "profile=5", "dv_profile=5"]
-        .iter()
-        .any(|marker| lower.contains(marker));
+    // FFmpeg decodes only the base layer; it never applies the RPU. A stream
+    // without a backward-compatible base layer (profile 5, compatibility id 0)
+    // would produce wrong colors, so it gets no thumbnail.
+    let unsupported_dovi = super::dolby_vision::parse_configuration_record(log)
+        .map(|record| record.profile == 5 || record.compatibility_id == 0)
+        .unwrap_or_else(|| {
+            ["profile: 5", "profile=5", "dv_profile=5"]
+                .iter()
+                .any(|marker| lower.contains(marker))
+        });
     if !unsupported_dovi
         && lower.contains("bt2020")
         && (lower.contains("smpte2084") || lower.contains("arib-std-b67"))
@@ -512,10 +519,10 @@ fn frame_args(path: &Path, time: f64, width: u32, policy: ColorPolicy) -> Vec<st
     args
 }
 
-struct ProcessOutput {
-    success: bool,
-    stdout: Vec<u8>,
-    stderr: Vec<u8>,
+pub(crate) struct ProcessOutput {
+    pub(crate) success: bool,
+    pub(crate) stdout: Vec<u8>,
+    pub(crate) stderr: Vec<u8>,
 }
 fn read_pipe(mut pipe: impl Read, limit: usize, overflow: Arc<AtomicBool>) -> Vec<u8> {
     let mut bytes = Vec::new();
@@ -530,7 +537,7 @@ fn read_pipe(mut pipe: impl Read, limit: usize, overflow: Arc<AtomicBool>) -> Ve
     }
     bytes
 }
-fn run_cancelled(
+pub(crate) fn run_cancelled(
     binary: &Path,
     args: &[std::ffi::OsString],
     limit: usize,
@@ -673,6 +680,15 @@ mod tests {
             color_policy(&format!("{pq} DOVI configuration record: profile: 5")),
             ColorPolicy::UnsupportedHdr
         );
+        let record = |profile: u8, compatibility: u8| {
+            format!("{pq}\n      DOVI configuration record: version: 1.0, profile: {profile}, level: 6, rpu flag: 1, el flag: 0, bl flag: 1, compatibility id: {compatibility}, compression: 0")
+        };
+        // Compatible base layers keep the base-layer thumbnail; profile 5 and
+        // compatibility id 0 never get an uncorrected IPTPQc2 frame.
+        assert_eq!(color_policy(&record(8, 1)), ColorPolicy::ToneMap);
+        assert_eq!(color_policy(&record(7, 6)), ColorPolicy::ToneMap);
+        assert_eq!(color_policy(&record(5, 0)), ColorPolicy::UnsupportedHdr);
+        assert_eq!(color_policy(&record(8, 0)), ColorPolicy::UnsupportedHdr);
         assert_eq!(
             color_policy("Video: h264, yuv420p(tv, bt709)"),
             ColorPolicy::Sdr

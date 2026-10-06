@@ -32,7 +32,8 @@ Full notices and source/build pins are distributed as
 The Tauri macOS and Windows bundles vendor a dynamically linked, LGPL-compatible libmpv
 runtime built from pinned source. It includes mpv/libmpv 0.41.0, FFmpeg 8.0,
 libplacebo 7.351.0, libass 0.17.4, FreeType 2.14.1, FriBidi 1.0.16, and HarfBuzz
-11.5.0. The exact commits, build flags, local compatibility patches, artifact
+11.5.0. libplacebo's built-in Dolby Vision reshaping is LGPL-2.1+ code inside
+libplacebo; the separate libdovi parser is not built. The exact commits, build flags, local compatibility patches, artifact
 limitations, license analysis, source/relinking offer, and per-component license
 texts are recorded in `docs/libmpv.md`, the platform build scripts and
 `src-tauri/vendor/libmpv/{macos,windows}`. Windows uses MSYS2 UCRT64 GCC/MinGW

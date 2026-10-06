@@ -63,3 +63,60 @@ test('build-path checks distinguish upstream runtime templates from machine path
   }
   assert.equal(hasAbsoluteBuildPath('D:/W/B/src/private-project/file.c'), true)
 })
+
+test('Dolby Vision provenance requires built-in dovi evidence and never libdovi', async () => {
+  const { doviNote, doviState, checkDoviManifest, checkMacosDoviEvidence, checkWindowsDoviEvidence } = await import('../scripts/libmpv-dovi.js')
+  const enabled = ['-Ddovi=enabled', '-Dlibdovi=disabled'], disabled = ['-Ddovi=disabled', '-Dlibdovi=disabled']
+  assert.equal(doviState(enabled), 'enabled')
+  assert.equal(doviState(disabled), 'disabled')
+  assert.throws(() => doviState(['-Ddovi=enabled', '-Dlibdovi=enabled']), /libdovi=disabled/)
+  assert.throws(() => doviState(['-Dlibdovi=disabled']), /-Ddovi=/)
+  assert.deepEqual(checkDoviManifest({ requiredLibplaceboOptions: enabled, doviProcessing: doviNote('enabled') }),
+    { artifact: 'enabled', recipe: 'enabled', pending: false })
+  // A manifest note cannot claim reshaping the artifact options do not build.
+  assert.throws(() => checkDoviManifest({ requiredLibplaceboOptions: disabled, doviProcessing: doviNote('enabled') }), /doviProcessing/)
+
+  const macos = 'libplacebo dovi: enabled; libdovi: disabled\nlibplacebo pkg-config: pl_has_dovi=1 pl_has_libdovi=0\nmpv Dolby Vision metadata mapping: PL_HAVE_LAV_DOLBY_VISION defined (PL_API_VER 351)'
+  checkMacosDoviEvidence(macos, 'enabled')
+  assert.throws(() => checkMacosDoviEvidence(macos.replace('pl_has_dovi=1', 'pl_has_dovi=0'), 'enabled'), /pl_has_dovi=1/)
+  assert.throws(() => checkMacosDoviEvidence(macos.split('\n').slice(0, 2).join('\n'), 'enabled'), /PL_HAVE_LAV_DOLBY_VISION/)
+  assert.throws(() => checkMacosDoviEvidence(macos.replace('pl_has_libdovi=0', 'pl_has_libdovi=1'), 'enabled'), /libdovi/)
+  assert.throws(() => checkMacosDoviEvidence(macos, 'disabled'), /dovi: disabled/)
+
+  const windows = { libplaceboOptions: ['-Dd3d11=enabled', ...enabled], libplaceboPkgConfig: { pl_has_dovi: '1', pl_has_libdovi: '0' },
+    doviMapping: 'mpv Dolby Vision metadata mapping: PL_HAVE_LAV_DOLBY_VISION defined (PL_API_VER 351)' }
+  checkWindowsDoviEvidence(windows, 'enabled')
+  assert.throws(() => checkWindowsDoviEvidence({ ...windows, doviMapping: undefined }, 'enabled'), /mapping/)
+  assert.throws(() => checkWindowsDoviEvidence({ ...windows, libplaceboPkgConfig: undefined }, 'enabled'), /pl_has_dovi=1/)
+  assert.throws(() => checkWindowsDoviEvidence({ ...windows, libplaceboPkgConfig: { pl_has_dovi: '1', pl_has_libdovi: '1' } }, 'enabled'), /libdovi/)
+  // An artifact built with dovi disabled cannot satisfy an enabled artifact entry.
+  assert.throws(() => checkWindowsDoviEvidence({ libplaceboOptions: disabled }, 'enabled'), /-Ddovi=enabled/)
+  checkWindowsDoviEvidence({ libplaceboOptions: disabled }, 'disabled')
+})
+
+test('Windows Dolby Vision handoff keeps recipe and checked-in artifact explicit', async () => {
+  const { doviNote, checkDoviManifest, recordBuiltArtifact, checkWindowsDoviEvidence } = await import('../scripts/libmpv-dovi.js')
+  const fs = await import('node:fs/promises')
+  const manifest = JSON.parse(await fs.readFile(new URL('../src-tauri/vendor/libmpv/manifest.json', import.meta.url), 'utf8'))
+  const info = JSON.parse(await fs.readFile(new URL('../src-tauri/vendor/libmpv/windows/BUILD-INFO.txt', import.meta.url), 'utf8'))
+  const script = await fs.readFile(new URL('../scripts/build-libmpv-windows.sh', import.meta.url), 'utf8')
+  // The recipe in the manifest is what the build script asks Meson for.
+  for (const flag of manifest.windows.buildRecipeLibplaceboOptions.filter((flag) => /dovi/.test(flag))) assert.ok(script.includes(flag), flag)
+
+  // Before the Windows rebuild: the old artifact is accepted as dovi-disabled.
+  assert.deepEqual(checkDoviManifest(manifest.windows), { artifact: 'disabled', recipe: 'enabled', pending: true })
+  checkWindowsDoviEvidence(info, 'disabled')
+  assert.throws(() => checkWindowsDoviEvidence(info, 'enabled'))
+  const { artifactPendingRebuild, ...unmarked } = manifest.windows
+  assert.equal(artifactPendingRebuild, true)
+  assert.throws(() => checkDoviManifest(unmarked), /artifactPendingRebuild/)
+
+  // After it: packaging records the Meson result and the entry matches the recipe.
+  const built = recordBuiltArtifact(manifest.windows, manifest.windows.buildRecipeLibplaceboOptions)
+  assert.deepEqual(checkDoviManifest(built), { artifact: 'enabled', recipe: 'enabled', pending: false })
+  assert.equal(built.doviProcessing, doviNote('enabled'))
+  assert.equal('artifactPendingRebuild' in built, false)
+  assert.throws(() => checkDoviManifest({ ...built, artifactPendingRebuild: true }), /matches its build recipe/)
+  // A build that ignored the recipe is never recorded.
+  assert.throws(() => recordBuiltArtifact(manifest.windows, info.libplaceboOptions), /recipe requires -Ddovi=enabled/)
+})

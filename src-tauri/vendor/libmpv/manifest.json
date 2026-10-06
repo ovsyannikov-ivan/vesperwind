@@ -14,7 +14,7 @@
     "buildEvidence": "macos/BUILD-INFO.txt",
     "entry": "macos/libmpv.2.dylib",
     "presentation": "experimental mpv-owned gpu-next / Vulkan / pinned MoltenVK / Metal over CAMetalLayer wid; FP16 EDR OpenGL Render API fallback",
-    "runtimeValidation": "Apple M4: native client probe passed H.264, HEVC 8-bit, Main10 SDR, PQ and HLG synthetic clips with hwdec-current=videotoolbox, paused resize, play/pause/seek, source switching and three lifetimes. PQ layer RGB10A2, ITU2100PQ, wantsEDR and CAEDRMetadata observed. OpenGL Render API H.264 rendering passed three lifetimes with videotoolbox-copy. Tauri composition/fullscreen, physical HDR/color accuracy, display moves/hotplug/sleep/wake, SFTP and Dolby Vision assets remain unverified.",
+    "runtimeValidation": "Apple M4 after the dovi-enabled rebuild: probe-libmpv-macvk passed three lifetimes (MPEG-4 SDR software decode, HEVC Main10 PQ with hwdec-current=videotoolbox; paused resize, play/pause/seek, source switching; RGB10A2 + ITUR_2100_PQ + wantsEDR + EDR metadata). Real Dolby Vision 8.1 file: video-params/colormatrix=dolbyvision with gpu-next/macvk-embedded for VideoToolbox and software decode and both SDR and PQ targets (previous dovi-disabled bundle: bt.2020-ncl); application Info reports RPU reshaping active, OpenGL Render API fallback reports RPU not applied; native media smoke passed. Profile 5/7 files, physical HDR/color accuracy, Tauri fullscreen and display moves/hotplug/sleep/wake remain unverified.",
     "requiredMesonOptions": [
       "-Dmacvk-embedded=enabled",
       "-Dvulkan=enabled",
@@ -27,10 +27,9 @@
       "-Dvk-proc-addr=enabled",
       "-Dopengl=enabled",
       "-Dglslang=enabled",
-      "-Ddovi=disabled",
+      "-Ddovi=enabled",
       "-Dlibdovi=disabled"
     ],
-    "optionalDoviProcessing": "VESPERWIND_LIBMPV_DOVI=enabled (built-in processing only, no libdovi; not enabled in current artifact)",
     "gpuDependencies": {
       "MoltenVK": "1.3.0 (49b97f26ae013b9e5bfb3098ee5dea5e4f58e9e8), dynamic direct link",
       "Vulkan-Headers": "1.4.313 (e2e53a724677f6eba8ff0ce1ccb64ee321785cbd)",
@@ -38,7 +37,8 @@
       "transitiveSourcePins": "macos/BUILD-INFO.txt (MoltenVK ExternalRevisions)"
     },
     "backendOverride": "VESPERWIND_MPV_MACOS_BACKEND=auto|macvk|opengl",
-    "tlsBackend": "securetransport"
+    "tlsBackend": "securetransport",
+    "doviProcessing": "libplacebo built-in Dolby Vision RPU reshaping: enabled; libdovi: disabled; system Dolby Vision output: not used"
   },
   "windows": {
     "artifactStatus": "built-from-pinned-source",
@@ -55,6 +55,9 @@
     "presentation": "mpv-owned gpu-next D3D11: HDR10 PQ/BT.2020 policy with negotiated target verification; RGBA8 SDR fallback; OpenGL Render API WGL SDR fallback; physical HDR output not verified",
     "requiredMesonOptions": ["-Dd3d11=enabled", "-Dshaderc=enabled", "-Dspirv-cross=enabled"],
     "requiredLibplaceboOptions": ["-Dd3d11=enabled", "-Dopengl=enabled", "-Dshaderc=enabled", "-Ddovi=disabled", "-Dlibdovi=disabled"],
+    "buildRecipeLibplaceboOptions": ["-Dd3d11=enabled", "-Dopengl=enabled", "-Dshaderc=enabled", "-Ddovi=enabled", "-Dlibdovi=disabled"],
+    "artifactPendingRebuild": true,
+    "doviProcessing": "libplacebo built-in Dolby Vision RPU reshaping: disabled; libdovi: disabled; system Dolby Vision output: not used",
     "shaderToolchainPackages": {
       "mingw-w64-ucrt-x86_64-shaderc": "2026.3-1",
       "mingw-w64-ucrt-x86_64-spirv-cross": "1~1.4.357.0-1",

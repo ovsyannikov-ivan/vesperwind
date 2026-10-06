@@ -139,9 +139,9 @@ instead of setting gpu-next-only options.
 | --- | --- | --- |
 | HDR10 / HEVC Main10, BT.2020 PQ | Experimental Metal PQ/BT.2020 target with OpenGL FP16 EDR fallback; actual application HDR-display validation pending | D3D11 PQ/BT.2020 output policy implemented; actual RGB10A2/PQ target checked through mpv. HDR display/HDMI validation: **not verified** |
 | HLG | Metal maps HLG to PQ; OpenGL retains its linear EDR path. Actual application HDR-display validation pending | SDR tone mapping; native HLG output planned after HDR10 validation |
-| Dolby Vision profile 5 | Profile metadata is detected, but the bundled libplacebo build has `dovi`/`libdovi` disabled; correct RPU reshaping is not claimed | Not supported |
-| Dolby Vision profile 7 | Profile metadata is detected; an HDR10 base layer may be usable, but RPU, MEL, FEL, and enhancement-layer reconstruction are not claimed | Not supported |
-| Dolby Vision profile 8 | Profile metadata is detected; a compatible base layer may be usable, but RPU processing is not claimed | PQ/BT.2020 compatible base layer can use HDR10 policy; no Dolby Vision RPU processing or Dolby Vision signalling |
+| Dolby Vision profile 8.x | gpu-next applies libplacebo's built-in RPU reshaping (verified on a real 8.1 file: `colormatrix=dolbyvision`, VideoToolbox, Metal). The OpenGL fallback keeps the base layer | Script builds `dovi=enabled`; the committed artifact predates it, so the HDR10/HLG base layer is used until the rebuild |
+| Dolby Vision profile 5 | Same mapping and reshaping path as profile 8 (residual disabled); not yet verified with a real file. Without gpu-next, Info reports incorrect colors | As profile 8.x; without reshaping Info reports incorrect colors |
+| Dolby Vision profile 7 | MEL/FEL is classified from the first frame's RPU. mpv 0.41 maps only residual-disabled RPUs, so MEL/FEL streams play the HDR10 base layer; no enhancement-layer reconstruction | As macOS |
 
 Profile 8.1 has an HDR10-compatible base layer and Profile 8.4 has an
 HLG-compatible base layer. Successful playback of such a file can therefore
@@ -149,13 +149,43 @@ come from the compatible base layer rather than Dolby Vision processing. The
 profile number alone does not establish base-layer compatibility; see Dolby's
 [profile compatibility reference](https://ott.dolby.com/browser_test_kit/help_files/topics/r_resources.html).
 
-The default bundles disable `dovi` and `libdovi`. Compatible base-layer playback,
-RPU detection, reshaping and native system Dolby Vision output are distinct
-capabilities; successful HEVC playback proves neither Dolby Vision nor HDR output.
-A separate controlled `VESPERWIND_LIBMPV_DOVI=enabled` build is for research only.
-No native/system Dolby Vision output is claimed; `systemDolbyVisionOutput` remains
-false. HDR-capable physical displays require validation of actual VO, target,
-layer colorspace, EDR headroom and visible output.
+Both build scripts configure libplacebo with `-Ddovi=enabled -Dlibdovi=disabled`.
+The built-in `dovi` code (LGPL-2.1+) reshapes from FFmpeg's parsed
+`AVDOVIMetadata`; the external `libdovi` parser is never built. The macOS bundle
+was rebuilt this way. The Windows manifest entry records the recipe
+(`buildRecipeLibplaceboOptions`, dovi enabled) separately from the committed
+artifact (`requiredLibplaceboOptions`, still `-Ddovi=disabled`, with
+`artifactPendingRebuild: true`) until `build-libmpv-windows.ps1` rebuilds it; see
+docs/build-windows.md. `scripts/libmpv-dovi.js` makes both
+bundle verifiers require the manifest, the `doviProcessing` note and the
+artifact's own evidence (`pl_has_dovi`/`pl_has_libdovi`, and a compiled
+`PL_HAVE_LAV_DOLBY_VISION` check from `scripts/probe-libmpv-dovi.c`) to agree.
+
+Diagnostics expose `dolbyVision` as separate facts:
+
+- Source: profile and level from mpv; compatibility id, RPU/EL/BL flags from
+  the FFmpeg configuration record; `disable_residual_flag` and MEL/FEL from the
+  first frame's RPU as FFmpeg parsed it. The pinned FFmpeg sidecar reads these
+  for local files only; anything without evidence (remote files, a missing
+  sidecar) stays unknown. A profile number never implies a compatibility id,
+  an RPU or an enhancement-layer kind. Vesperwind does not parse bitstreams.
+- Processing: `rpuProcessingActive` is true only when mpv mapped the RPU
+  (`video-params/colormatrix=dolbyvision`) and `current-vo` is `gpu-next`.
+  A base-layer fallback is reported as "RPU not applied".
+- Enhancement layer: present/MEL/FEL/unknown;
+  `enhancementLayerProcessingActive` is always false with mpv 0.41.
+- Output: HDR/SDR presentation stays in the existing output diagnostics.
+  `systemOutputActive` and `systemDolbyVisionOutput` are always false: no
+  Dolby Vision display signalling is negotiated.
+
+The player logs one `dolby-vision ...` line whenever this state changes, never
+per frame. `scripts/probe-libmpv-dovi-runtime.m` (built like the embedding probe
+below) prints the same mpv properties for one file, and
+`node scripts/media-dolby-vision-acceptance.mjs /absolute/movie.mkv` records the
+application's diagnostics, Info rows and log line through the
+`--media-ui-regression` driver. HDR-capable physical displays still require
+validation of the actual VO, target, layer colorspace, EDR headroom and visible
+output.
 
 The Windows path requires HDR to be active on the player's monitor. Info separates
 source, decode, processing, presentation and output summaries; the full diagnostic
@@ -259,10 +289,11 @@ presentation errors. Never infer HDR from source metadata or a TV popup alone.
 After manual HDR10 validation, the separate future stages are HLG and a reviewed FP16 scRGB
 path. Windows defines scRGB 1.0 as 80 nits while the pinned libplacebo path uses
 a 203-nit reference, requiring a backport or coordinated library update first.
-Dolby Vision reshaping follows separately with `dovi=enabled`, Profile 8 before
-Profile 5 and initially without `libdovi`. Profile 7/FEL and vendor Dolby Vision
-HDMI signalling are outside this roadmap. The current bundle still disables both
-`dovi` and `libdovi`; compatible base-layer playback is not Dolby Vision output.
+Dolby Vision RPU reshaping without `libdovi` is enabled (see above). Profile 7 FEL
+reconstruction needs mpv's enhancement-layer pairing (`demux/dovi_split.c`,
+`filters/f_enhancement_pair.c`) and libplacebo API 367, both unreleased after
+mpv 0.41.0 / libplacebo 7.360.1; vendor Dolby Vision HDMI signalling is out of
+scope. Compatible base-layer playback is not Dolby Vision output.
 
 ## Bundled macOS runtime
 
@@ -416,8 +447,8 @@ source switching. For HDR, use known HDR10 and HLG samples on a MacBook Pro XDR;
 confirm visible highlight headroom, correct non-gray blacks, natural skin tones,
 correct fullscreen round trips, and automatic SDR fallback on a non-EDR screen.
 Exercise display movement and brightness/power changes while watching the built-in
-diagnostics. Dolby Vision profiles 5/7/8 must be checked separately and must not be
-reported as fully supported. Observe memory while seeking in a
+diagnostics. Dolby Vision profiles 5/7/8 must be checked separately with
+`media-dolby-vision-acceptance.mjs`; reshaping is not native Dolby Vision output. Observe memory while seeking in a
 several-hundred-megabyte remote file; it must not grow with total file size. Repeat
 the SDR playback matrix on Windows independently of the future DXGI HDR work.
 
@@ -432,11 +463,13 @@ MoltenVK dependency refs, notices and build feature evidence accompany the dylib
 The private Vulkan pkg-config entry links libMoltenVK directly. No system loader,
 ICD JSON, Cocoa/Swift mpv application UI or external mpv process is required.
 
-`VESPERWIND_LIBMPV_DOVI=enabled` enables libplacebo's built-in processing for a
-separate experiment; default is disabled and libdovi remains disabled in both
-cases. It does not enable native Dolby Vision output or Profile 7 FEL decoding.
-The profile/level, processed-RPU evidence and base-layer fallback are independent
-from HDR output diagnostics. Unknown raw RPU state is not reported absent.
+libplacebo's built-in Dolby Vision reshaping is always built (`dovi=enabled`,
+`libdovi=disabled`); the build fails unless the installed libplacebo reports
+`pl_has_dovi=1 pl_has_libdovi=0` and mpv's headers define
+`PL_HAVE_LAV_DOLBY_VISION`. It does not enable native Dolby Vision output or
+Profile 7 FEL decoding. The profile/level, processed-RPU evidence and base-layer
+fallback are independent from HDR output diagnostics. Unknown raw RPU state is
+not reported absent.
 
 `node scripts/verify-libmpv-bundle.js macos` checks checksums, the complete dylib
 closure, architectures, deployment targets, signatures and Metal build notices.

@@ -126,6 +126,10 @@ test('HDR10 diagnostics keep source, decode, processing, presentation and output
   const value = structuredClone(diagnostics)
   Object.assign(value, {
     sourceFormat: 'Dolby Vision profile 8', dolbyVisionProfile: 8,
+    dolbyVision: { profile: 8, level: 6, compatibilityId: 1, baseLayer: 'HDR10 (PQ, BT.2020)',
+      rpuSignalled: true, rpuDetected: true, rpuProcessingActive: false, enhancementLayerPresent: false,
+      enhancementLayerKind: 'none', enhancementLayerProcessingActive: false, systemOutputActive: false,
+      presentation: 'base layer only; Dolby Vision RPU not applied' },
     transfer: 'pq', primaries: 'bt.2020', friendlyTransfer: 'PQ / ST 2084', friendlyPrimaries: 'BT.2020',
     hardwareDecoder: 'd3d11va', sourcePixelFormat: 'd3d11',
     renderer: 'libmpv-owned gpu-next / D3D11 / DXGI',
@@ -142,7 +146,10 @@ test('HDR10 diagnostics keep source, decode, processing, presentation and output
   const sections = buildMediaInfoSections(value)
   assert.match(section(sections, 'Source video').Color.value, /Dolby Vision profile 8/)
   assert.match(section(sections, 'Decode').Surface.value, /D3D11/i)
-  assert.equal(section(sections, 'Processing')['Dolby Vision'].value, 'Disabled')
+  // HDR10 base-layer fallback is never labelled as Dolby Vision processing.
+  assert.equal(section(sections, 'Processing')['Dolby Vision'].value, 'RPU not applied')
+  assert.equal(section(sections, 'Source video')['Dolby Vision'].value, 'Profile 8.1 · Level 6')
+  assert.equal(section(sections, 'Output')['System Dolby Vision output'].value, 'Not used')
   assert.doesNotMatch(section(sections, 'Processing')['Tone mapping'].value, /SDR fallback|passthrough/)
   assert.equal(section(sections, 'Output').Surface.value, 'RGB10A2')
   assert.equal(section(sections, 'Output').Output.value, 'HDR10 (mpv target verified) · PQ / BT.2020')
@@ -188,7 +195,9 @@ test('Metal info shows actual surface and unknown output without inventing HDR o
     ...diagnostics, renderer: 'gpu-next / Vulkan / MoltenVK / Metal (runtime VO/context verified)',
     outputMode: 'Not verified (output changing or unavailable)', outputHdrActive: false,
     targetTransfer: 'pq', targetPrimaries: 'bt.2020', dolbyVisionProfile: 8,
-    dolbyVisionProcessing: 'Not observed; base-layer fallback', dolbyVisionRpu: null,
+    dolbyVision: { profile: 8, level: null, compatibilityId: null, baseLayer: 'unknown', rpuSignalled: null,
+      rpuDetected: null, rpuProcessingActive: null, enhancementLayerPresent: null, enhancementLayerKind: 'unknown',
+      enhancementLayerProcessingActive: false, systemOutputActive: false, presentation: 'not observed yet' },
     systemDolbyVisionOutput: false,
     display: { platform: 'macos', metalPixelFormat: 115, surfaceFormat: 'mpv-owned Metal / RGBA16Float (115)',
       metalColorSpace: 'kCGColorSpaceITUR_2100_PQ', metalEdrEnabled: true, metalEdrMetadataPresent: false,
@@ -199,8 +208,58 @@ test('Metal info shows actual surface and unknown output without inventing HDR o
   assert.equal(section(sections, 'Output')['Metal surface'].value, value.display.surfaceFormat)
   assert.equal(section(sections, 'Output')['Layer colorspace'].value, value.display.metalColorSpace)
   assert.match(section(sections, 'Output').Output.value, /Not verified/)
-  assert.equal(section(sections, 'Processing').RPU.value, 'Not verified')
-  assert.equal(section(sections, 'Processing')['System Dolby Vision output'].value, 'Not used')
+  // Profile 8 alone does not imply 8.1, an RPU, or an enhancement-layer kind.
+  assert.equal(section(sections, 'Source video')['Dolby Vision'].value, 'Profile 8')
+  assert.equal(section(sections, 'Source video').RPU.value, 'Unknown')
+  assert.equal(section(sections, 'Source video')['Enhancement layer'].value, 'Unknown')
+  assert.equal(section(sections, 'Processing')['Dolby Vision'].value, 'Not observed yet')
+  assert.equal(section(sections, 'Output')['System Dolby Vision output'].value, 'Not used')
+})
+
+const dolbyVision = (overrides) => ({
+  profile: 8, level: 6, compatibilityId: 1, baseLayer: 'HDR10 (PQ, BT.2020)', rpuSignalled: true,
+  rpuDetected: true, rpuProcessingActive: true, enhancementLayerPresent: false, enhancementLayerKind: 'none',
+  enhancementLayerProcessingActive: false, systemOutputActive: false,
+  presentation: 'Dolby Vision RPU reshaping by libplacebo', evidence: 'FFmpeg 8.0 configuration record', ...overrides,
+})
+const dolbyVisionInfo = (dv) => {
+  const sections = buildMediaInfoSections({ ...diagnostics, dolbyVisionProfile: dv.profile, dolbyVision: dv })
+  return { source: section(sections, 'Source video'), processing: section(sections, 'Processing'), output: section(sections, 'Output') }
+}
+
+test('Dolby Vision profiles report RPU processing, layers and system output separately', () => {
+  let info = dolbyVisionInfo(dolbyVision())
+  assert.equal(info.source['Dolby Vision'].value, 'Profile 8.1 · Level 6')
+  assert.equal(info.source.RPU.value, 'Detected')
+  assert.equal(info.source['Enhancement layer'].value, 'None')
+  assert.equal(info.processing['Dolby Vision'].value, 'RPU reshaping active (libplacebo)')
+  assert.equal(info.processing['Enhancement layer'], undefined)
+  assert.equal(info.output['System Dolby Vision output'].value, 'Not used')
+
+  info = dolbyVisionInfo(dolbyVision({ profile: 5, compatibilityId: 0, baseLayer: 'none (not backward compatible)' }))
+  assert.equal(info.source['Dolby Vision'].value, 'Profile 5.0 · Level 6')
+  assert.equal(info.source['Base layer'].value, 'none (not backward compatible)')
+  info = dolbyVisionInfo(dolbyVision({ profile: 5, compatibilityId: 0, rpuProcessingActive: false,
+    presentation: 'RPU not applied; profile 5 colors are incorrect without reshaping' }))
+  assert.equal(info.processing['Dolby Vision'].value, 'RPU not applied')
+  assert.match(info.processing['Dolby Vision'].title, /colors are incorrect/)
+
+  for (const [kind, label] of [['mel', 'Present (MEL)'], ['fel', 'Present (FEL)'], ['unknown', 'Present (MEL/FEL unknown)']]) {
+    info = dolbyVisionInfo(dolbyVision({ profile: 7, compatibilityId: 6, rpuProcessingActive: false,
+      enhancementLayerPresent: true, enhancementLayerKind: kind }))
+    assert.equal(info.source['Enhancement layer'].value, label)
+    // Profile 7 never claims FEL reconstruction.
+    assert.equal(info.processing['Enhancement layer'].value, 'Not decoded (base layer only)')
+    assert.equal(info.processing['Dolby Vision'].value, 'RPU not applied')
+  }
+
+  info = dolbyVisionInfo(dolbyVision({ compatibilityId: null, rpuDetected: null, rpuProcessingActive: null }))
+  assert.equal(info.source['Dolby Vision'].value, 'Profile 8 · Level 6')
+  assert.equal(info.source.RPU.value, 'Signalled, not yet seen in a frame')
+  assert.match(info.source['Dolby Vision'].title, /Compatibility id unknown/)
+
+  const plain = buildMediaInfoSections({ ...diagnostics, dolbyVision: null })
+  assert.doesNotMatch(JSON.stringify(plain), /Dolby Vision|Enhancement layer/)
 })
 
 

@@ -72,8 +72,9 @@ HDR10/PQ and HLG with BT.2020, including a compatible Dolby Vision base layer, u
 FFmpeg 8.0 libswscale perceptual transfer/tone/gamut conversion to BT.709. Resize,
 `out_transfer=bt709`, `out_primaries=bt709`, `out_color_matrix=bt709`, and removal of
 HDR side data remain intact. Input/output showinfo checks reject unexpected HDR
-or a non-BT.709 conversion. DV profile 5 and insufficient supported HDR metadata
-stay time-only. No RPU/enhancement-layer reconstruction is claimed. Main playback
+or a non-BT.709 conversion. Dolby Vision without a compatible base layer (profile
+5 or compatibility id 0 in FFmpeg's configuration record) and insufficient
+supported HDR metadata stay time-only. No RPU/enhancement-layer reconstruction is claimed. Main playback
 HDR and renderer configuration are unchanged.
 
 ## Pinned sidecar build and distribution

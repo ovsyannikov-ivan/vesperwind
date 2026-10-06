@@ -123,9 +123,22 @@ node scripts/verify-libmpv-bundle.js windows
 Use a short ASCII build path outside the repository. The wrapper does not install
 MSYS2 or change the machine PATH. Use a fresh BuildRoot when changing source pins,
 toolchain or general build flags; completed stages are reused on an interrupted build.
-For the same source/toolchain pins, `-PresentationOnly` explicitly reconfigures
-mpv/libplacebo and reuses the completed codec/font prefix. It fails if that prefix
-is absent. The shader toolchain package pins are recorded in `manifest.json`;
+For the same source/toolchain pins, `-PresentationOnly` configures libplacebo and
+mpv from scratch (their build directories are removed first, so changed Meson
+options such as `-Ddovi` and the new libplacebo headers are always picked up) and
+reuses the completed FFmpeg/FreeType/FriBidi/HarfBuzz/libass prefix without
+rebuilding it. It fails, asking for a full build with a fresh BuildRoot, if that
+prefix is absent, its FFmpeg lacks Schannel/HTTPS/HLS/D3D11VA, or it was built
+from different source pins.
+
+`manifest.json` separates the build recipe (`buildRecipeLibplaceboOptions`) from
+the checked-in artifact (`requiredLibplaceboOptions`, `doviProcessing`). While
+they differ, `artifactPendingRebuild` is true and the verifier accepts the old
+artifact as what it is. Packaging records libplacebo's resolved Meson options,
+`pl_has_dovi`/`pl_has_libdovi` and the `PL_HAVE_LAV_DOLBY_VISION` check in
+BUILD-INFO, rewrites the Windows manifest entry from them (refusing a build that
+does not match the recipe), regenerates SHA256SUMS and verifies the result. No
+manual manifest edit is needed after a rebuild. The shader toolchain package pins are recorded in `manifest.json`;
 the verifier rejects a bundle built with different revisions.
 The source archive hashes are in `scripts/libmpv-windows-sources.json`; libplacebo
 and its submodules are verified by Git revisions. The macOS source patches are

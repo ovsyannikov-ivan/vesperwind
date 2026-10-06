@@ -73,6 +73,8 @@ avformat library was replaced: SecureTransport on macOS, Schannel on Windows.
 Codec libraries, libmpv, hardware acceleration and renderers remain unchanged.
 No OpenSSL runtime dependency was added; LGPL/GPL restrictions remain intact.
 Full build scripts enable TLS explicitly despite `--disable-autodetect`.
+The macOS bundle has since been rebuilt in full with SecureTransport, so its
+avformat comes from `build-libmpv-macos.sh` itself.
 `scripts/build-libmpv-network.sh` reproduces the avformat-only update; Windows
 uses the pinned official llvm-mingw 20260826 UCRT macOS cross toolchain recorded
 in BUILD-INFO. The bundle verifier enumerates protocols from the actual library

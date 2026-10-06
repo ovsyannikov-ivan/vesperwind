@@ -100,8 +100,37 @@
     pointer(controls, 'pointerenter')
     return { first, second, controlsStayedVisible: true, cursorStayedVisible: true }
   }
+  // Playback diagnostics plus the rendered Info panel, once the Dolby Vision
+  // source probe (if any) has resolved.
+  const videoInfo = async ({ timeout = 45000, settleMs = 5000 } = {}) => {
+    const ready = async () => {
+      const id = (await invoke('player_overlay_snapshot')).context?.sessionId
+      const snapshot = id && await invoke('player_snapshot', { sessionId: id })
+      const diagnostics = snapshot?.state?.diagnostics
+      if (snapshot?.state?.status !== 'playing' || !diagnostics) return false
+      const dv = diagnostics.dolbyVision
+      return (!diagnostics.dolbyVisionProfile || (dv?.rpuProcessingActive != null && !/only/.test(dv.evidence))) && snapshot.state
+    }
+    await wait(ready, timeout)
+    // Output negotiation settles after the first frames; read it afterwards.
+    await sleep(settleMs)
+    const state = await wait(ready, timeout)
+    const toggle = await wait(() => document.querySelector('.media-overlay-info-toggle'))
+    if (toggle.getAttribute('aria-expanded') !== 'true') toggle.click()
+    const panel = await wait(() => document.querySelector('.media-overlay-info'))
+    await sleep(300)
+    const sections = [...panel.querySelectorAll('section')].map(section => ({
+      title: section.querySelector('h2')?.textContent.trim(),
+      rows: [...section.querySelectorAll('dl > div')].map(row => ({
+        label: row.querySelector('dt')?.textContent.trim(),
+        value: row.querySelector('dd')?.textContent.trim(),
+        title: row.querySelector('dd')?.title || undefined,
+      })),
+    }))
+    return { diagnostics: state.diagnostics, sections }
+  }
   const actions = {
-    navigate, open, thumbnail, inspect,
+    navigate, open, thumbnail, inspect, videoInfo,
     panels: () => panels(),
     waitClosedVideo: async () => { await wait(() => !document.body.classList.contains('modal-open')); return true },
     closeVideo: () => { document.querySelector('.media-overlay-header button[title="Close"], .media-overlay-header button[aria-label="Close"]')?.click(); return true },

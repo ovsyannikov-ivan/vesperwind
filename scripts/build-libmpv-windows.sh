@@ -127,6 +127,8 @@ PY
   make -j"$jobs"
   make install
 )
+# Marks a prefix whose codec/font stages were built from these source pins.
+sha256sum "$project_root/scripts/libmpv-windows-sources.json" | cut -d' ' -f1 > "$work_root/prefix-sources.sha256"
 else
   # Incrementally rebuild presentation against the existing pinned codec/font
   # prefix. Do not silently substitute MSYS2 media packages for missing stages.
@@ -134,14 +136,39 @@ else
     [[ -f "$prefix/lib/pkgconfig/$dependency.pc" ]] || { echo "Missing source-built $dependency; run a full build" >&2; exit 1; }
   done
   [[ -f "$build_root/d3d11va-probe.json" ]] || exit 1
+  # The reused FFmpeg must already be the Schannel/HLS/D3D11VA configuration
+  # the package requires; older BuildRoots predate it and need a full build.
+  for evidence in 'config.h:#define CONFIG_SCHANNEL 1' 'config_components.h:#define CONFIG_HTTPS_PROTOCOL 1' \
+    'config_components.h:#define CONFIG_HLS_DEMUXER 1' 'config.h:#define CONFIG_D3D11VA 1' \
+    'config_components.h:#define CONFIG_HEVC_D3D11VA_HWACCEL 1'; do
+    grep -qx "${evidence#*:}" "$build_root/ffmpeg/${evidence%%:*}" 2>/dev/null || {
+      echo "BuildRoot is incompatible (FFmpeg lacks ${evidence#*#define }); run a full build with a fresh BuildRoot" >&2; exit 1; }
+  done
+  grep -q -e '--enable-schannel' "$build_root/ffmpeg-flags.txt" || { echo 'BuildRoot predates Schannel; run a full build' >&2; exit 1; }
+  if [[ -f "$work_root/prefix-sources.sha256" ]] && [[ "$(cat "$work_root/prefix-sources.sha256")" != \
+    "$(sha256sum "$project_root/scripts/libmpv-windows-sources.json" | cut -d' ' -f1)" ]]; then
+    echo 'BuildRoot prefix was built from different source pins; run a full build with a fresh BuildRoot' >&2; exit 1
+  fi
+  # Configure libplacebo and mpv from scratch so changed Meson options (for
+  # example -Ddovi) and the new libplacebo headers cannot reuse stale objects.
+  rm -rf "$build_root/libplacebo" "$build_root/mpv"
 fi
 pkg-config --exists shaderc spirv-cross-c-shared || {
   echo 'Install UCRT64 shaderc and spirv-cross build dependencies first' >&2; exit 1;
 }
+# Built-in Dolby Vision RPU reshaping consumes FFmpeg's parsed AVDOVIMetadata;
+# the external libdovi parser stays disabled. Neither enables native Dolby
+# Vision output.
 meson_build libplacebo -Dvulkan=disabled -Dopengl=enabled -Dgl-proc-addr=enabled \
   -Dd3d11=enabled -Dglslang=disabled -Dshaderc=enabled -Dlcms=disabled \
-  -Ddovi=disabled -Dlibdovi=disabled -Ddemos=false -Dtests=false \
+  -Ddovi=enabled -Dlibdovi=disabled -Ddemos=false -Dtests=false \
   -Dbench=false -Dfuzz=false -Dunwind=disabled -Dxxhash=disabled
+if [[ "$(pkg-config --variable=pl_has_dovi libplacebo)" != 1 \
+  || "$(pkg-config --variable=pl_has_libdovi libplacebo)" == 1 ]]; then
+  echo "libplacebo must have built-in dovi and no libdovi" >&2; exit 1
+fi
+printf 'pl_has_dovi=%s\npl_has_libdovi=%s\n' "$(pkg-config --variable=pl_has_dovi libplacebo)" \
+  "$(pkg-config --variable=pl_has_libdovi libplacebo)" > "$build_root/libplacebo-pkgconfig.txt"
 mpv_flags=(-Dgpl=false -Dcplayer=false -Dlibmpv=true -Ddefault_library=shared \
   -Dbuild-date=false -Dtests=false -Dgl=enabled -Dplain-gl=enabled \
   -Dgl-win32=enabled -Dwasapi=enabled -Dwin32-threads=enabled -Dd3d-hwaccel=enabled \
@@ -150,6 +177,11 @@ mpv_flags=(-Dgpl=false -Dcplayer=false -Dlibmpv=true -Ddefault_library=shared \
 printf '%s\n' "${mpv_flags[@]}" > "$build_root/mpv-flags.txt"
 meson_build mpv "${mpv_flags[@]}"
 
+# mpv maps AVDOVIMetadata only where these headers define
+# PL_HAVE_LAV_DOLBY_VISION; the helpers are inline, so compile the same check.
+gcc "$project_root/scripts/probe-libmpv-dovi.c" -I"$prefix/include" \
+  -o "$build_root/probe-dovi.exe"
+"$build_root/probe-dovi.exe" > "$build_root/dovi-mapping-probe.txt"
 gcc "$project_root/scripts/probe-libmpv-d3d11va.c" -I"$prefix/include" \
   -L"$prefix/lib" -lavcodec -lavutil -o "$build_root/probe-d3d11va.exe"
 PATH="$prefix/bin:$PATH" "$build_root/probe-d3d11va.exe" > "$build_root/d3d11va-probe.json"

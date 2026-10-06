@@ -5,6 +5,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { verifyWindowsBundle } from './verify-libmpv-windows.js'
+import { checkDoviManifest, checkMacosDoviEvidence } from './libmpv-dovi.js'
 
 const root = fileURLToPath(new URL('../src-tauri/vendor/libmpv', import.meta.url))
 const manifest = JSON.parse(await fs.readFile(path.join(root, 'manifest.json'), 'utf8'))
@@ -60,6 +61,7 @@ if (platformName === 'macos') {
   ]) {
     if (!buildInfo.includes(evidence)) throw new Error(`Missing build evidence: ${evidence}`)
   }
+  checkMacosDoviEvidence(buildInfo, checkDoviManifest(manifest.macos).artifact)
   const metal = files.includes('libMoltenVK.dylib')
   if (metal) {
     for (const evidence of ['mpv macvk-embedded: enabled', 'mpv videotoolbox-pl: enabled', 'libplacebo Vulkan: enabled; vk-proc-addr: enabled', 'MoltenVK: 1.3.0 (49b97f26ae013b9e5bfb3098ee5dea5e4f58e9e8)', 'glslang: 15.1.0']) {

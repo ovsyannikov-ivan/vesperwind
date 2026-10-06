@@ -553,6 +553,8 @@ mod tests {
     }
 }
 
+pub mod dolby_vision;
+
 pub mod thumbnail;
 
 pub mod history;

@@ -2,6 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { inspectPe, isSystemDll } from './libmpv-pe.js'
+import { checkDoviManifest, checkWindowsDoviEvidence } from './libmpv-dovi.js'
 
 export function hasAbsoluteBuildPath(text) {
   // FFmpeg's file.c contains a portable runtime tempfile template, not a build path.
@@ -57,6 +58,11 @@ export async function verifyWindowsBundle(directory, manifest) {
   }
   for (const flag of manifest.windows.requiredLibplaceboOptions ?? []) {
     if (!info.libplaceboOptions?.includes(flag)) throw new Error(`Missing libplacebo flag: ${flag}`)
+  }
+  const dovi = checkDoviManifest(manifest.windows)
+  checkWindowsDoviEvidence(info, dovi.artifact)
+  if (dovi.pending) {
+    console.warn(`Windows artifact has libplacebo -Ddovi=${dovi.artifact}; the build recipe has -Ddovi=${dovi.recipe}. Rebuild with scripts/build-libmpv-windows.ps1.`)
   }
   for (const [name, version] of Object.entries(manifest.windows.shaderToolchainPackages ?? {})) {
     if (!info.toolchainPackages?.includes(`${name} ${version}`)) throw new Error(`Unconfirmed shader package: ${name}`)

@@ -7,8 +7,9 @@ use super::{
     MPV_EVENT_SHUTDOWN,
 };
 use crate::{
-    filesystem::Filesystem,
+    filesystem::{paths, Filesystem},
     media::{
+        dolby_vision::{self, DolbyVisionDiagnostics, ProbeState, RuntimeFacts},
         history::{resumable, Checkpoints, History, Identity, SaveReason},
         thumbnail::ThumbnailManager,
     },
@@ -162,7 +163,12 @@ pub struct PlaybackDiagnostics {
     pub max_fall_nits: Option<f64>,
     pub dolby_vision_profile: Option<i64>,
     pub dolby_vision_level: Option<i64>,
-    pub dolby_vision_support: Option<String>,
+    /// Structured source/processing/enhancement-layer/output state; `None`
+    /// for sources without Dolby Vision metadata.
+    pub dolby_vision: Option<DolbyVisionDiagnostics>,
+    /// FFmpeg source facts for the loaded file; carried across snapshots.
+    #[serde(skip)]
+    pub dolby_vision_source: ProbeState,
     pub output_hdr_active: bool,
     pub output_mode: String,
     pub output_color_space: String,
@@ -179,8 +185,6 @@ pub struct PlaybackDiagnostics {
     pub target_pixel_format: Option<String>,
     pub current_ao: Option<String>,
     pub video_target_params: Option<String>,
-    pub dolby_vision_rpu: Option<bool>,
-    pub dolby_vision_processing: Option<String>,
     pub system_dolby_vision_output: bool,
     pub display: DisplayCapabilities,
     pub windows_output: Option<WindowsOutputDiagnostics>,
@@ -325,6 +329,10 @@ enum Control {
         reply: mpsc::SyncSender<Result<PlayerSnapshot, String>>,
     },
     SetSubtitlePosition(f64),
+    DolbyVisionSource {
+        uri: String,
+        probe: ProbeState,
+    },
     Snapshot(mpsc::SyncSender<Result<PlayerSnapshot, String>>),
     Shutdown(mpsc::SyncSender<()>),
 }
@@ -743,6 +751,9 @@ impl MpvPlayerManager {
                 }
             }
             if let Ok(snapshot) = &result {
+                if kind == MediaKind::Video && snapshot.diagnostics.dolby_vision_profile.is_some() {
+                    self.probe_dolby_vision(filesystem, session_id, source, &uri, &cancelled);
+                }
                 if kind == MediaKind::Video {
                     if let Err(error) = self.thumbnails.start(
                         filesystem,
@@ -766,6 +777,59 @@ impl MpvPlayerManager {
             return result;
         }
         Err("No native presentation backend could start".into())
+    }
+
+    // FFmpeg reads the configuration record and first-frame RPU of local files
+    // off the control thread; the result is attached to the loaded URI only.
+    fn probe_dolby_vision(
+        &self,
+        filesystem: &Filesystem,
+        session_id: &str,
+        source: &crate::media::source::MediaSource,
+        uri: &str,
+        cancelled: &Arc<AtomicBool>,
+    ) {
+        let Some(sender) = self
+            .running
+            .lock()
+            .unwrap_or_else(|v| v.into_inner())
+            .get(session_id)
+            .map(|running| running.sender.clone())
+        else {
+            return;
+        };
+        let provider = source
+            .provider_id
+            .as_deref()
+            .or(source.filesystem_id.as_deref())
+            .unwrap_or("local");
+        let path = (provider == "local")
+            .then(|| {
+                paths::resolve_inside_root(filesystem, &source.path)
+                    .and_then(|resolved| paths::verify_existing_inside_root(filesystem, &resolved))
+                    .ok()
+            })
+            .flatten();
+        let uri = uri.to_string();
+        let Some(path) = path else {
+            let _ = sender.send(Control::DolbyVisionSource {
+                uri,
+                probe: ProbeState::Unavailable(
+                    "the FFmpeg source probe reads local files only".into(),
+                ),
+            });
+            return;
+        };
+        let cancelled = Arc::clone(cancelled);
+        let spawned = thread::Builder::new()
+            .name("vesperwind-dovi-probe".into())
+            .spawn(move || {
+                let probe = dolby_vision::probe(&path, &cancelled);
+                let _ = sender.send(Control::DolbyVisionSource { uri, probe });
+            });
+        if let Err(error) = spawned {
+            eprintln!("[player={session_id}] Dolby Vision source probe could not start: {error}");
+        }
     }
 
     pub fn set_geometry(&self, session_id: &str, geometry: PlayerGeometry) -> Result<(), String> {
@@ -1108,6 +1172,7 @@ fn control_loop(
         Instant,
     )> = None;
     let mut checkpoints = Checkpoints::new();
+    let mut logged_dolby_vision = None;
     #[cfg(target_os = "windows")]
     let mut output_policy = Some(WindowsOutputPolicy::Sdr);
     let mut waiting_for_vo: Option<Instant> = None;
@@ -1148,6 +1213,7 @@ fn control_loop(
                     PlayerLifecycle::Opening;
                 state.chapters.clear();
                 state.current_chapter_index = None;
+                state.diagnostics.dolby_vision_source = ProbeState::NotRun;
                 state.status = "opening".to_string();
                 state.error = None;
                 events(&session_id, &state);
@@ -1274,6 +1340,18 @@ fn control_loop(
             Ok(Control::SetSubtitlePosition(position)) => {
                 let _ =
                     api.set_property(handle, "sub-pos", &position.clamp(0.0, 100.0).to_string());
+            }
+            Ok(Control::DolbyVisionSource { uri, probe }) => {
+                if current_uri.as_deref() == Some(uri.as_str()) {
+                    state.diagnostics.dolby_vision_source = probe;
+                    state.diagnostics.refresh_dolby_vision();
+                    log_dolby_vision_change(
+                        &session_id,
+                        &mut logged_dolby_vision,
+                        &state.diagnostics,
+                    );
+                    events(&session_id, &state);
+                }
             }
             Ok(Control::Snapshot(reply)) => {
                 state = read_snapshot(&api, handle, &state, &display);
@@ -1648,6 +1726,7 @@ fn control_loop(
             };
             if next != state || event_changed {
                 state = next;
+                log_dolby_vision_change(&session_id, &mut logged_dolby_vision, &state.diagnostics);
                 events(&session_id, &state);
             }
             if pending_load.is_none() && restoring.is_none() && state.status == "playing" {
@@ -1862,6 +1941,8 @@ fn read_snapshot(
     }
     state.diagnostics.presentation_fallback_reason =
         previous.diagnostics.presentation_fallback_reason.clone();
+    state.diagnostics.dolby_vision_source = previous.diagnostics.dolby_vision_source.clone();
+    state.diagnostics.refresh_dolby_vision();
     state
 }
 
@@ -2260,7 +2341,9 @@ fn read_diagnostics(
         },
         audio: AudioDiagnostics {
             decoder: api.get_string(handle, "current-tracks/audio/decoder"),
-            friendly_codec: audio_codec.as_deref().map(|codec| friendly_audio_codec_name(codec, audio_profile.as_deref())),
+            friendly_codec: audio_codec
+                .as_deref()
+                .map(|codec| friendly_audio_codec_name(codec, audio_profile.as_deref())),
             codec: audio_codec,
             codec_profile: audio_profile,
             bitrate: track_average_bitrate(api, handle, "current-tracks/audio"),
@@ -2311,13 +2394,9 @@ fn read_diagnostics(
         max_fall_nits: api.get_double(handle, "video-params/max-fall"),
         dolby_vision_profile,
         dolby_vision_level,
-        dolby_vision_support: dolby_vision_profile.map(dolby_vision_support),
-        // mpv exposes processed DOVI representation, not raw per-frame RPU.
-        // Absence of this evidence is unknown, never "RPU absent".
-        dolby_vision_rpu: (matrix.as_deref() == Some("dolbyvision")).then_some(true),
-        dolby_vision_processing: dolby_vision_profile.map(|_| if matrix.as_deref() == Some("dolbyvision") && current_vo.as_deref() == Some("gpu-next") {
-            "DOVI frame representation active; libplacebo processing path (not system DV output)".into()
-        } else { "Not observed; base-layer fallback (profile 5 color correctness is not guaranteed)".into() }),
+        // Filled by read_snapshot, which carries the source probe across reads.
+        dolby_vision: None,
+        dolby_vision_source: ProbeState::NotRun,
         system_dolby_vision_output: false,
         output_hdr_active,
         output_mode,
@@ -2330,15 +2409,22 @@ fn read_diagnostics(
             .get_string(handle, "hwdec-current")
             .filter(|decoder| decoder != "no"),
         renderer: if display.surface_format.starts_with("mpv-owned Metal") {
-            if current_vo.as_deref() == Some("gpu-next") && current_gpu_context.as_deref() == Some("macvk-embedded") {
+            if current_vo.as_deref() == Some("gpu-next")
+                && current_gpu_context.as_deref() == Some("macvk-embedded")
+            {
                 "gpu-next / Vulkan / MoltenVK / Metal (runtime VO/context verified)".into()
-            } else { format!("Not configured (vo={current_vo:?}, context={current_gpu_context:?})") }
+            } else {
+                format!("Not configured (vo={current_vo:?}, context={current_gpu_context:?})")
+            }
         } else if display.surface_format.starts_with("mpv-owned D3D11") {
             "libmpv-owned gpu-next / D3D11 / DXGI".to_string()
         } else {
             Backend::RenderApi.name().to_string()
         },
-        current_vo, current_gpu_context, target_transfer, target_primaries,
+        current_vo,
+        current_gpu_context,
+        target_transfer,
+        target_primaries,
         target_pixel_format: api.get_string(handle, "video-target-params/pixelformat"),
         current_ao: api.get_string(handle, "current-ao"),
         video_target_params: api.get_string(handle, "video-target-params"),
@@ -2440,6 +2526,8 @@ fn friendly_color_name(value: &str) -> String {
         "pq" | "st2084" | "smpte2084" => "PQ",
         "hlg" | "arib-std-b67" => "HLG",
         "display-p3" => "Display P3",
+        // mpv's frame representation after mapping the RPU, not a bitstream claim.
+        "dolbyvision" => "Dolby Vision (RPU mapped)",
         _ => value,
     }
     .to_string()
@@ -2547,16 +2635,55 @@ fn detect_bit_depth(pixel_format: Option<&str>, codec_profile: Option<&str>) -> 
     (!format.is_empty()).then_some(8)
 }
 
-fn dolby_vision_support(profile: i64) -> String {
-    match profile {
-        5 => "profile 5 metadata detected; RPU reshaping requires the optional libplacebo dovi build; inspect processing evidence"
-            .to_string(),
-        7 => "dual-layer profile detected; the HDR10 base layer may be used, but RPU and MEL/FEL enhancement-layer reconstruction are not claimed"
-            .to_string(),
-        8 => "base-layer-compatible profile detected; the base layer may be used, but RPU processing must be verified separately"
-            .to_string(),
-        _ => "profile detected; Dolby Vision RPU processing must be verified separately".to_string(),
+impl PlaybackDiagnostics {
+    fn refresh_dolby_vision(&mut self) {
+        self.dolby_vision = dolby_vision::summarize(
+            RuntimeFacts {
+                profile: self.dolby_vision_profile,
+                level: self.dolby_vision_level,
+                colormatrix: self.video.matrix.as_deref(),
+                current_vo: self.current_vo.as_deref(),
+            },
+            &self.dolby_vision_source,
+        );
     }
+}
+
+// One line per change of the Dolby Vision state, never per frame.
+fn log_dolby_vision_change(
+    session: &str,
+    logged: &mut Option<DolbyVisionDiagnostics>,
+    diagnostics: &PlaybackDiagnostics,
+) {
+    if *logged == diagnostics.dolby_vision {
+        return;
+    }
+    logged.clone_from(&diagnostics.dolby_vision);
+    let Some(dv) = &diagnostics.dolby_vision else {
+        return;
+    };
+    let flag = |value: Option<bool>| match value {
+        Some(true) => "yes",
+        Some(false) => "no",
+        None => "unknown",
+    };
+    eprintln!(
+        "[player={session}] dolby-vision profile={:?} level={:?} compatibility-id={:?} rpu-signalled={} rpu-detected={} residual-disabled={} rpu-processing={} colormatrix={:?} vo={:?} hwdec={:?} el={} el-kind={:?} el-processing=no system-output=no presentation={:?} evidence={:?}",
+        dv.profile,
+        dv.level,
+        dv.compatibility_id,
+        flag(dv.rpu_signalled),
+        flag(dv.rpu_detected),
+        flag(dv.residual_disabled),
+        flag(dv.rpu_processing_active),
+        diagnostics.video.matrix,
+        diagnostics.current_vo,
+        diagnostics.hardware_decoder,
+        flag(dv.enhancement_layer_present),
+        dv.enhancement_layer_kind,
+        dv.presentation,
+        dv.evidence,
+    );
 }
 
 fn read_tracks(api: &MpvApi, handle: *mut MpvHandle) -> Vec<PlayerTrack> {
@@ -3115,6 +3242,10 @@ mod tests {
         assert_eq!(friendly_language_name("ru"), "Russian");
         assert_eq!(friendly_color_name("bt.709"), "BT.709");
         assert_eq!(friendly_color_name("bt.1886"), "BT.1886");
+        assert_eq!(
+            friendly_color_name("dolbyvision"),
+            "Dolby Vision (RPU mapped)"
+        );
     }
 
     #[test]
@@ -3162,9 +3293,41 @@ mod tests {
     }
 
     #[test]
-    fn dolby_vision_profile_seven_does_not_claim_fel_reconstruction() {
-        let status = dolby_vision_support(7);
-        assert!(status.contains("not claimed"));
-        assert!(status.contains("MEL/FEL"));
+    fn dolby_vision_state_follows_runtime_and_keeps_system_output_off() {
+        let mut diagnostics = PlaybackDiagnostics {
+            dolby_vision_profile: Some(7),
+            current_vo: Some("gpu-next".into()),
+            ..Default::default()
+        };
+        diagnostics.video.matrix = Some("bt.2020-ncl".into());
+        diagnostics.refresh_dolby_vision();
+        let dv = diagnostics.dolby_vision.clone().unwrap();
+        // Profile 7 alone claims neither an RPU, an EL kind nor reconstruction.
+        assert_eq!(dv.rpu_detected, None);
+        assert_eq!(dv.rpu_processing_active, Some(false));
+        assert_eq!(
+            dv.enhancement_layer_kind,
+            dolby_vision::EnhancementLayerKind::Unknown
+        );
+        assert!(!dv.enhancement_layer_processing_active);
+        assert!(!dv.system_output_active);
+        assert!(!diagnostics.system_dolby_vision_output);
+        diagnostics.video.matrix = Some("dolbyvision".into());
+        diagnostics.refresh_dolby_vision();
+        assert_eq!(
+            diagnostics
+                .dolby_vision
+                .as_ref()
+                .unwrap()
+                .rpu_processing_active,
+            Some(true)
+        );
+        let json = serde_json::to_value(&diagnostics).unwrap();
+        assert_eq!(json["dolbyVision"]["rpuProcessingActive"], true);
+        assert_eq!(json["systemDolbyVisionOutput"], false);
+        assert!(json.get("dolbyVisionSource").is_none());
+        let mut logged = None;
+        log_dolby_vision_change("test", &mut logged, &diagnostics);
+        assert_eq!(logged, diagnostics.dolby_vision);
     }
 }

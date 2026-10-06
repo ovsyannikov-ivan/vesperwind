@@ -14,7 +14,3 @@ for no more than the reasonable cost of physically providing it. Open an issue a
 
 The libraries are dynamically linked and kept as replaceable files beside libmpv.
 No technical measure prevents relinking or replacing the LGPL libraries.
-
-The avformat networking-only update is reproduced by
-scripts/build-libmpv-network.sh using the same pinned FFmpeg n8.0 source with
-Apple SecureTransport enabled. BUILD-INFO.txt records this component separately.

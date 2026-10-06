@@ -15,8 +15,10 @@ download_extract() {
   fi
 }
 mvk_commit=49b97f26ae013b9e5bfb3098ee5dea5e4f58e9e8
+# GitHub regenerated this codeload archive in 2026-10 (new gzip bytes); its tree
+# was re-verified file by file against a clone of $mvk_commit.
 download_extract moltenvk "https://codeload.github.com/KhronosGroup/MoltenVK/tar.gz/$mvk_commit" \
-  9476033d49ef02776ebab288fffae3e28fd627a3e29b7ae5975a1e1c785bf912 "$source_root/moltenvk"
+  f74f127e3df73e323c8c97cee2bfcf75eecd6ffb732b7fec8df21ae60da4140b "$source_root/moltenvk"
 (
   cd "$source_root/moltenvk"
   # Xcode 27 no longer builds dependencies targeting macOS 10.15. Match the

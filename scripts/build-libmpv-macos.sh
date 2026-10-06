@@ -20,9 +20,11 @@ venv="$work_root/venv"
 bundle="$project_root/src-tauri/vendor/libmpv/macos"
 deployment_target="12.0"
 presentation="${VESPERWIND_LIBMPV_MACOS_PRESENTATION:-macvk}"
-dovi="${VESPERWIND_LIBMPV_DOVI:-disabled}"
+# libplacebo's built-in Dolby Vision RPU reshaping (dovi) is part of the
+# production runtime. It consumes FFmpeg's parsed AVDOVIMetadata; the external
+# libdovi parser stays disabled. Neither enables native Dolby Vision output.
+dovi=enabled
 case "$presentation" in macvk|opengl) ;; *) echo "Expected macvk|opengl" >&2; exit 1;; esac
-case "$dovi" in enabled|disabled) ;; *) echo "Expected enabled|disabled DOVI" >&2; exit 1;; esac
 vulkan=disabled; glslang=disabled; embedded=disabled
 if [[ "$presentation" == macvk ]]; then vulkan=enabled; glslang=enabled; embedded=enabled; fi
 
@@ -273,6 +275,13 @@ meson setup --wipe "$build_root/libplacebo" "$source_root/libplacebo" \
   -Dbench=false -Dfuzz=false -Dunwind=disabled -Dxxhash=disabled
 meson compile -C "$build_root/libplacebo"
 meson install -C "$build_root/libplacebo"
+# Evidence comes from the installed libplacebo itself, not from the request.
+pl_dovi="$(pkg-config --variable=pl_has_dovi libplacebo)"
+pl_libdovi="$(pkg-config --variable=pl_has_libdovi libplacebo)"
+if [[ "$pl_dovi" != 1 || "$pl_libdovi" == 1 ]]; then
+  echo "libplacebo must have built-in dovi and no libdovi (dovi=$pl_dovi libdovi=$pl_libdovi)" >&2
+  exit 1
+fi
 
 meson setup --wipe "$build_root/mpv" "$source_root/mpv" \
   --prefix "$prefix" --buildtype release --default-library shared \
@@ -294,6 +303,12 @@ meson setup --wipe "$build_root/mpv" "$source_root/mpv" \
   -Dmanpage-build=disabled
 meson compile -C "$build_root/mpv"
 meson install -C "$build_root/mpv"
+# mpv maps FFmpeg's AVDOVIMetadata only where the installed libplacebo/FFmpeg
+# headers define PL_HAVE_LAV_DOLBY_VISION (the mapping helpers are inline, so
+# there is no symbol to inspect). Compile the same header combination mpv used.
+/usr/bin/clang $common_cflags "$project_root/scripts/probe-libmpv-dovi.c" $common_link_args \
+  -o "$build_root/probe-dovi"
+"$build_root/probe-dovi" > "$build_root/dovi-mapping-probe.txt"
 
 libraries=(
   libmpv.2.dylib libass.9.dylib libavcodec.62.dylib libavfilter.11.dylib
@@ -350,6 +365,9 @@ mpv macvk-embedded: $embedded
 mpv videotoolbox-pl: $vulkan
 libplacebo Vulkan: $vulkan; vk-proc-addr: $vulkan
 libplacebo dovi: $dovi; libdovi: disabled
+libplacebo pkg-config: pl_has_dovi=$pl_dovi pl_has_libdovi=${pl_libdovi:-0}
+$(cat "$build_root/dovi-mapping-probe.txt")
+mpv Dolby Vision mapping scope: RPU reshaping when disable_residual_flag=1; no enhancement-layer residual (Profile 7 FEL) reconstruction
 mpv embedded context patch: scripts/patches/mpv-macos-embedded-context.patch
 libplacebo private glslang patch: scripts/patches/libplacebo-macos-private-glslang.patch
 mpv audio output: CoreAudio, AVFoundation fallback
@@ -385,7 +403,7 @@ EOF
   shasum -a 256 *.dylib BUILD-INFO.txt SOURCE-OFFER.txt LICENSES/* > SHA256SUMS
 )
 
-# Build-time metadata must describe the selected artifact, including opt-in DOVI.
+# Build-time metadata must describe the selected artifact, including DOVI.
 # Preserve the independently verified Windows entry and its formatting.
 python3 - "$project_root/src-tauri/vendor/libmpv/manifest.json" "$presentation" "$dovi" <<'PYMANIFEST'
 from pathlib import Path
@@ -397,7 +415,8 @@ m['hardwareDecodePolicy'] = ('auto-safe for gpu-next/macvk-embedded (direct Vide
 m['presentation'] = ('experimental mpv-owned gpu-next / Vulkan / pinned MoltenVK / Metal over CAMetalLayer wid; ' if metal else '') + 'FP16 EDR OpenGL Render API fallback'
 m['requiredMesonOptions'] = [f'-Dmacvk-embedded={feature}', f'-Dvulkan={feature}', f'-Dvideotoolbox-pl={feature}', '-Dcocoa=disabled', '-Dswift-build=disabled']
 m['requiredLibplaceboOptions'] = [f'-Dvulkan={feature}', f'-Dvk-proc-addr={feature}', '-Dopengl=enabled', f'-Dglslang={feature}', f'-Ddovi={dovi}', '-Dlibdovi=disabled']
-m['optionalDoviProcessing'] = f'VESPERWIND_LIBMPV_DOVI=enabled (built-in only; no libdovi); current artifact: {dovi}'
+m.pop('optionalDoviProcessing', None)
+m['doviProcessing'] = f'libplacebo built-in Dolby Vision RPU reshaping: {dovi}; libdovi: disabled; system Dolby Vision output: not used'
 m['runtimeValidation'] = 'Not validated after this source rebuild; run the native probe and application/display acceptance in docs/macos-video-backend-research.md'
 m['gpuDependencies'] = {'MoltenVK': '1.3.0 (49b97f26ae013b9e5bfb3098ee5dea5e4f58e9e8), dynamic direct link', 'Vulkan-Headers': '1.4.313 (e2e53a724677f6eba8ff0ce1ccb64ee321785cbd)', 'glslang': '15.1.0, static, optimizer disabled', 'transitiveSourcePins': 'macos/BUILD-INFO.txt (MoltenVK ExternalRevisions)'} if metal else {}
 m['backendOverride'] = 'VESPERWIND_MPV_MACOS_BACKEND=auto|macvk|opengl'

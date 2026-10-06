@@ -4,13 +4,16 @@ import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
 import { inspectPe, isSystemDll } from './libmpv-pe.js'
 import { verifyWindowsBundle } from './verify-libmpv-windows.js'
+import { recordBuiltArtifact } from './libmpv-dovi.js'
 
 const project = fileURLToPath(new URL('../', import.meta.url))
 const [work, toolchain] = process.argv.slice(2)
 if (!work || !toolchain) throw new Error('Expected build root and UCRT64 root')
 const stage = await fs.mkdtemp(path.join(work, 'bundle-'))
 const destination = path.join(project, 'src-tauri/vendor/libmpv/windows')
-const manifest = JSON.parse(await fs.readFile(path.join(project, 'src-tauri/vendor/libmpv/manifest.json'), 'utf8'))
+const manifestPath = path.join(project, 'src-tauri/vendor/libmpv/manifest.json')
+const manifestText = await fs.readFile(manifestPath, 'utf8')
+const manifest = JSON.parse(manifestText)
 const prefixBin = path.join(work, 'prefix/bin')
 const runtimeNames = new Set(['libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll', 'libiconv-2.dll'])
 const shaderLibraries = new Map([
@@ -80,9 +83,17 @@ const info = {
   libplaceboOptions: JSON.parse(await fs.readFile(path.join(work, 'build/libplacebo/meson-info/intro-buildoptions.json'), 'utf8'))
     .filter(({ name }) => ['d3d11', 'opengl', 'shaderc', 'dovi', 'libdovi'].includes(name))
     .map(({ name, value }) => `-D${name}=${value}`),
+  libplaceboPkgConfig: Object.fromEntries((await readBuild('libplacebo-pkgconfig.txt')).split(/\r?\n/).map((line) => line.split('='))),
+  doviMapping: await readBuild('dovi-mapping-probe.txt'),
   runtimeDlls: [...copied].sort(), toolchainPackages: (await readBuild('toolchain-packages.txt')).split(/\r?\n/),
 }
 await fs.writeFile(path.join(stage, 'BUILD-INFO.txt'), JSON.stringify(info, null, 2) + '\n')
+// The manifest describes the checked-in artifact: record what Meson actually
+// built (rejecting a build that does not honour the recipe) before verifying.
+manifest.windows = recordBuiltArtifact(manifest.windows, info.libplaceboOptions)
+if (!manifest.windows.runtimeValidation?.startsWith('Not validated after this source rebuild')) {
+  manifest.windows.runtimeValidation = `Not validated after this source rebuild; repeat docs/build-windows.md acceptance. Previous artifact: ${manifest.windows.runtimeValidation}`
+}
 await fs.writeFile(path.join(stage, 'SOURCE-OFFER.txt'), `Vesperwind Windows libmpv source and relinking information
 
 Exact upstream source URLs, SHA-256 hashes, revisions, toolchain packages and
@@ -115,5 +126,10 @@ for (const name of await fs.readdir(destination)) {
   if (/\.dll$/i.test(name) && !copied.has(name.toLowerCase())) throw new Error(`Stale destination DLL: ${name}`)
 }
 await fs.cp(stage, destination, { recursive: true })
-await verifyWindowsBundle(destination, manifest)
+// Replace only the Windows entry; keep the macOS entry and its formatting.
+const windowsBlock = /\n  "windows": \{[\s\S]*?\n  \},\n/
+if (!windowsBlock.test(manifestText)) throw new Error('Unexpected manifest.json layout')
+await fs.writeFile(manifestPath, manifestText.replace(windowsBlock,
+  () => `\n  "windows": ${JSON.stringify(manifest.windows, null, 2).replaceAll('\n', '\n  ')},\n`))
+await verifyWindowsBundle(destination, JSON.parse(await fs.readFile(manifestPath, 'utf8')))
 console.log(`Verified and copied ${copied.size} DLLs to ${destination}`)

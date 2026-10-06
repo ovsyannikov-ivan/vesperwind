@@ -34,6 +34,45 @@ const formatFrameRate = (value) => {
   return `${Number(rate.toFixed(3))} fps`
 }
 
+// Source, processing and output facts stay separate: a profile number never
+// implies an RPU, a compatibility id, an enhancement-layer kind, or processing.
+const dolbyVisionRows = (dv) => {
+  if (!dv) return { source: [], processing: [], output: [] }
+  const variant = dv.profile != null ? `Profile ${dv.profile}${dv.compatibilityId != null ? `.${dv.compatibilityId}` : ''}` : ''
+  const rpu = dv.rpuDetected === true
+    ? 'Detected'
+    : dv.rpuSignalled === true ? 'Signalled, not yet seen in a frame' : 'Unknown'
+  const layerKinds = { mel: 'MEL', fel: 'FEL' }
+  const layer = dv.enhancementLayerPresent === false
+    ? 'None'
+    : dv.enhancementLayerPresent === true
+      ? `Present (${layerKinds[dv.enhancementLayerKind] || 'MEL/FEL unknown'})`
+      : 'Unknown'
+  const processing = dv.rpuProcessingActive === true
+    ? 'RPU reshaping active (libplacebo)'
+    : dv.rpuProcessingActive === false ? 'RPU not applied' : 'Not observed yet'
+  return {
+    source: [
+      row('Dolby Vision', join([variant, dv.level != null && `Level ${dv.level}`]), join([
+        dv.compatibilityId != null ? `Compatibility id ${dv.compatibilityId}` : 'Compatibility id unknown',
+        dv.evidence,
+      ])),
+      row('Base layer', dv.baseLayer),
+      row('RPU', rpu),
+      row('Enhancement layer', layer),
+    ],
+    processing: [
+      row('Dolby Vision', processing, dv.presentation),
+      dv.enhancementLayerPresent === true
+        ? row('Enhancement layer', dv.enhancementLayerProcessingActive === true ? 'Reconstructed' : 'Not decoded (base layer only)')
+        : null,
+    ],
+    output: [
+      row('System Dolby Vision output', dv.systemOutputActive === true ? 'Active' : 'Not used'),
+    ],
+  }
+}
+
 const formatProfile = (profile, level) => {
   if (!profile) return ''
   if (!level || profile.includes('@')) return profile
@@ -131,6 +170,7 @@ export const buildMediaInfoSections = (diagnostics = {}, fallbackDuration = 0) =
   const display = diagnostics.display || {}
   const windowsOutput = diagnostics.windowsOutput
   const isWindows = display.platform === 'windows'
+  const dolbyVision = dolbyVisionRows(diagnostics.dolbyVision)
 
   const sections = [
     {
@@ -151,7 +191,7 @@ export const buildMediaInfoSections = (diagnostics = {}, fallbackDuration = 0) =
           formatMediaBitrate(video.bitrate),
         ])),
         row('Color', colorSummary, colorDetails),
-        diagnostics.dolbyVisionProfile != null ? row('Dolby Vision metadata', join([`Profile ${diagnostics.dolbyVisionProfile}`, diagnostics.dolbyVisionLevel != null ? `Level ${diagnostics.dolbyVisionLevel}` : ''])) : null,
+        ...dolbyVision.source,
       ],
     },
     {
@@ -190,9 +230,7 @@ export const buildMediaInfoSections = (diagnostics = {}, fallbackDuration = 0) =
   }, {
     title: 'Processing',
     rows: [
-      diagnostics.dolbyVisionProfile != null ? row('Dolby Vision', diagnostics.dolbyVisionProcessing || (isWindows ? 'Disabled' : diagnostics.dolbyVisionSupport)) : null,
-      diagnostics.dolbyVisionProfile != null ? row('RPU', diagnostics.dolbyVisionRpu === true ? 'Detected in mpv frame representation' : 'Not verified') : null,
-      diagnostics.dolbyVisionProfile != null ? row('System Dolby Vision output', diagnostics.systemDolbyVisionOutput === true ? 'Verified' : 'Not used') : null,
+      ...dolbyVision.processing,
       row('Tone mapping', diagnostics.toneMapping === 'none' ? 'None' : diagnostics.toneMapping),
     ].filter(Boolean),
   }, {
@@ -213,6 +251,7 @@ export const buildMediaInfoSections = (diagnostics = {}, fallbackDuration = 0) =
       display.metalPixelFormat != null ? row('Display headroom', join([Number.isFinite(display.currentHeadroom) ? `${display.currentHeadroom.toFixed(2)}× current` : '', Number.isFinite(display.potentialHeadroom) ? `${display.potentialHeadroom.toFixed(2)}× potential` : ''])) : null,
       display.metalPixelFormat != null ? row('mpv target', join([diagnostics.targetTransfer, diagnostics.targetPrimaries])) : null,
       isWindows ? row('Windows HDR enabled', display.hdrStateVerified ? (display.hdrEnabled ? 'Yes' : 'No') : 'not verified') : null,
+      ...dolbyVision.output,
       diagnostics.fallbackReason ? row('Fallback reason', diagnostics.fallbackReason) : null,
     ].filter(Boolean),
   })

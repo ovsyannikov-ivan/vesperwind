@@ -179,13 +179,12 @@ The old FP16 EDR path remains the independent recovery/diagnostic backend.
 
 ## 11. Dolby Vision / libplacebo
 
-Both existing platform scripts explicitly disable dovi/libdovi. Git history and
-docs establish a staged HDR10/base-layer scope; they do not establish that built-in
-dovi requires a GPL dependency. [libplacebo's build](https://github.com/haasn/libplacebo/blob/3188549fba13bbdf3a5a98de2a38c2e71f04e21e/src/meson.build)
+Both platform scripts now build libplacebo with `-Ddovi=enabled -Dlibdovi=disabled`
+(see docs/libmpv.md for evidence and the pending Windows artifact). Built-in dovi
+does not require a GPL dependency. [libplacebo's build](https://github.com/haasn/libplacebo/blob/3188549fba13bbdf3a5a98de2a38c2e71f04e21e/src/meson.build)
 has independent options: dovi enables its own reshaping shaders, while libdovi adds
 an external parser. With FFmpeg 8 parsed AVDOVIMetadata, built-in reshaping can
-operate without libdovi. Keep libdovi disabled; expose a deliberate optional dovi
-build for subsequent evaluation, retaining disabled as the first-stage baseline.
+operate without libdovi. libdovi stays disabled.
 
 mpv maps AV_FRAME_DATA_DOVI_METADATA only when libplacebo supports it and the RPU
 does not require an enhancement-layer residual. [mp_image.c](https://github.com/mpv-player/mpv/blob/2c219aa822df18a1b7fd9abe3e151cd93ad67307/video/mp_image.c)
@@ -193,13 +192,13 @@ checks disable_residual_flag before mapping. Parsed RPU presence, mapping/reshap
 and output signalling are separate facts. FFmpeg side data is not interchangeable
 with Apple's opaque per-frame display attachments.
 
-| Input | Base layer | Built-in libplacebo path to evaluate | Output claim |
+| Input | Base layer | Built-in libplacebo path (mpv 0.41) | Status / output claim |
 | --- | --- | --- | --- |
-| 8.1 | HDR10-compatible | parsed RPU + reshaping, if retained by decoder | HDR/EDR, not native DV signalling |
-| 8.4 | HLG-compatible | same, verify FFmpeg/VT per-frame metadata | HDR/EDR, not native DV signalling |
-| 5 | no HDR10-compatible fallback | RPU/nonlinear reshaping required for correct colors | unsupported until verified |
-| 7 MEL | compatible HDR10 BL | possible RPU path where residual is disabled; no EL reconstruction | distinguish BL fallback from reshaping |
-| 7 FEL | compatible HDR10 BL | residual/EL reconstruction is outside this path | BL fallback only; no FEL claim |
+| 8.1 | HDR10-compatible | parsed RPU + reshaping | verified on a real file with VideoToolbox and software decode; HDR/EDR, not native DV signalling |
+| 8.4 | HLG-compatible | same path | no sample; HDR/EDR, not native DV signalling |
+| 5 | none (IPTPQc2) | same path; reshaping required for correct colors | no sample; Info reports incorrect colors without gpu-next |
+| 7 MEL | compatible HDR10 BL | not mapped while the RPU enables the residual | BL fallback, reported as "RPU not applied" |
+| 7 FEL | compatible HDR10 BL | residual/EL reconstruction needs mpv master + libplacebo API 367 | BL fallback only; no FEL claim |
 
 libplacebo's pinned Vulkan swapchain explicitly does not map
 VK_COLOR_SPACE_DOLBYVISION_EXT. Built-in reshaping is not Dolby Vision link/output

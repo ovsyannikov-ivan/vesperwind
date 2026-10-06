@@ -2,7 +2,7 @@ Vesperwind bundled macOS libmpv build
 Xcode: Xcode 27.0 Build version 27A266a
 macOS SDK: 27.0
 Deployment target: 12.0
-FFmpeg configuration: --disable-gpl --disable-nonfree --disable-version3 --enable-videotoolbox
+FFmpeg configuration: --disable-gpl --disable-nonfree --disable-version3 --enable-securetransport --enable-videotoolbox
 FFmpeg config: CONFIG_VIDEOTOOLBOX=1
 FFmpeg config: CONFIG_H264_VIDEOTOOLBOX_HWACCEL=1
 FFmpeg config: CONFIG_HEVC_VIDEOTOOLBOX_HWACCEL=1
@@ -13,7 +13,10 @@ mpv video output: macvk; vo=libmpv OpenGL Render API fallback retained
 mpv macvk-embedded: enabled
 mpv videotoolbox-pl: enabled
 libplacebo Vulkan: enabled; vk-proc-addr: enabled
-libplacebo dovi: disabled; libdovi: disabled
+libplacebo dovi: enabled; libdovi: disabled
+libplacebo pkg-config: pl_has_dovi=1 pl_has_libdovi=0
+mpv Dolby Vision metadata mapping: PL_HAVE_LAV_DOLBY_VISION defined (PL_API_VER 351)
+mpv Dolby Vision mapping scope: RPU reshaping when disable_residual_flag=1; no enhancement-layer residual (Profile 7 FEL) reconstruction
 mpv embedded context patch: scripts/patches/mpv-macos-embedded-context.patch
 libplacebo private glslang patch: scripts/patches/libplacebo-macos-private-glslang.patch
 mpv audio output: CoreAudio, AVFoundation fallback
@@ -28,10 +31,3 @@ Vulkan-Headers_repo_revision: e2e53a724677f6eba8ff0ce1ccb64ee321785cbd
 Vulkan-Tools_repo_revision: 682e42f7ae70a8fadf374199c02de737daa5c70d
 cereal_repo_revision: 51cbda5f30e56c801c07fe3d3aba5d7fb9e6cca4
 mpv owned hwdec policy: auto-safe; actual hwdec-current must be checked at runtime
-
-Network component: libavformat.62.dylib rebuilt from pinned FFmpeg n8.0 only; remaining codec/render libraries unchanged
-Network TLS backend: Apple SecureTransport (--enable-securetransport)
-Network protocols: http https tls hls tcp crypto file; HLS demuxer enabled
-Network rebuild: scripts/build-libmpv-network.sh macos
-Network LGPL flags: --disable-gpl --disable-nonfree --disable-version3 --disable-autodetect
-Network hardware flags: --enable-videotoolbox --disable-audiotoolbox
