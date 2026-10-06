@@ -1,6 +1,7 @@
 //! Metal output policy and evidence checks. Requested options are not evidence.
 use super::surface::DisplayCapabilities;
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn target(
     source_hdr: bool,
     display: &DisplayCapabilities,

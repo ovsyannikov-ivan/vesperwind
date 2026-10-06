@@ -4,6 +4,8 @@
 //! frontend uses (it never sniffs the user agent for these features).
 pub mod clipboard;
 pub mod disk_image;
+// Finder Paste of remote items; other platforms stream instead.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub mod staging;
 pub mod transfer;
 

@@ -143,6 +143,7 @@ fn strip_verbatim(path: PathBuf) -> PathBuf {
     }
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MacOsVersion {
     pub major: u32,
@@ -150,6 +151,7 @@ pub struct MacOsVersion {
     pub patch: u32,
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 /// Parse `sw_vers -productVersion` output (`27.0.1`, `14.6`, `11`).
 pub fn parse_macos_version(value: &str) -> Option<MacOsVersion> {
     let mut parts = value.trim().split('.');
@@ -166,6 +168,7 @@ pub fn parse_macos_version(value: &str) -> Option<MacOsVersion> {
     })
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MacImageTool {
     /// macOS 27+: `diskutil image attach` and `diskutil eject`; `hdiutil` is
@@ -176,6 +179,7 @@ pub enum MacImageTool {
     Hdiutil,
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn mac_image_tool(version: Option<MacOsVersion>) -> MacImageTool {
     match version {
         Some(version) if version.major >= 27 => MacImageTool::Diskutil,
@@ -184,6 +188,7 @@ pub fn mac_image_tool(version: Option<MacOsVersion>) -> MacImageTool {
     }
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 /// `dev-entry` is `disk4s1` for diskutil and `/dev/disk4s1` for hdiutil.
 pub fn normalize_device(entry: &str) -> Option<String> {
     let name = entry.strip_prefix("/dev/").unwrap_or(entry);
@@ -194,6 +199,7 @@ pub fn normalize_device(entry: &str) -> Option<String> {
     valid.then(|| format!("/dev/{name}"))
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 /// The whole disk of `disk4s1` is `disk4`.
 pub fn whole_disk(device: &str) -> String {
     let name = device.strip_prefix("/dev/").unwrap_or(device);
@@ -204,6 +210,7 @@ pub fn whole_disk(device: &str) -> String {
     format!("/dev/{digits}")
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 /// Shared by `diskutil image attach --plist` and `hdiutil attach -plist`.
 pub fn parse_system_entities(image: &Path, value: &Value) -> Option<DiskImageStatus> {
     let entities = value.get("system-entities")?.as_array()?;
@@ -247,6 +254,7 @@ pub fn parse_system_entities(image: &Path, value: &Value) -> Option<DiskImageSta
     })
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 /// `hdiutil info -plist`: find the entry for `image`.
 pub fn parse_hdiutil_info(image: &Path, value: &Value) -> Option<DiskImageStatus> {
     value
@@ -262,6 +270,7 @@ pub fn parse_hdiutil_info(image: &Path, value: &Value) -> Option<DiskImageStatus
         .find_map(|entry| parse_system_entities(image, entry))
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 /// `ioreg -a -r -c AppleDiskImageDevice -l`: the DiskImages2 device for
 /// `image` and the BSD names of its media (whole disk first).
 pub fn parse_ioreg_devices(image: &Path, value: &Value) -> Option<Vec<String>> {
@@ -294,6 +303,7 @@ pub fn parse_ioreg_devices(image: &Path, value: &Value) -> Option<Vec<String>> {
     (!names.is_empty()).then_some(names)
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn same_file(left: &Path, right: &Path) -> bool {
     if left == right {
         return true;
@@ -672,7 +682,7 @@ mod tests {
     }
 
     #[test]
-    fn finds_images_in_hdiutil_info_and_ioreg() {
+    fn finds_images_in_hdiutil_info() {
         let image = Path::new("/Users/me/test image.dmg");
         let info = json!({"images": [
             {"image-path": "/Users/me/other.dmg", "system-entities": [{"dev-entry": "/dev/disk2"}]},
@@ -684,7 +694,14 @@ mod tests {
             Some("/dev/disk5")
         );
         assert!(parse_hdiutil_info(Path::new("/nope.dmg"), &info).is_none());
+    }
 
+    // `file://` URLs without a drive letter are not file paths on Windows;
+    // ioreg output exists only on macOS anyway.
+    #[cfg(unix)]
+    #[test]
+    fn finds_disk_image_devices_in_ioreg() {
+        let image = Path::new("/Users/me/test image.dmg");
         let ioreg = json!([
             {"DiskImageURL": "file:///Users/me/other.dmg", "IORegistryEntryChildren": [{"BSD Name": "disk8"}]},
             {"DiskImageURL": "file:///Users/me/test%20image.dmg", "IORegistryEntryChildren": [

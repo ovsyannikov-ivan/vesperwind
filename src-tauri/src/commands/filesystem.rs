@@ -41,6 +41,7 @@ pub async fn filesystem_resolve_location(
     let ssh = Arc::clone(&state.ssh);
     let provider = payload.filesystem_id.unwrap_or_else(|| "local".into());
     let path = payload.path.unwrap_or_default();
+    #[cfg(not(windows))]
     let owner: isize = 0;
     #[cfg(windows)]
     let owner = {

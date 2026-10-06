@@ -9,6 +9,7 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub const CHUNK_SIZE: usize = 1024 * 1024;
 /// Bound for one recursive remote selection (descriptor arrays, promises).
 pub const MAX_TREE_ENTRIES: usize = 100_000;
@@ -121,6 +122,7 @@ pub fn walk(
     Ok(result)
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 /// Copy with cancellation checkpoints between bounded chunks.
 pub fn copy_stream(
     reader: &mut dyn Read,
@@ -157,6 +159,7 @@ pub fn copy_stream(
     Ok(total)
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 /// Remove only what this transfer created.
 struct CreatedPaths(Vec<PathBuf>, bool);
 impl Drop for CreatedPaths {
@@ -174,6 +177,7 @@ impl Drop for CreatedPaths {
     }
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 /// Download one remote item to exactly `destination` (which must not exist).
 /// A failure or cancellation removes the partial result; existing files are
 /// never overwritten.
@@ -189,6 +193,7 @@ pub fn download(
     download_entries(files, provider, entries, destination, cancel, on_bytes)
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 /// Download an already enumerated tree (see [`walk`]) to `destination`.
 pub fn download_entries(
     files: &dyn RemoteFiles,

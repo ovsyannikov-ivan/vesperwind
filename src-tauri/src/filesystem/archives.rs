@@ -286,6 +286,7 @@ pub fn perform(
         ));
     }
     let stage = target.join(format!(".vesperwind-archive-{}", uuid::Uuid::new_v4()));
+    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut builder = fs::DirBuilder::new();
     #[cfg(unix)]
     {
