@@ -203,8 +203,13 @@ export const performFileOperation = async ({
     )
   }
 
+  // Paste into the source folder supplies a free name ("name copy.ext").
+  if (action === 'copy' && name != null) {
+    const message = entryNameError(name)
+    if (message) throw createOperationError('EINVALID_NAME', message)
+  }
   const destinationPath = resolveInsideRoot(
-    path.join(resolvedTargetDirectory, path.basename(resolvedSource)),
+    path.join(resolvedTargetDirectory, action === 'copy' && name != null ? name : path.basename(resolvedSource)),
   )
 
   if (destinationPath === resolvedSource) {

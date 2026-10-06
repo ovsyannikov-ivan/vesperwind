@@ -1,0 +1,20 @@
+// Vesperwind application styles. Partials are emitted in this order; keep it,
+// later sections intentionally override earlier ones.
+@use 'main/theme';
+@use 'main/base';
+@use 'main/forms';
+@use 'main/media-player';
+@use 'main/toolbar';
+@use 'main/panels';
+@use 'main/file-tree';
+@use 'main/splitters';
+@use 'main/terminal';
+@use 'main/editor';
+@use 'main/pdf-viewer';
+@use 'main/operation-menus';
+@use 'main/media-viewer';
+@use 'main/settings';
+@use 'main/responsive';
+@use 'main/search';
+@use 'main/audio-playlist';
+@use 'main/file-clipboard';

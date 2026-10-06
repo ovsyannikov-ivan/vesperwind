@@ -42,9 +42,27 @@ watch(sheetIndex, () => { firstRow.value = 0; firstColumn.value = 0 })
   </section>
 </template>
 
-<style scoped>
-.spreadsheet-preview { height: 100%; display: flex; flex-direction: column; min-height: 0; font-size: .8rem; }
-.spreadsheet-preview-scroll { flex: 1; overflow: auto; user-select: text; }
-td { min-width: 7rem; white-space: pre; }
-th { background: var(--bs-tertiary-bg); }
+<style lang="scss" scoped>
+.spreadsheet-preview {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  font-size: .8rem;
+}
+
+.spreadsheet-preview-scroll {
+  flex: 1;
+  overflow: auto;
+  user-select: text;
+}
+
+td {
+  min-width: 7rem;
+  white-space: pre;
+}
+
+th {
+  background: var(--bs-tertiary-bg);
+}
 </style>

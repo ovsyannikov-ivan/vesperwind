@@ -1,0 +1,17 @@
+// Form controls.
+
+// Bootstrap draws focus as a 4px box-shadow *outside* the control. Dense
+// headers, menus and scroll containers clip it (overflow: hidden, sticky
+// neighbours), so every text field and select shows focus inside its border.
+.form-control,
+.form-select {
+	&:focus {
+		border-color: var(--bs-primary);
+		box-shadow: inset 0 0 0 1px var(--bs-primary);
+	}
+
+	&.is-invalid:focus {
+		border-color: var(--bs-form-invalid-border-color);
+		box-shadow: inset 0 0 0 1px var(--bs-form-invalid-border-color);
+	}
+}

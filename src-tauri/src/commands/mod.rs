@@ -7,6 +7,7 @@ pub mod media;
 pub mod player;
 pub mod runtime;
 pub mod settings;
+pub mod shell;
 pub mod ssh;
 pub mod terminal;
 

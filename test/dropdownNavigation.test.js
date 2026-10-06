@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import test from 'node:test'
 import { navigateDropdown } from '../src/utils/dropdownNavigation.js'
+import { compiledStyles } from './support/styles.js'
 
 test('dropdown keyboard navigation starts only after an arrow key', () => {
   const previousDocument = globalThis.document
@@ -36,13 +37,13 @@ test('dropdown keyboard navigation starts only after an arrow key', () => {
 test('all dropdown surfaces share primary interaction states and no item receives initial focus', async () => {
   const read = (file) => fs.readFile(new URL(`../${file}`, import.meta.url), 'utf8')
   const [styles, main, overlayMain, context, operation, terminal, toolbar] = await Promise.all([
-    read('src/styles/dropdown.css'), read('src/main.js'), read('src/media-overlay/main.js'),
+    Promise.resolve(compiledStyles('src/styles/dropdown.scss')), read('src/main.js'), read('src/media-overlay/main.js'),
     read('src/components/FileEntryContextMenu.vue'), read('src/components/FileOperationMenu.vue'),
     read('src/components/TerminalPanel.vue'), read('src/components/Toolbar.vue'),
   ])
 
-  assert.match(main, /import '\.\/styles\/dropdown\.css'/u)
-  assert.match(overlayMain, /import '\.\.\/styles\/dropdown\.css'/u)
+  assert.match(main, /import '\.\/styles\/dropdown\.scss'/u)
+  assert.match(overlayMain, /import '\.\.\/styles\/dropdown\.scss'/u)
   assert.match(styles, /--bs-dropdown-link-hover-bg: var\(--bs-primary\)/u)
   assert.match(styles, /--bs-dropdown-link-active-bg: var\(--bs-primary\)/u)
   assert.match(styles, /padding: 0\.35rem/u)
@@ -66,8 +67,8 @@ test('all dropdown surfaces share primary interaction states and no item receive
 test('every dropdown, including the media overlay window, uses the context menu surface', async () => {
   const read = (file) => fs.readFile(new URL(`../${file}`, import.meta.url), 'utf8')
   const [styles, mainCss, overlayCss, overlay] = await Promise.all([
-    read('src/styles/dropdown.css'), read('src/styles/main.css'),
-    read('src/media-overlay/media-overlay.css'), read('src/media-overlay/MediaOverlay.vue'),
+    Promise.resolve(compiledStyles('src/styles/dropdown.scss')), Promise.resolve(compiledStyles('src/styles/main.scss')),
+    Promise.resolve(compiledStyles('src/media-overlay/media-overlay.scss')), read('src/media-overlay/MediaOverlay.vue'),
   ])
   const menu = styles.match(/^\.dropdown-menu \{([^}]*)\}/mu)[1]
   // The overlay window does not load main.css, so main.css-only tokens need dark fallbacks.
@@ -76,7 +77,7 @@ test('every dropdown, including the media overlay window, uses the context menu 
   assert.match(menu, /--bs-dropdown-border-radius: 0\.75rem;/u)
   assert.match(menu, /box-shadow:/u)
   assert.match(styles, /^:root \{\s*--dropdown-border-color:/mu)
-  assert.match(styles, /^\[data-bs-theme='light'\] \{\s*--dropdown-border-color:/mu)
+  assert.match(styles, /^\[data-bs-theme=(['"]?)light\1\] \{\s*--dropdown-border-color:/mu)
   assert.doesNotMatch(styles, /--bs-border-radius-sm/u)
 
   assert.doesNotMatch(overlay, /dropdown-menu-dark/u)

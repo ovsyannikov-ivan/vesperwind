@@ -1,5 +1,0 @@
-/* Native scrollbars share the file panels' thin, theme-aware appearance. */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb, #48484a) transparent;
-}

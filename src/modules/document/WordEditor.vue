@@ -5,7 +5,7 @@ import { packagedFonts } from '@docx-editor.dev/fonts'
 import { useTheme } from '../../composables/useTheme.js'
 import { attachDocumentRuntime } from './runtime.js'
 import '@docx-editor.dev/vue/styles.css'
-import './styles/document.css'
+import './styles/document.scss'
 
 const props = defineProps({ tab: { type: Object, required: true }, visible: Boolean })
 const emit = defineEmits(['save'])

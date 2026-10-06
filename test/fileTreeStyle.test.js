@@ -2,12 +2,13 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import test from 'node:test'
 import { useEditorLayout } from '../src/composables/useEditorLayout.js'
+import { compiledStyles } from './support/styles.js'
 
 const read = (name) => fs.readFile(new URL(`../${name}`, import.meta.url), 'utf8')
 
 test('File Manager and EditorTree use the same row height and icon contract', async () => {
   const [css, node, panel, editor] = await Promise.all([
-    read('src/styles/main.css'), read('src/components/FileTreeNode.vue'),
+    Promise.resolve(compiledStyles('src/styles/main.scss')), read('src/components/FileTreeNode.vue'),
     read('src/components/FilePanel.vue'), read('src/components/EditorTree.vue'),
   ])
   assert.match(css, /--file-tree-row-height: 22px/u)
@@ -38,7 +39,7 @@ const cssRule = (css, selector) => {
 
 test('editor tree and file panels meet at a 1px seam with a wider resize hit area', async () => {
   const [css, workspace, manager, splitter] = await Promise.all([
-    read('src/styles/main.css'), read('src/components/EditorWorkspace.vue'),
+    Promise.resolve(compiledStyles('src/styles/main.scss')), read('src/components/EditorWorkspace.vue'),
     read('src/components/FileManager.vue'), read('src/components/Splitter.vue'),
   ])
   assert.match(workspace, /<Splitter v-if="editorLayout\.treeVisible" orientation="vertical" seam /u)
@@ -54,7 +55,7 @@ test('editor tree and file panels meet at a 1px seam with a wider resize hit are
 })
 
 test('editor sidebar Files button matches the compact sidebar control height', async () => {
-  const [css, workspace] = await Promise.all([read('src/styles/main.css'), read('src/components/EditorWorkspace.vue')])
+  const [css, workspace] = await Promise.all([Promise.resolve(compiledStyles('src/styles/main.scss')), read('src/components/EditorWorkspace.vue')])
   const button = workspace.match(/<button\b[^>]*title="Return to file panels"[^>]*>/u)[0]
   assert.match(button, /class="compact-button"/u)
   assert.doesNotMatch(button, /\b(btn|toolbar-button)\b/u)

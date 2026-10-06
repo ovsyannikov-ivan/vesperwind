@@ -1,0 +1,312 @@
+// Workspace, file panels, breadcrumbs, folder menu and compact buttons.
+
+.workspace {
+	display: flex;
+	flex: 1 1 auto;
+	min-height: 0;
+	flex-direction: column;
+}
+
+.files-container {
+	display: flex;
+	flex: 1 1 auto;
+	min-width: 0;
+	min-height: 0;
+	background: var(--surface-1);
+}
+
+.file-panel {
+	display: flex;
+	min-width: 0;
+	min-height: 0;
+	flex-direction: column;
+	overflow: hidden;
+	background: var(--surface-1);
+
+	&.is-root-drop-target {
+		box-shadow:
+
+		inset 0 0 0 2px var(--bs-primary),
+		inset 0 0 16px rgba(var(--bs-primary-rgb), 0.22);
+	}
+
+	&.is-panel-swap-target .panel-header {
+		box-shadow: inset 0 0 0 2px var(--bs-primary);
+		background: rgba(var(--bs-primary-rgb), 0.18);
+	}
+
+	&.is-panel-swap-source .panel-header {
+		opacity: 0.78;
+	}
+}
+
+.panel-header,
+.terminal-header {
+	display: flex;
+	flex: 0 0 31px;
+	align-items: center;
+	justify-content: space-between;
+	min-width: 0;
+	padding: 0 5px 0 9px;
+	border-bottom: 1px solid var(--border);
+	background: var(--surface-2);
+	user-select: none;
+}
+
+.file-panel {
+	&.is-active .panel-header {
+		background: var(--active-header-bg);
+	}
+
+	.panel-header {
+		cursor: grab;
+	}
+}
+
+body.is-swapping-panels,
+body.is-swapping-panels * {
+	cursor: grabbing !important;
+	user-select: none !important;
+}
+
+.panel-title,
+.terminal-title {
+	display: flex;
+	min-width: 0;
+	align-items: center;
+	gap: 6px;
+}
+
+.panel-title {
+	flex: 1 1 auto;
+	overflow: hidden;
+}
+
+.panel-title > .mdi,
+.terminal-title > .mdi {
+	color: var(--accent);
+	font-size: 15px;
+}
+
+.panel-title strong,
+.terminal-title strong {
+	color: var(--text);
+	font-weight: 600;
+}
+
+.panel-title strong {
+	letter-spacing: normal;
+	text-transform: none;
+}
+
+.terminal-title strong {
+	text-transform: none;
+	letter-spacing: 0.055em;
+}
+
+.panel-path {
+	min-width: 0;
+	overflow: hidden;
+	color: var(--text-muted);
+	font-family: "SFMono-Regular", Consolas, monospace;
+	font-size: 0.75rem;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.panel-breadcrumbs {
+	display: flex;
+	min-width: 0;
+	align-items: center;
+	overflow-x: auto;
+	color: var(--text-muted);
+	font-family: "SFMono-Regular", Consolas, monospace;
+	font-size: 0.75rem;
+	scrollbar-width: none;
+	white-space: nowrap;
+
+	&::-webkit-scrollbar {
+		display: none;
+	}
+}
+
+.breadcrumb-separator {
+	flex: 0 0 auto;
+	color: var(--text-muted);
+	font-size: 0.75rem;
+}
+
+.path-segment {
+	flex: 0 0 auto;
+	padding: 2px 3px;
+	border: 0;
+	border-radius: var(--bs-border-radius);
+	color: var(--text-muted);
+	background: transparent;
+	cursor: pointer;
+	font-size: 0.75rem;
+
+	&:hover,
+	&:focus-visible {
+		color: var(--text);
+		background: var(--surface-3);
+	}
+
+	&.is-current {
+		color: var(--text);
+	}
+}
+
+// Right-click a breadcrumb to list that folder's subfolders. Its rows use the
+// file tree's row height, font and icon size rather than the context menu's,
+// so the list reads as part of the tree. The compound selectors outrank the
+// shared rules in dropdown.scss, which loads after this file.
+.dropdown-menu {
+	&.folder-path-menu {
+		--bs-dropdown-font-size: 0.75rem;
+		--bs-dropdown-item-padding-x: var(--file-tree-row-padding);
+		--bs-dropdown-item-padding-y: 0;
+		position: fixed;
+		min-width: 12rem;
+		max-width: min(22rem, calc(100vw - 16px));
+		overflow-y: auto;
+		z-index: 1090;
+
+		.dropdown-item {
+			&:has(> .mdi) {
+				min-width: 0;
+				height: var(--file-tree-row-height);
+				gap: 4px;
+			}
+
+			> .mdi {
+				width: 19px;
+				flex-basis: 19px;
+				font-size: var(--file-tree-icon-size);
+			}
+		}
+	}
+}
+
+.folder-path-menu-name {
+	min-width: 0;
+	flex: 1 1 auto;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.folder-path-menu {
+	.dropdown-item {
+		&.is-current {
+			font-weight: 600;
+		}
+
+		> .folder-path-menu-check {
+			margin-left: auto;
+		}
+	}
+}
+
+.folder-path-menu-status {
+	display: flex;
+	min-height: var(--file-tree-row-height);
+	align-items: center;
+	gap: 0.5rem;
+	color: var(--text-muted);
+}
+
+.compact-icon-button,
+.compact-button {
+	height: 24px;
+	border: 1px solid transparent;
+	border-radius: var(--bs-border-radius);
+	color: var(--text-muted);
+	background: transparent;
+	line-height: 1;
+}
+
+// One geometry for dense commands; Bootstrap still joins btn-group edges.
+.toolbar-button,
+.compact-button {
+	height: 24px;
+	border-radius: var(--bs-border-radius);
+}
+
+.compact-button {
+	&.btn-neutral {
+		border-color: var(--bs-btn-border-color);
+		color: var(--bs-btn-color);
+		background: var(--bs-btn-bg);
+
+		&:hover,
+		&:focus-visible {
+			border-color: var(--bs-btn-hover-border-color);
+			color: var(--bs-btn-hover-color);
+			background: var(--bs-btn-hover-bg);
+		}
+
+		&:disabled {
+			border-color: var(--bs-btn-disabled-border-color);
+			color: var(--bs-btn-disabled-color);
+			background: var(--bs-btn-disabled-bg);
+		}
+	}
+}
+
+.compact-icon-button {
+	display: inline-grid;
+	width: 24px;
+	flex: 0 0 24px;
+	padding: 0;
+	place-items: center;
+}
+
+// Text variant with the same density, e.g. the editor sidebar's Files button.
+.compact-button {
+	display: inline-flex;
+	flex: 0 0 auto;
+	align-items: center;
+	gap: 4px;
+	padding: 0 6px 0 4px;
+	white-space: nowrap;
+}
+
+.compact-icon-button:hover,
+.compact-icon-button:focus-visible,
+.compact-button:hover,
+.compact-button:focus-visible {
+	border-color: var(--border-strong);
+	color: var(--text);
+	background: transparent;
+}
+
+.compact-icon-button .mdi,
+.compact-icon-button .mdi::before,
+.compact-button .mdi,
+.compact-button .mdi::before {
+	display: block;
+	font-size: 17px;
+	line-height: 1;
+}
+
+.panel-content {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow: auto;
+	padding: 0 0 14px;
+	scrollbar-color: var(--scrollbar-thumb) transparent;
+	scrollbar-width: thin;
+}
+
+.panel-message {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	padding: 12px;
+	color: var(--text-muted);
+}
+
+.panel-message-error {
+	color: var(--danger);
+}

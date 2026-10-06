@@ -12,7 +12,7 @@ and `src/components/SettingsModal.vue`; do not introduce a separate visual style
 - Use `btn btn-sm` plus the appropriate variant for every footer button:
   primary action `btn-primary`, destructive action `btn-danger` (never
   `btn-outline-danger`), and Cancel or any other neutral action the shared
-  `btn-neutral` style from `src/styles/main.css`. Settings may retain its
+  `btn-neutral` style from `src/styles/main/_toolbar.scss`. Settings may retain its
   secondary outline reset action.
 
 ## Consistent button styling
@@ -35,15 +35,24 @@ and `src/components/SettingsModal.vue`; do not introduce a separate visual style
 - Verify affected dialogs visually and run `npm test` before handing off changes.
   The modal-style regression test should cover any new modal component.
 
+## Styles (SCSS)
+
+Styles are written in SCSS and compiled by Vite (`sass`). `src/styles/main.scss`
+only `@use`s the partials in `src/styles/main/` in cascade order; keep that
+order and add new rules to the partial for their area. Nest rules by their
+shared selector (`&.is-selected`, `.child`) instead of repeating long flat
+selectors, but keep CSS custom properties for theme values so runtime light/dark
+switching keeps working. Vue components use `<style lang="scss">`.
+
 ## Consistent dropdown styling
 
-Use the shared `src/styles/dropdown.css` and Bootstrap `dropdown-menu` / `dropdown-item`
+Use the shared `src/styles/dropdown.scss` and Bootstrap `dropdown-menu` / `dropdown-item`
 classes for new dropdowns. Compare their appearance with the file context menu.
 Keep padding, rounded items, icon alignment, and hover, active, and keyboard focus
 states consistent. Use `var(--bs-primary)` with white text for highlighted items.
 Menus keep the shared surface (background, border, 12px menu and 8px item radius,
 shadow) in every window, including the media overlay that does not load
-`main.css`; do not use `dropdown-menu-dark` or per-menu background/radius overrides.
+`main.scss`; do not use `dropdown-menu-dark` or per-menu background/radius overrides.
 Opening a menu must not highlight its first item until the pointer hovers over it
 or keyboard navigation selects it. Use normal title or sentence case for menu
 labels and headings; avoid all caps except established acronyms.

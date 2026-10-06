@@ -24,6 +24,13 @@ import { LOCAL_FILESYSTEM_PROVIDER } from '../api/filesystemLocation.js'
 import { createDirectoryListing } from '../utils/directoryListing.js'
 import { traceMedia } from '../api/mediaDiagnostics.js'
 import { directoryWatch } from '../api/directoryWatch.js'
+import { runtime } from '../api/runtime.js'
+import { externalFiles } from '../api/shellIntegration.js'
+import { useFileClipboard } from '../composables/useFileClipboard.js'
+import { showNotice } from '../composables/useNotice.js'
+import { isCutEntry } from '../utils/fileClipboard.js'
+import { fileDropKind } from '../utils/fileDrop.js'
+import { beginNativeDrag, endNativeDrag, nativeDrag } from '../utils/nativeDragSession.js'
 
 const props = defineProps({
   node: {
@@ -95,6 +102,9 @@ const listingState = reactive({ loaded: false, loading: false, children: [], err
 const { loaded, loading, children, error } = toRefs(listingState)
 const dragging = ref(false)
 const dropTarget = ref(false)
+const { state: clipboardState } = useFileClipboard()
+const cut = computed(() => props.depth > 0 &&
+  isCutEntry(clipboardState.snapshot, { providerId: props.providerId, path: props.node.path }))
 const rowElement = ref(null)
 const { renameEntry } = useFileOperations(props.providerId)
 const renaming = ref(false)
@@ -312,20 +322,32 @@ const handleDragStart = (event) => {
 
   if (!selected.value) selectNode()
   dragging.value = true
-  event.dataTransfer.effectAllowed = 'all'
+  const operable = props.depth > 0 && !isFilesystemRootEntry(props.node)
+  const payload = operable ? createFileDragPayload(
+    props.node,
+    props.panelSide,
+    props.providerId,
+    selected.value ? props.selectedEntries : [props.node],
+  ) : null
 
-  if (props.depth > 0 && !isFilesystemRootEntry(props.node)) {
-    event.dataTransfer.setData(
-      FILE_ENTRY_MIME,
-      createFileDragPayload(
-        props.node,
-        props.panelSide,
-        props.providerId,
-        selected.value ? props.selectedEntries : [props.node],
-      ),
-    )
+  // Desktop app: a native drag carries real files (local) or file promises /
+  // virtual files (SFTP) to Finder and Explorer. Drops back into Vesperwind
+  // are resolved by the native layer and use the same operation menu.
+  if (operable && runtime.capabilities.externalDragOut) {
+    event.preventDefault()
+    const session = { ...parseFileDragPayload(payload), terminalPath: terminalPath.value }
+    beginNativeDrag(session)
+    void externalFiles.startDrag(session.sources || [session]).then((response) => {
+      if (response.ok) return
+      endNativeDrag()
+      dragging.value = false
+      if (response.error?.code !== 'EDRAG_ENDED') showNotice('Unable to drag', response.error)
+    })
+    return
   }
 
+  event.dataTransfer.effectAllowed = 'all'
+  if (payload) event.dataTransfer.setData(FILE_ENTRY_MIME, payload)
   event.dataTransfer.setData(TERMINAL_PATH_MIME, terminalPath.value)
   event.dataTransfer.setData('text/plain', terminalPath.value)
 }
@@ -334,11 +356,8 @@ const handleDragEnd = () => {
   dragging.value = false
 }
 
-const carriesFileEntry = (event) =>
-  Array.from(event.dataTransfer?.types || []).includes(FILE_ENTRY_MIME)
-
 const handleDragOver = (event) => {
-  if (!props.node.isDirectory || isComputerPath(props.node.path) || !carriesFileEntry(event)) {
+  if (!props.node.isDirectory || isComputerPath(props.node.path) || !fileDropKind(event)) {
     return
   }
 
@@ -358,13 +377,32 @@ const handleDragLeave = (event) => {
 
 const handleDrop = (event) => {
   dropTarget.value = false
+  const kind = fileDropKind(event)
 
-  if (!props.node.isDirectory || isComputerPath(props.node.path) || !carriesFileEntry(event)) {
+  if (!props.node.isDirectory || isComputerPath(props.node.path) || !kind) {
     return
   }
 
   event.preventDefault()
   event.stopPropagation()
+  // Our own native drag is resolved by the native layer (native-drag:drop).
+  if (kind === 'native') return
+  const target = {
+    providerId: props.providerId,
+    path: props.node.path,
+    name: props.node.name,
+    isDirectory: true,
+  }
+  if (kind === 'external') {
+    emit('drop-request', {
+      external: externalFiles.readDrop(event.dataTransfer),
+      target,
+      targetPanel: props.panelSide,
+      x: event.clientX,
+      y: event.clientY,
+    })
+    return
+  }
   const source = parseFileDragPayload(
     event.dataTransfer.getData(FILE_ENTRY_MIME),
   )
@@ -378,17 +416,18 @@ const handleDrop = (event) => {
 
   emit('drop-request', {
     source,
-    target: {
-      providerId: props.providerId,
-      path: props.node.path,
-      name: props.node.name,
-      isDirectory: true,
-    },
+    target,
     targetPanel: props.panelSide,
     x: event.clientX,
     y: event.clientY,
   })
 }
+
+watch(() => nativeDrag.active, (active) => {
+  if (active) return
+  dropTarget.value = false
+  dragging.value = false
+})
 
 onMounted(() => {
   if (props.defaultExpanded) {
@@ -450,12 +489,15 @@ onBeforeUnmount(() => { listing.dispose(); cancelRenameTimer(); releaseDirectory
         'is-selected': selected,
         'is-dragging': dragging,
         'is-drop-target': dropTarget,
+        'is-cut': cut,
       }"
       :title="node.path"
       :data-file-path="depth > 0 ? node.path : undefined"
       :data-file-name="depth > 0 ? node.name : undefined"
       :data-file-directory="depth > 0 ? String(node.isDirectory) : undefined"
       :data-directory-drop-target="node.isDirectory ? '' : undefined"
+      :data-drop-path="node.isDirectory ? node.path : undefined"
+      :data-drop-name="node.isDirectory ? node.name : undefined"
       :draggable="!renaming && Boolean(terminalPath)"
       tabindex="0"
       @click="selectNode"

@@ -115,7 +115,7 @@ const operate = async ({ action, source, target = null, name, options = {} }) =>
       'filesystem:operate',
       {
         action,
-        name,
+        ...(name != null ? { name } : {}),
         filesystemId: providerIdOf(source),
         sourcePath: source?.path,
         targetFilesystemId: target ? providerIdOf(target) : null,
@@ -140,7 +140,7 @@ export const filesystem = Object.freeze({
   writeText,
   readBinary,
   writeBinary,
-  copy: (source, target) => operate({ action: 'copy', source, target }),
+  copy: (source, target, name) => operate({ action: 'copy', source, target, ...(name ? { name } : {}) }),
   move: (source, target) => operate({ action: 'move', source, target }),
   link: (source, target) => operate({ action: 'link', source, target }),
   remove: (source, options) => operate({ action: 'delete', source, options }),

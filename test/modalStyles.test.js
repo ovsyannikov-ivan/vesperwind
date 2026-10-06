@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import test from 'node:test'
+import { compiledStyles } from './support/styles.js'
 
 const components = new URL('../src/components/', import.meta.url)
 
@@ -42,8 +43,8 @@ const sourceFiles = async (directory) => {
 }
 
 test('targeted neutral actions share one compact btn-neutral style', async () => {
-  const css = await fs.readFile(new URL('../src/styles/main.css', import.meta.url), 'utf8')
-  assert.equal(css.match(/^\.btn-neutral\s*\{/gmu)?.length, 1, 'define btn-neutral once in main.css')
+  const css = compiledStyles('src/styles/main.scss')
+  assert.equal(css.match(/^\.btn-neutral\s*\{/gmu)?.length, 1, 'define btn-neutral once in the main stylesheet')
   const rule = css.match(/^\.btn-neutral\s*\{([^}]*)\}/mu)[1]
   assert.match(rule, /--bs-btn-bg: var\(--toolbar-control-active-bg\)/u)
   assert.match(rule, /--bs-btn-border-color: var\(--toolbar-control-border\)/u)

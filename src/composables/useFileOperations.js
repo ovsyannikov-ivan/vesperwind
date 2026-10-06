@@ -14,8 +14,8 @@ export const useFileOperations = (providerId = LOCAL_FILESYSTEM_PROVIDER) => {
           isDirectory: value?.isDirectory === true,
         }
 
-  const copyEntry = (source, targetDirectory) =>
-    filesystem.copy(location(source), location(targetDirectory))
+  const copyEntry = (source, targetDirectory, name) =>
+    filesystem.copy(location(source), location(targetDirectory), name)
 
   const moveEntry = (source, targetDirectory) =>
     filesystem.move(location(source), location(targetDirectory))

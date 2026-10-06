@@ -1,0 +1,98 @@
+// Settings dialog and small utilities.
+
+.settings-navigation {
+	width: 9rem;
+	flex: 0 0 9rem;
+	padding: 0;
+	border-right: var(--bs-border-width) solid var(--bs-border-color);
+	background: var(--bs-tertiary-bg);
+
+	.nav-link {
+		padding: 0.4rem 0.65rem;
+		border-radius: 0;
+	}
+}
+
+.settings-page {
+	position: relative;
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: auto;
+	padding: 1rem;
+}
+
+.settings-panels {
+	display: grid;
+}
+
+.settings-panel {
+	grid-area: 1 / 1;
+	min-width: 0;
+	visibility: hidden;
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 120ms ease;
+
+	&.is-active {
+		visibility: visible;
+		opacity: 1;
+		pointer-events: auto;
+	}
+}
+
+.settings-loading-overlay {
+	position: absolute;
+	inset: 0;
+	z-index: 2;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.5rem;
+	background: var(--modal-bg);
+}
+
+.settings-textarea.form-control {
+	min-height: 8rem;
+	resize: vertical;
+}
+
+.settings-modal-dialog .form-text {
+	font-size: var(--bs-body-font-size);
+}
+
+.settings-storage-path {
+	display: block;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.settings-modal-dialog {
+	.modal-content {
+		min-height: min(32rem, calc(100vh - 3.5rem));
+	}
+
+	.modal-content,
+	.modal-header,
+	.modal-footer {
+		background: var(--modal-bg);
+	}
+
+	.btn-primary {
+		--bs-btn-bg: var(--accent);
+		--bs-btn-border-color: var(--accent);
+		--bs-btn-hover-bg: #409cff;
+		--bs-btn-hover-border-color: #409cff;
+		--bs-btn-active-bg: #0071e3;
+		--bs-btn-active-border-color: #0071e3;
+	}
+}
+
+.settings-navigation.nav-pills {
+	--bs-nav-pills-link-active-bg: var(--accent);
+}
+
+.min-w-0 {
+	min-width: 0;
+}

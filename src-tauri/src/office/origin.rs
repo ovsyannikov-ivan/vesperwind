@@ -55,12 +55,14 @@ fn reply(stream: &mut TcpStream, status: &str, mime: &str, bytes: &[u8], br: boo
     let encoding = if br { "Content-Encoding: br\r\n" } else { "" };
     let headers = format!("HTTP/1.1 {status}\r\nContent-Type: {mime}\r\nContent-Length: {}\r\n{encoding}Connection: close\r\nCross-Origin-Opener-Policy: same-origin\r\nCross-Origin-Embedder-Policy: require-corp\r\nCross-Origin-Resource-Policy: same-origin\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: {CSP}\r\n\r\n", bytes.len());
 
-    if let Err(error) = stream
+    // A closed client connection is routine; it is only logged in debug builds,
+    // so the binding is unused in release builds.
+    if let Err(_error) = stream
         .write_all(headers.as_bytes())
         .and_then(|_| stream.write_all(bytes))
     {
         #[cfg(debug_assertions)]
-        eprintln!("LOWA reply error: {error}");
+        eprintln!("LOWA reply error: {_error}");
     }
 }
 pub(super) fn serve(listener: TcpListener, session: Arc<OriginState>) -> Result<(), NativeError> {

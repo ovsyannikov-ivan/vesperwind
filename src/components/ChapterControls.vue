@@ -95,9 +95,29 @@ onBeforeUnmount(() => {
   </div>
 </template>
 
-<style scoped>
-.media-chapter-controls { display: inline-flex; align-items: center; flex: 0 0 auto; gap: 2px; }
-.media-chapter-menu { overflow-y: auto; z-index: 1100; margin: 0; }
-.chapter-time { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
-.chapter-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+<style lang="scss" scoped>
+.media-chapter-controls {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 2px;
+}
+
+.media-chapter-menu {
+  overflow-y: auto;
+  z-index: 1100;
+  margin: 0;
+}
+
+.chapter-time {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.chapter-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 </style>

@@ -1,0 +1,279 @@
+// Editor workspace: tree pane, tabs, status bar and indentation menu.
+
+.editor-workspace {
+	display: flex;
+	flex: 1 1 auto;
+	min-width: 0;
+	min-height: 0;
+	background: var(--surface-1);
+}
+
+.editor-tree-pane {
+	display: flex;
+	min-width: 180px;
+	min-height: 0;
+	flex: 0 0 auto;
+	flex-direction: column;
+	overflow: hidden;
+	background: var(--surface-1);
+}
+
+.editor-tree-toolbar,
+.editor-tree-header,
+.editor-header {
+	display: flex;
+	min-width: 0;
+	align-items: center;
+	border-bottom: 1px solid var(--border);
+	background: var(--surface-2);
+}
+
+.editor-tree-toolbar {
+	height: 31px;
+	flex: 0 0 31px;
+	justify-content: space-between;
+	padding: 0 5px;
+}
+
+.editor-tree-reveal {
+	margin: 0 3px;
+}
+
+.editor-source-pane {
+	padding-right: 5px;
+	color: var(--text-muted);
+	font-size: 0.75rem;
+	font-weight: 600;
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+}
+
+.editor-tree {
+	display: flex;
+	min-height: 0;
+	flex: 1 1 auto;
+	flex-direction: column;
+}
+
+.editor-tree-header {
+	height: 27px;
+	flex: 0 0 27px;
+	gap: 4px;
+	padding: 0 7px;
+
+	> .mdi {
+		flex: 0 0 auto;
+		color: var(--accent);
+	}
+}
+
+.editor-tree-content {
+	min-height: 0;
+	flex: 1 1 auto;
+	overflow: auto;
+	padding-bottom: 12px;
+	scrollbar-color: var(--scrollbar-thumb) transparent;
+	scrollbar-width: thin;
+
+	.file-tree,
+	.tree-children {
+		min-width: 0;
+	}
+}
+
+.editor-main {
+	position: relative;
+	display: flex;
+	min-width: 0;
+	min-height: 0;
+	flex: 1 1 auto;
+	flex-direction: column;
+	overflow: hidden;
+	background: var(--surface-1);
+}
+
+.editor-header {
+	height: 31px;
+	flex: 0 0 31px;
+}
+
+.editor-tabs {
+	display: flex;
+	height: 100%;
+	min-width: 0;
+	flex: 1 1 auto;
+	align-items: stretch;
+	overflow-x: auto;
+	overflow-y: hidden;
+	scrollbar-width: thin;
+}
+
+.editor-actions {
+	display: flex;
+	height: 100%;
+	flex: 0 0 auto;
+	align-items: center;
+	gap: 3px;
+	padding: 1px 4px;
+	border-left: 1px solid var(--border);
+	background: var(--surface-2);
+}
+
+.editor-change-status {
+	min-width: 4rem;
+	padding-inline: 4px;
+	color: var(--text-muted);
+	font-size: 0.75rem;
+	text-align: right;
+
+	&.is-dirty {
+		color: var(--text);
+	}
+
+	&.is-error {
+		color: var(--danger);
+	}
+}
+
+.editor-history-button {
+	display: inline-grid;
+	width: 28px;
+	flex: 0 0 28px;
+	padding-inline: 0;
+	place-items: center;
+	gap: 0;
+
+	.mdi {
+		display: block;
+		line-height: 1;
+	}
+}
+
+.editor-save-button {
+	min-width: 4.4rem;
+}
+
+.editor-tab {
+	display: inline-flex;
+	min-width: 7rem;
+	max-width: 15rem;
+	flex: 0 0 auto;
+	align-items: center;
+	gap: 5px;
+	padding: 0 5px 0 9px;
+	border: 0;
+	border-right: 1px solid var(--border);
+	border-bottom: 2px solid transparent;
+	color: var(--text-muted);
+	background: var(--surface-2);
+	font-size: 0.75rem;
+
+	&:hover {
+		color: var(--text);
+		background: var(--surface-3);
+	}
+
+	&.is-active {
+		border-bottom-color: var(--accent);
+		color: var(--text);
+		background: var(--surface-1);
+	}
+}
+
+.editor-tab-name {
+	min-width: 0;
+	flex: 1 1 auto;
+	overflow: hidden;
+	text-align: left;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.editor-dirty-marker {
+	color: var(--accent);
+	font-size: 0.65rem;
+}
+
+.tab-close {
+	display: inline-grid;
+	width: 20px;
+	height: 20px;
+	flex: 0 0 20px;
+	place-items: center;
+	border-radius: var(--bs-border-radius-sm);
+
+	&:hover,
+	&:focus-visible {
+		color: var(--text);
+		background: var(--hover);
+	}
+}
+
+.editor-tab-spinner {
+	width: 0.75rem;
+	height: 0.75rem;
+	border-width: 1px;
+}
+
+.monaco-editor-host {
+	min-width: 0;
+	min-height: 0;
+	flex: 1 1 auto;
+}
+
+.editor-statusbar {
+	display: flex;
+	min-height: 25px;
+	flex: 0 0 25px;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 2px;
+	padding: 1px 7px;
+	border-top: 1px solid var(--border);
+	color: var(--text-muted);
+	background: var(--surface-2);
+	font-size: 0.72rem;
+	white-space: nowrap;
+}
+
+.editor-statusbar-item,
+.editor-statusbar-button {
+	padding: 1px 6px;
+}
+
+.editor-statusbar-button {
+	border: 1px solid transparent;
+	border-radius: var(--bs-border-radius-sm);
+	color: inherit;
+	background: transparent;
+	font: inherit;
+
+	&:hover,
+	&:focus-visible,
+	&[aria-expanded="true"] {
+		border-color: var(--border-strong);
+		color: var(--text);
+		outline: none;
+	}
+}
+
+.editor-indentation-menu {
+	position: absolute;
+	right: 86px;
+	bottom: 27px;
+	z-index: 40;
+	min-width: 204px;
+	max-height: calc(100% - 33px);
+	overflow-y: auto;
+}
+
+.editor-indentation-sizes {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.editor-indentation-menu .editor-indentation-sizes .dropdown-item:has(> .mdi) {
+	justify-content: center;
+	gap: 3px;
+	padding-inline: 2px;
+}

@@ -17,7 +17,13 @@ const { resolvedTheme } = useTheme()
   </div>
 </template>
 
-<style scoped>
-.word-preview { height: 100%; min-height: 0; }
-.word-preview :deep([data-testid="docx-editor-scroll"]) { height: 100%; }
+<style lang="scss" scoped>
+.word-preview {
+  height: 100%;
+  min-height: 0;
+
+  :deep([data-testid="docx-editor-scroll"]) {
+    height: 100%;
+  }
+}
 </style>

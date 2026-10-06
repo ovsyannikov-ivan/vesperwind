@@ -37,14 +37,16 @@ libc = "0.2"
 block2 = "0.6"
 objc2 = "0.6"
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["CGColorSpace"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["NSAnimation", "NSAnimationContext", "NSColor", "NSGraphics", "NSOpenGL", "NSOpenGLView", "NSResponder", "NSScreen", "NSView", "NSWindow", "objc2-core-foundation", "objc2-core-graphics", "objc2-quartz-core"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["block2", "NSData", "NSError", "NSFileCoordinator", "NSFileManager", "NSString", "NSURL"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["block2", "NSAnimation", "NSAnimationContext", "NSApplication", "NSColor", "NSDragging", "NSDraggingItem", "NSDraggingSession", "NSEvent", "NSFilePromiseProvider", "NSGraphics", "NSGraphicsContext", "NSImage", "NSOpenGL", "NSOpenGLView", "NSPasteboard", "NSPasteboardItem", "NSResponder", "NSScreen", "NSView", "NSWindow", "NSWorkspace", "objc2-core-foundation", "objc2-core-graphics", "objc2-quartz-core"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["block2", "NSArray", "NSData", "NSDictionary", "NSEnumerator", "NSError", "NSFileCoordinator", "NSFileManager", "NSGeometry", "NSObjCRuntime", "NSOperation", "NSProgress", "NSPropertyList", "NSString", "NSURL", "NSValue"] }
 objc2-quartz-core = { version = "0.3", default-features = false, features = ["CALayer", "CAMetalLayer", "CAEDRMetadata", "CATransaction", "objc2-metal", "objc2-core-foundation", "objc2-core-graphics"] }
 objc2-web-kit = { version = "0.3", default-features = false, features = ["WKWebView"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_NetworkManagement_WNet", "Win32_Graphics_Gdi", "Win32_Graphics_OpenGL", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Threading", "Win32_System_Ioctl", "Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"] }
-windows = { version = "0.61", features = ["Win32_Devices_Display", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Gdi", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+webview2-com = "0.38"
+windows = { version = "0.61", features = ["Win32_Devices_Display", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Gdi", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Com_Marshal", "Win32_System_Com_StructuredStorage", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows-core = "0.61"
 
 [profile.release]
 codegen-units = 1

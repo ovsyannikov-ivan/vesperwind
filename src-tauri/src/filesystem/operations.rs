@@ -152,9 +152,13 @@ fn operate_existing(
         ));
     }
 
-    let source_name = source
-        .file_name()
-        .ok_or_else(|| NativeError::new("EINVAL", "Invalid source path"))?;
+    // Paste into the source folder supplies a free name ("name copy.ext").
+    let source_name = match (request.action.as_str(), request.name.as_deref()) {
+        ("copy", Some(name)) => std::ffi::OsStr::new(require_valid_name(Some(name))?),
+        _ => source
+            .file_name()
+            .ok_or_else(|| NativeError::new("EINVAL", "Invalid source path"))?,
+    };
     let destination =
         paths::resolve_inside_root(filesystem, &target.join(source_name).to_string_lossy())?;
     let real_destination = real_target.join(source_name);
@@ -678,6 +682,46 @@ mod tests {
         assert!(!test_root.join("left/note.txt").exists());
         let _ = fs::remove_dir_all(&test_root);
         let _ = fs::remove_dir_all(&outside);
+    }
+
+    #[test]
+    fn copy_into_the_same_folder_uses_the_supplied_free_name() {
+        let root = std::env::temp_dir().join(format!("vesperwind-copy-name-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("report.txt"), "data").unwrap();
+        let filesystem = Filesystem::from_root(&root, root.clone()).unwrap();
+        let request = |name: Option<&str>| OperationRequest {
+            operation_id: None,
+            timeout_ms: None,
+            action: "copy".into(),
+            source_path: Some(root.join("report.txt").to_string_lossy().into_owned()),
+            target_directory: Some(root.to_string_lossy().into_owned()),
+            name: name.map(str::to_string),
+            filesystem_id: Some("local".into()),
+            target_filesystem_id: Some("local".into()),
+        };
+        assert_eq!(
+            perform(&filesystem, request(None)).unwrap_err().code,
+            "ESAMEPATH"
+        );
+        perform(&filesystem, request(Some("report copy.txt"))).unwrap();
+        assert_eq!(
+            fs::read_to_string(root.join("report copy.txt")).unwrap(),
+            "data"
+        );
+        assert_eq!(
+            perform(&filesystem, request(Some("report copy.txt")))
+                .unwrap_err()
+                .code,
+            "EEXIST"
+        );
+        assert_eq!(
+            perform(&filesystem, request(Some("../escape.txt")))
+                .unwrap_err()
+                .code,
+            "EINVALID_NAME"
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

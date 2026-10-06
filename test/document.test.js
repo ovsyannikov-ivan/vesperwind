@@ -8,6 +8,7 @@ import { getDocumentHandler } from '../src/editor/documentHandlers.js'
 import { attachDocumentRuntime, documentRuntimeCount } from '../src/modules/document/runtime.js'
 import { loadDocument, saveDocument } from '../src/modules/document/services/documentFile.js'
 import { convertDocumentBytes } from '../server/documentConversion.js'
+import { compiledStyles } from './support/styles.js'
 
 const fixture = (name) => fs.readFile(new URL(`./fixtures/document/${name}`, import.meta.url))
 const tab = (name = 'sample.docx', provider = 'local') => ({ id: `${provider}:${name}`, filePath: `/tmp/Unicode space 目录/${name}`,
@@ -25,7 +26,7 @@ test('DOCX uses the lazy Word handler; imports are Word tabs; existing handlers 
 test('Word editor follows the live Vesperwind theme through the docx-editor colorMode prop', async () => {
   const [component, css] = await Promise.all([
     fs.readFile(new URL('../src/modules/document/WordEditor.vue', import.meta.url), 'utf8'),
-    fs.readFile(new URL('../src/modules/document/styles/document.css', import.meta.url), 'utf8'),
+    Promise.resolve(compiledStyles('src/modules/document/styles/document.scss')),
   ])
   assert.doesNotMatch(component, /\scolor-mode="(light|dark)"/)
   assert.match(component, /:color-mode="colorMode"/)

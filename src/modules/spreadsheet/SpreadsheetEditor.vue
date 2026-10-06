@@ -6,7 +6,7 @@ import UniverPresetSheetsCoreEnUS from '@univerjs/preset-sheets-core/locales/en-
 import { modelToUniver } from './adapters/univer.js'
 import { attachSpreadsheetRuntime } from './runtime.js'
 import '@univerjs/preset-sheets-core/lib/index.css'
-import './styles/spreadsheet.css'
+import './styles/spreadsheet.scss'
 
 const props = defineProps({ tab: { type: Object, required: true }, visible: Boolean })
 const host = ref(null)

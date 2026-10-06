@@ -1,0 +1,8 @@
+// File clipboard state.
+
+// Items cut to the Vesperwind clipboard stay visible but dimmed until pasted.
+.tree-row.is-cut .tree-name-cell,
+.tree-row.is-cut .tree-size,
+.tree-row.is-cut .tree-date {
+	opacity: 0.55;
+}

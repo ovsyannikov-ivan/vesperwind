@@ -53,6 +53,20 @@ import { startArchiveOperation } from '../api/archives.js'
 import { archiveName, extractionFolderName } from '../../shared/archivePolicy.js'
 import { notifyEntryChange } from '../composables/useEntryChanges.js'
 import { isAddressShortcut } from '../utils/addressNavigation.js'
+import { isFilesystemRootEntry } from '../../shared/localFilesystem.js'
+import { runtime } from '../api/runtime.js'
+import { diskImages, onShellEvent } from '../api/shellIntegration.js'
+import { useFileClipboard } from '../composables/useFileClipboard.js'
+import { useNotice } from '../composables/useNotice.js'
+import {
+  canOfferDiskImage,
+  clipboardShortcutLabels,
+  fileClipboardShortcut,
+  pasteBlockReason,
+  planPaste,
+} from '../utils/fileClipboard.js'
+import { getFilesystemParentPath } from '../utils/filesystemPath.js'
+import { activeNativeDrag, endNativeDrag, nativeDropTarget } from '../utils/nativeDragSession.js'
 
 const EditorWorkspace = defineAsyncComponent(() => import('./EditorWorkspace.vue'))
 
@@ -521,7 +535,7 @@ const showEditor = () => {
 
 const runFileOperation = (action, source, targetDirectory) => {
   if (action === 'copy') {
-    return copyEntry(source, targetDirectory)
+    return copyEntry(source, source.targetDirectory || targetDirectory, source.targetName)
   }
 
   if (action === 'move') {
@@ -543,7 +557,8 @@ const runFileOperation = (action, source, targetDirectory) => {
 }
 
 const runFileOperations = async (action, sources, targetDirectory, requestDetails, isCurrent) => {
-  const effectiveSources = transferSources(sources)
+  // A single-item request (context-menu Delete) may carry only `source`.
+  const effectiveSources = transferSources(sources?.length ? sources : [requestDetails?.source].filter(Boolean))
   const processedSources = []
   for (const source of effectiveSources) {
     if (!isCurrent()) return { ok: false, processedSources, error: { code: 'ECANCELLED' } }
@@ -563,7 +578,7 @@ const runFileOperations = async (action, sources, targetDirectory, requestDetail
         error: { ...response?.error, message: `${source.name}: ${response?.error?.message || 'The file operation failed'}${response?.error?.path ? `: ${response.error.path}` : ''} (${processedSources.length} completed)` },
       }
     }
-    syncAfterFileOperation({ ...requestDetails, action, source, target: targetDirectory }, response)
+    syncAfterFileOperation({ ...requestDetails, action, source, target: source.targetDirectory || targetDirectory }, response)
     processedSources.push(source)
   }
   return { ok: true, processedSources }
@@ -571,11 +586,20 @@ const runFileOperations = async (action, sources, targetDirectory, requestDetail
 
 const finishTransferredSelection = (action, sourcePanel, sources) => {
   if (!['move', 'delete'].includes(action)) return
-  const panel = sourcePanel === 'left' ? leftPanel.value : rightPanel.value
-  panel?.removeSelectedPaths(sources)
+  // Paste and external drops have no source panel: either may show the items.
+  const panels = sourcePanel ? [sourcePanel === 'left' ? leftPanel.value : rightPanel.value] : [leftPanel.value, rightPanel.value]
+  panels.forEach((panel) => panel?.removeSelectedPaths(sources))
 }
 
-const openFileOperationMenu = (requestDetails) => {
+const openFileOperationMenu = async (requestDetails) => {
+  if (requestDetails.external) {
+    const response = await requestDetails.external
+    if (!response.ok) { showNotice('Unable to drop these items', response.error); return }
+    const items = response.items.filter((item) => !(item.providerId === requestDetails.target.providerId &&
+      item.path === requestDetails.target.path))
+    if (!items.length) return
+    requestDetails = { ...requestDetails, external: undefined, source: { ...items[0], panelSide: null, ...(items.length > 1 ? { sources: items } : {}) } }
+  }
   entryContextRequest.value = null
   activePanel.value = requestDetails.targetPanel
   operationGeneration++
@@ -661,6 +685,7 @@ const executeEntryContextDelete = () => {
   confirmationRequest.value = {
     action: 'delete',
     source: requestDetails.node,
+    sources: [requestDetails.node],
     sourcePanel: requestDetails.sourcePane,
     targetDirectory: null,
     targetPanel: null,
@@ -762,7 +787,7 @@ const executeCommanderOperation = async () => {
     finally { confirmationBusy.value = false }
     return
   }
-  if (!confirmationRequest.value || confirmationBusy.value) {
+  if (!confirmationRequest.value || confirmationBusy.value || confirmationRequest.value.action === 'notice') {
     return
   }
 
@@ -799,7 +824,222 @@ const executeCommanderOperation = async () => {
   finishTransferredSelection(requestDetails.action, requestDetails.sourcePanel, response.processedSources)
   confirmationRequest.value = null
   filesystemRevision.value += 1
+  if (requestDetails.paste?.consumes) {
+    const consumed = await fileClipboard.consume(requestDetails.paste.token, 'cut')
+    if (!consumed.ok) showNotice('Clipboard not updated', consumed.error)
+  }
 }
+
+
+// --- File clipboard, native drag and drop, disk images ----------------------
+const fileClipboard = useFileClipboard()
+const { notice, showNotice, clearNotice } = useNotice()
+const shortcutLabels = clipboardShortcutLabels()
+const entryContextImage = ref(null)
+let imageStatusSequence = 0
+
+watch(notice, (value) => {
+  if (!value) return
+  clearNotice()
+  if (confirmationRequest.value) {
+    confirmationError.value = value.message
+    return
+  }
+  confirmationError.value = ''
+  confirmationRequest.value = { action: 'notice', title: value.title, message: value.message, source: { name: '' } }
+})
+
+const panelOf = (side) => (side === 'left' ? leftPanel.value : rightPanel.value)
+
+// Items a context-menu Cut/Copy applies to: the selection when the clicked
+// row is part of it, otherwise the clicked row alone.
+const contextEntries = (request) => {
+  if (!request || request.background || isFilesystemRootEntry(request.node)) return []
+  const selection = panelStates[request.sourcePane]?.selectedEntries || []
+  return selection.some((entry) => entry.path === request.node.path) ? selection : [request.node]
+}
+
+const contextPasteTarget = (request) => {
+  if (!request) return null
+  if (request.background || request.node.isDirectory) return { ...request.node, providerId: request.node.providerId, isDirectory: true }
+  return panelStates[request.sourcePane]?.currentDirectory || null
+}
+
+const entryContextClipboard = computed(() => {
+  const request = entryContextRequest.value
+  if (!request) return null
+  const entries = contextEntries(request)
+  const destination = contextPasteTarget(request)
+  return {
+    canCut: entries.length > 0,
+    canCopy: entries.length > 0,
+    canPaste: Boolean(fileClipboard.state.snapshot && !pasteBlockReason(fileClipboard.state.snapshot, destination)),
+    pasteLabel: !request.background && request.node.isDirectory ? 'Paste into Folder' : 'Paste',
+    shortcuts: shortcutLabels,
+  }
+})
+
+const writeClipboard = async (operation, entries) => {
+  if (!entries.length) return false
+  const response = await fileClipboard[operation](entries)
+  if (!response.ok) showNotice(operation === 'cut' ? 'Unable to cut' : 'Unable to copy', response.error)
+  return response.ok
+}
+
+const pasteInto = async (destination, targetPanel) => {
+  if (!destination || confirmationRequest.value || confirmationBusy.value) return
+  const read = await fileClipboard.refresh()
+  if (!read.ok) { showNotice('Unable to paste', read.error); return }
+  const snapshot = fileClipboard.state.snapshot
+  let names = []
+  if (snapshot?.operation === 'copy' && snapshot.items.some((item) => item.providerId === destination.providerId &&
+    getFilesystemParentPath(item.path) === destination.path)) {
+    const listing = await filesystem.readDir(destination)
+    if (!listing.ok) { showNotice('Unable to paste', listing.error); return }
+    names = listing.entries.map((entry) => entry.name)
+  }
+  const plan = planPaste(snapshot, destination, names)
+  if (!plan.ok) { showNotice('Unable to paste', plan.error); return }
+  if (!plan.sources.length) return
+  activePanel.value = targetPanel || activePanel.value
+  confirmationError.value = ''
+  confirmationGeneration++
+  confirmationRequest.value = {
+    action: plan.action,
+    paste: plan,
+    source: plan.sources[0],
+    sources: plan.sources,
+    sourcePanel: null,
+    targetDirectory: destination,
+    targetPanel,
+  }
+  await executeCommanderOperation()
+}
+
+// Finder-style Duplicate: copy each item next to itself with a free name
+// ("name copy.ext"), through the same copy operation and progress dialog.
+const duplicateEntries = async (entries, targetPanel) => {
+  if (!entries.length || confirmationRequest.value || confirmationBusy.value) return
+  const groups = new Map()
+  for (const entry of transferSources(entries)) {
+    const parent = getFilesystemParentPath(entry.path)
+    if (!groups.has(parent)) groups.set(parent, [])
+    groups.get(parent).push(entry)
+  }
+  const sources = []
+  for (const [parent, items] of groups) {
+    const directory = { providerId: items[0].providerId, path: parent, name: parent, isDirectory: true }
+    const listing = await filesystem.readDir(directory)
+    if (!listing.ok) { showNotice('Unable to duplicate', listing.error); return }
+    const plan = planPaste({ operation: 'copy', items }, directory, listing.entries.map((entry) => entry.name))
+    if (!plan.ok) { showNotice('Unable to duplicate', plan.error); return }
+    sources.push(...plan.sources.map((source) => ({ ...source, targetDirectory: directory })))
+  }
+  confirmationError.value = ''
+  confirmationGeneration++
+  confirmationRequest.value = {
+    action: 'copy',
+    paste: { action: 'copy', duplicate: true, consumes: false, token: null },
+    source: sources[0],
+    sources,
+    sourcePanel: null,
+    targetDirectory: sources[0].targetDirectory,
+    targetPanel,
+  }
+  await executeCommanderOperation()
+}
+
+const executeEntryClipboard = async (operation) => {
+  const request = entryContextRequest.value
+  if (!request || entryContextBusy.value) return
+  if (operation === 'paste') {
+    entryContextRequest.value = null
+    await pasteInto(contextPasteTarget(request), request.sourcePane)
+    return
+  }
+  if (operation === 'duplicate') {
+    entryContextRequest.value = null
+    await duplicateEntries(contextEntries(request), request.sourcePane)
+    return
+  }
+  if (await writeClipboard(operation, contextEntries(request))) entryContextRequest.value = null
+}
+
+const clipboardShortcutsBlocked = () => Boolean(
+  workspaceMode.value !== 'files' || !connected.value || settingsOpen.value || remoteConnectionsOpen.value ||
+  createRequest.value || confirmationRequest.value || archiveRequest.value || playlistRequest.value || viewer.value ||
+  quickLook.current.value || dropRequest.value || entryContextRequest.value || operationBusy.value ||
+  confirmationBusy.value || panelOf(activePanel.value)?.hasOpenMenu(),
+)
+
+const handleClipboardShortcut = (event) => {
+  const operation = fileClipboardShortcut(event)
+  if (!operation || clipboardShortcutsBlocked()) return false
+  const state = panelStates[activePanel.value]
+  if (operation === 'paste') {
+    if (!state?.currentDirectory) return false
+    event.preventDefault()
+    void pasteInto(state.currentDirectory, activePanel.value)
+    return true
+  }
+  if (!state?.canOperateSelected || !state.selectedEntries.length) return false
+  event.preventDefault()
+  void writeClipboard(operation, state.selectedEntries)
+  return true
+}
+
+const refreshEntryContextImage = (request) => {
+  const sequence = ++imageStatusSequence
+  entryContextImage.value = canOfferDiskImage(request?.node, runtime.capabilities) ? { mounted: null } : null
+  if (!entryContextImage.value) return
+  void diskImages.status(request.node).then((response) => {
+    if (sequence !== imageStatusSequence || entryContextRequest.value !== request) return
+    // A status failure still offers Mount; the backend validates again.
+    entryContextImage.value = { mounted: response.ok ? response.image.attached : false }
+  })
+}
+
+const executeDiskImage = async (action) => {
+  const request = entryContextRequest.value
+  if (!request || entryContextBusy.value) return
+  entryContextBusy.value = true
+  entryContextError.value = ''
+  try {
+    const response = await diskImages[action]({ providerId: request.node.providerId, path: request.node.path })
+    if (!response.ok) { entryContextError.value = response.error.message; return }
+    entryContextRequest.value = null
+    filesystemRevision.value += 1
+    const volume = action === 'mount' ? response.image.volumes?.[0] : null
+    if (volume?.mountPoint) {
+      panelOf(request.sourcePane)?.openDirectory({ name: volume.name || volume.mountPoint, path: volume.mountPoint, type: 'directory', isDirectory: true })
+    }
+  } catch (error) {
+    entryContextError.value = error?.message || 'The disk image operation failed'
+  } finally {
+    entryContextBusy.value = false
+  }
+}
+
+const handleNativeDrop = ({ x, y } = {}) => {
+  const source = activeNativeDrag()
+  if (!source) return
+  const target = nativeDropTarget(x, y)
+  if (target?.kind === 'terminal') {
+    target.element.dispatchEvent(new CustomEvent('vesperwind:terminal-drop', { detail: { value: source.terminalPath } }))
+    return
+  }
+  if (target?.kind !== 'directory' || isComputerPath(target.target.path)) return
+  if (source.providerId === target.target.providerId && (source.sources || [source]).some((item) => item.path === target.target.path)) return
+  void openFileOperationMenu({ source, target: target.target, targetPanel: target.targetPanel, x, y })
+}
+
+watch(entryContextRequest, (request) => {
+  if (!request) return
+  void fileClipboard.refresh()
+  refreshEntryContextImage(request)
+})
+
+const shellSubscriptions = []
 
 const handleCommanderKeydown = (event) => {
   const panel = activePanel.value === 'left' ? leftPanel.value : rightPanel.value
@@ -814,6 +1054,7 @@ const handleCommanderKeydown = (event) => {
     if (panel) { event.preventDefault(); void panel.editAddress() }
     return
   }
+  if (handleClipboardShortcut(event)) return
   if (workspaceMode.value !== 'files' || event.target.closest?.('input, textarea, [contenteditable="true"]')) {
     return
   }
@@ -846,6 +1087,13 @@ onMounted(() => {
   window.addEventListener('resize', clampTerminalToViewport)
   window.addEventListener('keydown', handleCommanderKeydown)
   clampTerminalToViewport()
+  shellSubscriptions.push(
+    fileClipboard.subscribe(showNotice),
+    onShellEvent('native-drag:drop', handleNativeDrop),
+    onShellEvent('native-drag:end', () => endNativeDrag()),
+    onShellEvent('native-drag:error', (event) => showNotice('Transfer failed', event?.error)),
+  )
+  void fileClipboard.refresh()
 })
 
 onBeforeUnmount(() => {
@@ -863,6 +1111,7 @@ onBeforeUnmount(() => {
   workspaceObserver?.disconnect()
   window.removeEventListener('resize', clampTerminalToViewport)
   window.removeEventListener('keydown', handleCommanderKeydown)
+  shellSubscriptions.splice(0).forEach((stop) => stop?.())
 })
 </script>
 
@@ -1032,6 +1281,15 @@ onBeforeUnmount(() => {
       :archive-actions="entryContextRequest.node.providerId === 'local' && !archiveBusy"
       :busy="entryContextBusy"
       :error="entryContextError"
+      :clipboard="entryContextClipboard"
+      :background="Boolean(entryContextRequest.background)"
+      :disk-image="entryContextRequest.background ? null : entryContextImage"
+      @cut="executeEntryClipboard('cut')"
+      @copy="executeEntryClipboard('copy')"
+      @paste="executeEntryClipboard('paste')"
+      @duplicate="executeEntryClipboard('duplicate')"
+      @mount-image="executeDiskImage('mount')"
+      @unmount-image="executeDiskImage('unmount')"
       @open="executeEntryContextOpen"
       @system-open="executeDesktopAction('open')"
       @open-with="executeDesktopAction('openWith')"

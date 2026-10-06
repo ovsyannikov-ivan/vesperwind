@@ -32,3 +32,19 @@ test('Escape, provider change and disposal suppress stale navigation', async () 
     assert.equal(f.locations.length, 0); assert.equal(f.state.busy, false)
   }
 })
+
+test('the panel path field has confirm and cancel buttons inside it', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const panel = await readFile(new URL('../src/components/FilePanel.vue', import.meta.url), 'utf8')
+  const form = panel.match(/<form v-else-if="address\.editing" class="panel-address-form"[\s\S]*?<\/form>/u)[0]
+  assert.match(form, /@submit\.prevent="addressNavigation\.submit"/u)
+  assert.match(form, /type="submit"[\s\S]*?mdi-check/u)
+  assert.match(form, /type="button"[\s\S]*?@click="addressNavigation\.cancel"[\s\S]*?mdi-close/u)
+})
+
+test('every text field and select draws its focus inside the border', async () => {
+  const { compiledStyles } = await import('./support/styles.js')
+  const css = compiledStyles('src/styles/main.scss')
+  assert.match(css, /\.form-control:focus,\s*\.form-select:focus \{\s*border-color: var\(--bs-primary\);\s*box-shadow: inset 0 0 0 1px var\(--bs-primary\);/u)
+  assert.match(css, /\.form-control\.is-invalid:focus,\s*\.form-select\.is-invalid:focus \{[^}]*box-shadow: inset 0 0 0 1px/u)
+})

@@ -5,6 +5,7 @@ import {
   closeTerminalTab,
   createTerminalTab,
 } from '../src/utils/terminalTabs.js'
+import { compiledStyles } from './support/styles.js'
 
 const read = (relativePath) =>
   fs.readFile(new URL(`../${relativePath}`, import.meta.url), 'utf8')
@@ -52,7 +53,7 @@ test('terminal dropdown and instances preserve independent lifecycle wiring', as
   const [panel, editor, styles, instance, terminal, nodeBackend, rustBackend] = await Promise.all([
     read('src/components/TerminalPanel.vue'),
     read('src/components/EditorWorkspace.vue'),
-    read('src/styles/main.css'),
+    Promise.resolve(compiledStyles('src/styles/main.scss')),
     read('src/components/TerminalInstance.vue'),
     read('src/composables/useTerminal.js'),
     read('server/terminal.js'),

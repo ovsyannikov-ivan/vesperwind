@@ -1,0 +1,17 @@
+// Reduced motion and small-height adjustments.
+
+@media (prefers-reduced-motion: reduce) {
+	.settings-panel {
+		transition: none;
+	}
+}
+
+@media (max-height: 520px) {
+	:root {
+		--toolbar-height: 35px;
+	}
+
+	.app-toolbar {
+		padding-block: 2px;
+	}
+}

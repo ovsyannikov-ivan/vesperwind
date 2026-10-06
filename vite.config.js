@@ -12,6 +12,15 @@ export default defineConfig({
 			},
 		}),
 	],
+	css: {
+		preprocessorOptions: {
+			scss: {
+				// Stylesheets and Vue `<style lang="scss">` blocks can `@use` shared
+				// partials from src/styles without relative paths.
+				loadPaths: [fileURLToPath(new URL("./src/styles", import.meta.url))],
+			},
+		},
+	},
 	server: {
 		host: "127.0.0.1",
 		port: 5173,

@@ -17,9 +17,30 @@ export const normalizeRuntimeMode = (info, fallback = 'browser') => {
   return RUNTIME_MODES.includes(fallback) ? fallback : 'browser'
 }
 
+// Desktop shell features are reported by the backend; browser and SEA
+// runtimes report none, so the frontend never guesses from the user agent.
+export const DEFAULT_CAPABILITIES = Object.freeze({
+  nativeFileClipboard: false,
+  externalFileDrop: false,
+  externalDragOut: false,
+  mountDiskImage: false,
+  diskImageExtensions: Object.freeze([]),
+})
+
+export const normalizeCapabilities = (value) => ({
+  nativeFileClipboard: value?.nativeFileClipboard === true,
+  externalFileDrop: value?.externalFileDrop === true,
+  externalDragOut: value?.externalDragOut === true,
+  mountDiskImage: value?.mountDiskImage === true,
+  diskImageExtensions: Array.isArray(value?.diskImageExtensions)
+    ? value.diskImageExtensions.filter((item) => typeof item === 'string').map((item) => item.toLowerCase())
+    : [],
+})
+
 const state = reactive({
   mode: backendRuntimeMode,
   isStandalone: backendRuntimeMode !== 'browser',
+  capabilities: { ...DEFAULT_CAPABILITIES },
 })
 
 const getInfo = async () => {
@@ -35,6 +56,7 @@ const getInfo = async () => {
       typeof response.isStandalone === 'boolean'
         ? response.isStandalone
         : state.mode !== 'browser'
+    state.capabilities = normalizeCapabilities(response.capabilities)
   }
 
   return response

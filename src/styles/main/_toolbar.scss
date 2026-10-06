@@ -1,0 +1,184 @@
+// Main toolbar, shared neutral button and connection indicators.
+
+.app-toolbar {
+	display: flex;
+	flex: 0 0 var(--toolbar-height);
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+	padding: 4px 8px;
+	border-bottom: 1px solid var(--border);
+	background: var(--toolbar-bg);
+	box-shadow: 0 1px 5px #00000025;
+	z-index: 4;
+}
+
+.brand-mark {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	margin-right: 2px;
+	color: var(--text);
+	font-weight: 600;
+	letter-spacing: 0.02em;
+}
+
+.brand-icon {
+	display: block;
+	width: 24px;
+	height: 24px;
+	flex: 0 0 24px;
+	object-fit: contain;
+}
+
+.toolbar-divider {
+	align-self: stretch;
+	width: 1px;
+	margin: 1px 3px;
+	background: var(--border);
+}
+
+.toolbar-button {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	padding: 2px 9px;
+
+	& {
+		border-color: transparent;
+		color: var(--text-muted);
+		background: transparent;
+	}
+
+	&:hover,
+	&:focus-visible {
+		border-color: var(--border-strong);
+		color: var(--text);
+		background: var(--surface-2);
+	}
+}
+
+.toolbar-toggle {
+	border-color: var(--border);
+	color: var(--text-muted);
+	background: var(--toolbar-control-inactive-bg);
+}
+
+.toolbar-toggle.is-active,
+.compact-icon-button.is-active,
+.compact-button.is-active,
+.toolbar-command:not(:disabled) {
+	border-color: var(--toolbar-control-border);
+	color: var(--text);
+	background: var(--toolbar-control-active-bg);
+}
+
+.toolbar-toggle:disabled:not(.is-active) {
+	border-color: var(--border);
+	color: var(--text-muted);
+	background: var(--toolbar-control-inactive-bg);
+	opacity: 1;
+}
+
+.toolbar-toggle:hover,
+.toolbar-toggle:focus-visible,
+.toolbar-toggle.is-active:hover,
+.toolbar-toggle.is-active:focus-visible,
+.toolbar-command:not(:disabled):hover,
+.toolbar-command:not(:disabled):focus-visible {
+	border-color: var(--border-strong);
+	color: var(--text);
+	background: var(--surface-3);
+}
+
+.toolbar-command:disabled {
+	border-color: transparent;
+	color: var(--text-muted);
+	background: transparent;
+}
+
+.toolbar-button .mdi {
+	font-size: 15px;
+}
+
+// Shared neutral action (Cancel, Clear, secondary Save): the toolbar command
+// surface for dialogs and menus. Pair with `btn btn-sm`.
+.panel-address-form {
+	flex: 1;
+	min-width: 0;
+
+	.form-control {
+		height: 24px;
+		padding-block: 0;
+	}
+}
+
+.btn-neutral {
+	--bs-btn-color: var(--text);
+	--bs-btn-bg: var(--toolbar-control-active-bg);
+	--bs-btn-border-color: var(--toolbar-control-border);
+	--bs-btn-hover-color: var(--text);
+	--bs-btn-hover-bg: var(--surface-3);
+	--bs-btn-hover-border-color: var(--border-strong);
+	--bs-btn-active-color: var(--text);
+	--bs-btn-active-bg: var(--surface-3);
+	--bs-btn-active-border-color: var(--border-strong);
+	--bs-btn-disabled-color: var(--text-muted);
+	--bs-btn-disabled-bg: transparent;
+	--bs-btn-disabled-border-color: var(--border);
+	--bs-btn-disabled-opacity: 1;
+	--bs-btn-focus-shadow-rgb: var(--bs-primary-rgb);
+}
+
+.btn-close {
+	&:focus {
+		box-shadow: none !important;
+	}
+}
+
+.commander-key {
+	opacity: 0.72;
+	font-size: 0.75rem;
+	font-variant-numeric: tabular-nums;
+}
+
+.toolbar-spacer {
+	flex: 1 1 auto;
+	min-width: 8px;
+}
+
+.active-panel-indicator {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	color: var(--text-muted);
+
+	strong {
+		color: var(--text);
+		font-weight: 600;
+		letter-spacing: 0.05em;
+		text-transform: capitalize;
+	}
+}
+
+.connection-indicator {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 58px;
+	margin-left: 10px;
+	color: var(--text-muted);
+}
+
+.connection-dot {
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: #636366;
+	box-shadow: 0 0 0 2px #63636633;
+}
+
+.connection-indicator.is-connected .connection-dot {
+	background: var(--accent);
+	box-shadow: 0 0 0 2px #0a84ff33;
+}

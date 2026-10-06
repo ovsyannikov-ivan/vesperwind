@@ -142,7 +142,7 @@ test('production template has no image container until ready and fades only fill
   const filled = await render({ visible: true, time: 42, ratio: .5, url: 'data:image/jpeg;base64,ready', loading: false })
   assert.match(filled, /<img[^>]+src="data:image\/jpeg;base64,ready"/)
   assert.doesNotMatch(filled, /placeholder|spinner|image-outline/)
-  assert.match(file, /thumbnail-image-enter-active\s*\{ transition: opacity 180ms/)
+  assert.match(file, /thumbnail-image-enter-active\s*\{\s*transition: opacity 180ms/)
   assert.doesNotMatch(file, /thumbnail-image-leave-active/)
   assert.match(file, /@leave="\(_element, done\) => done\(\)"/)
 })

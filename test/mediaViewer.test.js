@@ -4,6 +4,7 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { useMediaViewer } from '../src/composables/useMediaViewer.js'
 import { effectScope, ref, watch, nextTick } from 'vue'
+import { compiledStyles } from './support/styles.js'
 
 const node = (name) => ({
   name,
@@ -82,10 +83,7 @@ test('native audio and subtitle selectors use vertical Bootstrap dropdown menus'
   assert.match(component, /class="dropdown-item"/)
   assert.match(component, /handlePointerDown/)
 
-  const styles = fs.readFileSync(
-    fileURLToPath(new URL('../src/media-overlay/media-overlay.css', import.meta.url)),
-    'utf8',
-  )
+  const styles = compiledStyles('src/media-overlay/media-overlay.scss')
   assert.match(styles, /\.media-overlay-dropdown \.dropdown-menu\s*\{[^}]*max-height:/s)
   assert.match(styles, /--bs-dropdown-font-size:\s*0\.875rem/)
 })
@@ -128,10 +126,7 @@ test('native overlay hides and restores the cursor with playback controls', () =
     fileURLToPath(new URL('../src/media-overlay/MediaOverlay.vue', import.meta.url)),
     'utf8',
   )
-  const styles = fs.readFileSync(
-    fileURLToPath(new URL('../src/media-overlay/media-overlay.css', import.meta.url)),
-    'utf8',
-  )
+  const styles = compiledStyles('src/media-overlay/media-overlay.scss')
 
   assert.match(component, /is-cursor-hidden/)
   assert.match(component, /@pointerleave="restoreControls"/)
@@ -163,7 +158,7 @@ test('Enter opens focused files while retaining directory toggle behavior', () =
 
 test('native mpv styles only cover classes the player markup still uses', () => {
   const read = (path) => fs.readFileSync(fileURLToPath(new URL(`../${path}`, import.meta.url)), 'utf8')
-  const styles = read('src/styles/main.css')
+  const styles = compiledStyles('src/styles/main.scss')
   const markup = ['src/components/CustomMediaPlayer.vue', 'src/components/MediaViewerModal.vue']
     .map(read).join('\n')
   const classes = new Set(styles.match(/\.native-mpv-[\w-]+/gu)?.map((name) => name.slice(1)))

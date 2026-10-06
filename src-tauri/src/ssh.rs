@@ -389,6 +389,65 @@ impl SshManager {
         connection.sftp.open(Path::new(&path)).map_err(sftp_error)
     }
 
+    /// Metadata for native transfers. `lstat` keeps symlinks visible so callers
+    /// never follow a directory link into a cycle; a symlink to a regular file
+    /// reports the target's type and size.
+    pub fn remote_stat(
+        self: &Arc<Self>,
+        provider_id: &str,
+        requested: &str,
+    ) -> Result<crate::shell_integration::transfer::RemoteStat, NativeError> {
+        let connection = self.ensure(provider_id)?;
+        let path = connection.resolve(requested)?;
+        let lstat = connection
+            .sftp
+            .lstat(Path::new(&path))
+            .map_err(sftp_error)?;
+        let link = lstat.perm.unwrap_or(0) & TYPE_MASK == SYMLINK_MODE;
+        let stat = if link {
+            connection.sftp.stat(Path::new(&path)).unwrap_or(lstat)
+        } else {
+            lstat
+        };
+        Ok(remote_stat(
+            remote_name(&path).to_string(),
+            path,
+            &stat,
+            link,
+        ))
+    }
+
+    pub fn remote_children(
+        self: &Arc<Self>,
+        provider_id: &str,
+        requested: &str,
+    ) -> Result<Vec<crate::shell_integration::transfer::RemoteStat>, NativeError> {
+        let connection = self.ensure(provider_id)?;
+        let directory = connection.resolve(requested)?;
+        let mut result = vec![];
+        for (child, stat) in connection
+            .sftp
+            .readdir(Path::new(&directory))
+            .map_err(sftp_error)?
+        {
+            let Some(name) = child.file_name().and_then(|v| v.to_str()) else {
+                continue;
+            };
+            if name == "." || name == ".." {
+                continue;
+            }
+            let path = remote_join(&directory, name);
+            let link = stat.perm.unwrap_or(0) & TYPE_MASK == SYMLINK_MODE;
+            let stat = if link {
+                connection.sftp.stat(Path::new(&path)).unwrap_or(stat)
+            } else {
+                stat
+            };
+            result.push(remote_stat(name.to_string(), path, &stat, link));
+        }
+        Ok(result)
+    }
+
     pub(crate) fn operation_connections(
         &self,
         request: &OperationRequest,
@@ -537,7 +596,15 @@ impl SshManager {
         let target_connection = target_remote
             .map(|_| self.get(request.target_filesystem_id.as_deref().unwrap()))
             .transpose()?;
-        let source_name = if source_remote.is_some() {
+        let copy_name = if request.action == "copy" && request.name.is_some() {
+            validate_name(request.name.as_deref())?;
+            request.name.as_deref()
+        } else {
+            None
+        };
+        let source_name = if let Some(name) = copy_name {
+            name
+        } else if source_remote.is_some() {
             remote_name(source_path)
         } else {
             Path::new(source_path)
@@ -1069,6 +1136,22 @@ fn remote_name(value: &str) -> &str {
         .filter(|v| !v.is_empty())
         .unwrap_or("/")
 }
+fn remote_stat(
+    name: String,
+    path: String,
+    stat: &FileStat,
+    is_symbolic_link: bool,
+) -> crate::shell_integration::transfer::RemoteStat {
+    crate::shell_integration::transfer::RemoteStat {
+        name,
+        path,
+        is_directory: is_directory(stat),
+        is_symbolic_link,
+        size: stat.size.unwrap_or(0),
+        modified: stat.mtime.map(|value| value as i64),
+    }
+}
+
 fn is_directory(stat: &FileStat) -> bool {
     stat.perm.unwrap_or(0) & TYPE_MASK == DIRECTORY_MODE
 }

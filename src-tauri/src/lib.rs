@@ -11,6 +11,7 @@ mod native_regression;
 mod office;
 mod provider_content;
 mod settings;
+mod shell_integration;
 mod ssh;
 mod terminal;
 #[cfg(test)]
@@ -48,6 +49,7 @@ pub struct AppState {
     directory_watches: filesystem::watch::DirectoryWatches,
     search_jobs: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
     archive_jobs: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
+    shell: Arc<shell_integration::ShellIntegration>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -175,6 +177,7 @@ pub fn run() {
             directory_watches: filesystem::watch::DirectoryWatches::default(),
             search_jobs: Arc::new(Mutex::new(HashMap::new())),
             archive_jobs: Arc::new(Mutex::new(HashMap::new())),
+            shell: Arc::new(shell_integration::ShellIntegration::default()),
         })
         .setup(move |app| {
             let history_path = app.path().app_data_dir()?.join("media-history.sqlite3");
@@ -184,6 +187,9 @@ pub fn run() {
                 .player
                 .history
                 .configure(history_path);
+            app.state::<AppState>()
+                .shell
+                .setup(app.handle(), Arc::clone(&app.state::<AppState>().ssh));
             let window = app
                 .get_window("main")
                 .expect("main window must exist before creating media overlay");
@@ -277,6 +283,13 @@ pub fn run() {
                 commands::ssh::ssh_connect,
                 commands::ssh::ssh_disconnect,
                 commands::ssh::ssh_status,
+                commands::shell::clipboard_write,
+                commands::shell::clipboard_read,
+                commands::shell::clipboard_consume,
+                commands::shell::drop_read,
+                commands::shell::drag_start,
+                commands::shell::disk_image_operate,
+                commands::shell::shell_capabilities,
             ];
             move |invoke| {
                 if invoke
@@ -312,6 +325,7 @@ pub fn run() {
                 cancel.store(true, std::sync::atomic::Ordering::Release);
             }
             app_handle.state::<AppState>().conversion.shutdown();
+            app_handle.state::<AppState>().shell.shutdown();
             app_handle.state::<AppState>().operation_jobs.shutdown();
             shutdown_terminal.shutdown();
             shutdown_player.close_all();

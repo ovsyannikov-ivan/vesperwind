@@ -46,6 +46,15 @@ const actionDetails = computed(() => {
     },
   }
 
+  if (displayedRequest.value?.action === 'notice') {
+    return { title: displayedRequest.value.title || 'Action failed', icon: 'mdi-alert-circle-outline', button: 'Close' }
+  }
+  if (displayedRequest.value?.paste?.duplicate) {
+    return { title: 'Duplicate', icon: 'mdi-content-duplicate', button: 'Duplicate' }
+  }
+  if (displayedRequest.value?.paste) {
+    return { title: 'Paste', icon: 'mdi-content-paste', button: 'Paste' }
+  }
   return details[displayedRequest.value?.action] || details.copy
 })
 
@@ -59,6 +68,12 @@ const handleHide = (event) => {
   if (props.busy) {
     event.preventDefault()
   }
+}
+
+// A fast operation (Paste, Duplicate) can finish while the show transition is
+// still running; Bootstrap ignores hide() then, so close once it is shown.
+const handleShown = () => {
+  if (!props.open) modal?.hide()
 }
 
 const handleHidden = () => {
@@ -96,6 +111,7 @@ onMounted(() => {
   modal = new Modal(modalElement.value)
   modalElement.value.addEventListener('hide.bs.modal', handleHide)
   modalElement.value.addEventListener('hidden.bs.modal', handleHidden)
+  modalElement.value.addEventListener('shown.bs.modal', handleShown)
 
   if (props.open) {
     modal.show()
@@ -104,6 +120,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   modalElement.value?.removeEventListener('hide.bs.modal', handleHide)
+  modalElement.value?.removeEventListener('shown.bs.modal', handleShown)
   modalElement.value?.removeEventListener('hidden.bs.modal', handleHidden)
   modal?.dispose()
   modal = null
@@ -141,7 +158,19 @@ onBeforeUnmount(() => {
 
           <div v-if="displayedRequest" class="modal-body">
             <p id="file-operation-confirm-description" class="mb-3">
-              <template v-if="displayedRequest.action === 'overwrite-playlist'">
+              <template v-if="displayedRequest.action === 'notice'">
+                {{ displayedRequest.message }}
+              </template>
+              <template v-else-if="displayedRequest.paste?.duplicate">
+                Duplicating
+                {{ displayedRequest.sources.length === 1 ? `“${displayedRequest.source.name}”` : `${displayedRequest.sources.length} items` }}
+              </template>
+              <template v-else-if="displayedRequest.paste">
+                {{ displayedRequest.paste.action === 'move' ? 'Moving' : 'Copying' }}
+                {{ displayedRequest.sources.length === 1 ? `“${displayedRequest.source.name}”` : `${displayedRequest.sources.length} items` }}
+                to the folder <strong>“{{ displayedRequest.targetDirectory.name }}”</strong>
+              </template>
+              <template v-else-if="displayedRequest.action === 'overwrite-playlist'">
                 Overwrite the existing file <strong>“{{ displayedRequest.source.name }}”</strong>?
               </template>
               <template v-else-if="displayedRequest.sources?.length > 1">
@@ -191,9 +220,10 @@ onBeforeUnmount(() => {
               :disabled="busy"
               @click="requestCancel"
             >
-              Cancel
+              {{ displayedRequest?.action === 'notice' ? 'Close' : 'Cancel' }}
             </button>
             <button
+              v-if="displayedRequest?.action !== 'notice'"
               :class="['delete', 'overwrite-playlist'].includes(displayedRequest?.action) ? 'btn-danger' : 'btn-primary'"
               class="btn btn-sm"
               type="button"

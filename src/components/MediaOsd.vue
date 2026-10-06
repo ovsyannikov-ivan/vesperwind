@@ -11,7 +11,7 @@ defineProps({ message: { type: Object, default: null } })
   </Transition>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .media-osd {
   position: absolute;
   top: 16px;
@@ -27,11 +27,30 @@ defineProps({ message: { type: Object, default: null } })
   pointer-events: none;
   box-shadow: 0 2px 8px rgb(0 0 0 / 15%);
 }
-.media-osd-title { font-weight: 600; }
-.media-osd-detail { opacity: .9; overflow-wrap: anywhere; }
-.media-osd-enter-active, .media-osd-leave-active { transition: opacity 120ms ease; }
-.media-osd-enter-from, .media-osd-leave-to { opacity: 0; }
+
+.media-osd-title {
+  font-weight: 600;
+}
+
+.media-osd-detail {
+  opacity: .9;
+  overflow-wrap: anywhere;
+}
+
+.media-osd-enter-active,
+.media-osd-leave-active {
+  transition: opacity 120ms ease;
+}
+
+.media-osd-enter-from,
+.media-osd-leave-to {
+  opacity: 0;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .media-osd-enter-active, .media-osd-leave-active { transition: none; }
+  .media-osd-enter-active,
+  .media-osd-leave-active {
+    transition: none;
+  }
 }
 </style>

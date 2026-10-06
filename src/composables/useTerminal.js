@@ -5,6 +5,7 @@ import { connection } from '../api/connection.js'
 import { terminal as terminalApi } from '../api/terminal.js'
 import { createTerminalAnsiNormalizer } from '../utils/terminalAnsi.js'
 import { TERMINAL_PATH_MIME } from '../utils/terminalPath.js'
+import { activeNativeDrag } from '../utils/nativeDragSession.js'
 
 const DARK_TERMINAL_THEME = {
   background: '#161616',
@@ -189,7 +190,18 @@ export const useTerminal = (containerRef, visibleRef, sessionOptions = {}) => {
   }
 
   const carriesTerminalPath = (event) =>
-    Array.from(event.dataTransfer?.types || []).includes(TERMINAL_PATH_MIME)
+    Array.from(event.dataTransfer?.types || []).includes(TERMINAL_PATH_MIME) ||
+    Boolean(activeNativeDrag()?.terminalPath)
+
+  // A native (desktop) file drag is dropped by the native layer, which
+  // dispatches this event on the terminal under the drop point.
+  const handleNativeDrop = (event) => {
+    dropActive.value = false
+    const value = event.detail?.value
+    if (!value || !sessionId.value) return
+    terminalApi.write(sessionId.value, value)
+    terminal?.focus()
+  }
 
   const handleDragOver = (event) => {
     if (!carriesTerminalPath(event)) {
@@ -218,6 +230,7 @@ export const useTerminal = (containerRef, visibleRef, sessionOptions = {}) => {
 
     event.preventDefault()
     event.stopPropagation()
+    if (activeNativeDrag()) return
     const value = event.dataTransfer.getData(TERMINAL_PATH_MIME)
 
     if (!value) {
@@ -244,6 +257,8 @@ export const useTerminal = (containerRef, visibleRef, sessionOptions = {}) => {
     containerRef.value.addEventListener('dragover', handleDragOver, true)
     containerRef.value.addEventListener('dragleave', handleDragLeave, true)
     containerRef.value.addEventListener('drop', handleDrop, true)
+    containerRef.value.dataset.terminalDropTarget = ''
+    containerRef.value.addEventListener('vesperwind:terminal-drop', handleNativeDrop)
     inputSubscription = terminal.onData((data) => {
       if (sessionId.value) {
         terminalApi.write(sessionId.value, data)
@@ -295,6 +310,7 @@ export const useTerminal = (containerRef, visibleRef, sessionOptions = {}) => {
     containerRef.value?.removeEventListener('dragover', handleDragOver, true)
     containerRef.value?.removeEventListener('dragleave', handleDragLeave, true)
     containerRef.value?.removeEventListener('drop', handleDrop, true)
+    containerRef.value?.removeEventListener('vesperwind:terminal-drop', handleNativeDrop)
     resizeObserver?.disconnect()
     inputSubscription?.dispose()
     terminal?.dispose()

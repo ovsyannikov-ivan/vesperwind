@@ -10,6 +10,7 @@ pub fn runtime_info() -> Value {
         "version": env!("CARGO_PKG_VERSION"),
         "buildTimestamp": env!("VESPERWIND_BUILD_TIMESTAMP"),
         "gitCommit": env!("VESPERWIND_GIT_SHA"),
+        "capabilities": crate::shell_integration::capabilities(),
     })
 }
 
@@ -24,5 +25,6 @@ mod tests {
         assert_eq!(info["runtime"], "tauri");
         assert_eq!(info["mode"], "tauri");
         assert_eq!(info["isStandalone"], true);
+        assert!(info["capabilities"]["nativeFileClipboard"].is_boolean());
     }
 }

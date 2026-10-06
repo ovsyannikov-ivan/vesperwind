@@ -1,0 +1,68 @@
+// Resizable splitters between panels and the terminal.
+
+.splitter {
+	position: relative;
+	flex: 0 0 6px;
+	background: var(--app-bg);
+	touch-action: none;
+	user-select: none;
+	z-index: 3;
+
+	&::after {
+		position: absolute;
+		content: "";
+		transition: background-color 120ms ease;
+	}
+}
+
+.splitter:hover::after,
+.splitter:focus-visible::after,
+.is-resizing .splitter::after {
+	background: var(--accent);
+}
+
+.splitter-vertical {
+	cursor: col-resize;
+
+	&::after {
+		top: 0;
+		bottom: 0;
+		left: 2px;
+		width: 2px;
+		background: var(--splitter-line);
+	}
+
+	// Adjacent panels meet at one visible line (file panels, editor tree and
+	// editor). The invisible ::before hit area keeps resizing easy.
+	&.splitter-seam {
+		flex: 0 0 var(--panel-seam-width);
+		background: transparent;
+
+		&::before {
+			position: absolute;
+			top: 0;
+			right: -4px;
+			bottom: 0;
+			left: -4px;
+			content: "";
+		}
+
+		&::after {
+			left: 0;
+			width: var(--panel-seam-width);
+			background: var(--splitter-line);
+		}
+	}
+}
+
+.splitter-horizontal {
+	cursor: row-resize;
+
+	&::after {
+		right: 0;
+		bottom: 2px;
+		left: 0;
+		height: 2px;
+		background: var(--splitter-line);
+	}
+}

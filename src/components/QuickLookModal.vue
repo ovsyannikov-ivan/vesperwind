@@ -89,18 +89,91 @@ onBeforeUnmount(() => {
   </Teleport>
 </template>
 
-<style scoped>
-.quick-look-modal .modal-content { height: min(82vh, 900px); }
-.quick-look-modal.is-audio .modal-dialog { max-width: 760px; }
-.quick-look-modal.is-audio .modal-content { height: auto; min-height: 220px; }
-.modal-body { padding: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
-.modal-title { min-width: 0; overflow-wrap: anywhere; }
-.quick-look-message { display: flex; gap: .75rem; padding: 2rem; margin: auto; }
-.quick-look-text { flex: 1; margin: 0; padding: 1rem; overflow: auto; white-space: pre; user-select: text; font-size: .85rem; line-height: 1.5; }
-.quick-look-metadata { margin: auto; padding: 2rem; max-width: 100%; overflow: auto; user-select: text; }
-.quick-look-file-icon { font-size: 4rem; color: var(--bs-secondary-color); }
-dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .5rem 1.5rem; }
-dd { margin: 0; overflow-wrap: anywhere; }
-.quick-look-audio { width: min(90%, 650px); margin: auto; padding: 1.5rem 0; display: flex; flex-direction: column; gap: 1rem; text-align: center; }
-.quick-look-modal :deep(.pdf-viewer) { flex: 1; min-height: 0; }
+<style lang="scss" scoped>
+.quick-look-modal {
+  .modal-content {
+    height: min(82vh, 900px);
+  }
+
+  &.is-audio {
+    .modal-dialog {
+      max-width: 760px;
+    }
+
+    .modal-content {
+      height: auto;
+      min-height: 220px;
+    }
+  }
+}
+
+.modal-body {
+  padding: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.quick-look-message {
+  display: flex;
+  gap: .75rem;
+  padding: 2rem;
+  margin: auto;
+}
+
+.quick-look-text {
+  flex: 1;
+  margin: 0;
+  padding: 1rem;
+  overflow: auto;
+  white-space: pre;
+  user-select: text;
+  font-size: .85rem;
+  line-height: 1.5;
+}
+
+.quick-look-metadata {
+  margin: auto;
+  padding: 2rem;
+  max-width: 100%;
+  overflow: auto;
+  user-select: text;
+}
+
+.quick-look-file-icon {
+  font-size: 4rem;
+  color: var(--bs-secondary-color);
+}
+
+dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: .5rem 1.5rem;
+}
+
+dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.quick-look-audio {
+  width: min(90%, 650px);
+  margin: auto;
+  padding: 1.5rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  text-align: center;
+}
+
+.quick-look-modal :deep(.pdf-viewer) {
+  flex: 1;
+  min-height: 0;
+}
 </style>

@@ -1,0 +1,72 @@
+// Editor messages, file operation and context menus.
+
+.editor-message {
+	display: flex;
+	min-height: 0;
+	flex: 1 1 auto;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	color: var(--text-muted);
+}
+
+.editor-save-error {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 8px;
+	border-bottom: 1px solid var(--danger);
+	color: var(--danger);
+	background: var(--surface-2);
+	font-size: 0.75rem;
+}
+
+.settings-content {
+	display: flex;
+	flex: 1 1 auto;
+	min-height: 0;
+	height: 100%;
+}
+
+.file-operation-menu-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 1089;
+}
+
+.file-operation-menu {
+	position: fixed;
+	width: 18rem;
+	z-index: 1090;
+}
+
+.file-entry-context-menu {
+	position: fixed;
+	width: 15rem;
+	z-index: 1090;
+}
+
+.toolbar-create-menu {
+	width: 13rem;
+}
+
+.file-operation-menu .dropdown-header {
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.file-operation-error {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.5rem;
+	margin-top: 0.25rem;
+	color: var(--danger);
+	white-space: normal;
+}
+
+.modal {
+	--bs-modal-border-radius: 1rem;
+}

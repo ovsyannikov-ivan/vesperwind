@@ -5,6 +5,7 @@ import { createAudioPlaylist, audioIdentity } from '../src/player/audioPlaylist.
 import { verticalWorkspaceSizes, MIN_WORKSPACE_HEIGHT } from '../src/player/workspaceSizing.js'
 import { createFileDragPayload, parseFileDragPayload } from '../src/utils/fileDrag.js'
 import { createPlaybackCoordinator } from '../src/player/playbackCoordination.js'
+import { compiledStyles } from './support/styles.js'
 const node = (name, providerId = 'local', isDirectory = false) => ({ name, providerId, isDirectory, path: `/music/${name}` })
 const ids = (queue) => queue.state.items.map((item) => item.id)
 const addTracks = (queue) => queue.add(['one.mp3', 'two.m4b', 'three.flac', 'four.ac3'].map((name) => node(name)))
@@ -211,7 +212,7 @@ test('UI contracts put player beside Terminal in both modes and playlist before 
   assert.match(playlist, /FILE_ENTRY_MIME/); assert.match(playlist, /parseFileDragPayload/)
   assert.match(bar, /No track selected/); assert.match(bar, /Previous track/); assert.match(bar, /Next track/)
   assert.match(read('src/components/CustomMediaPlayer.vue'), /Previous|ChapterControls/)
-  assert.doesNotMatch(read('src/styles/main.css'), /width: min\(560px, 55vw\)|min-width: 800px/)
+  assert.doesNotMatch(compiledStyles('src/styles/main.scss'), /width: min\(560px, 55vw\)|min-width: 800px/)
   assert.match(read('src/composables/useLayout.js'), /audioPlaylistHeight/)
   assert.doesNotMatch(read('src/composables/useAudioPlayer.js'), /media_history|sqlite/i)
   assert.match(read('src/composables/useAudioPlayer.js'), /playlistRecord\(state\)/)

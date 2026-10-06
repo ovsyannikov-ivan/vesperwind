@@ -3,6 +3,7 @@ import fs from 'node:fs/promises'
 import test from 'node:test'
 import { buildPathBreadcrumbs } from '../src/utils/pathBreadcrumbs.js'
 import { currentChildPath, findTypeaheadIndex, listSubfolders } from '../src/utils/folderMenu.js'
+import { compiledStyles } from './support/styles.js'
 
 const read = (name) => fs.readFile(new URL(`../${name}`, import.meta.url), 'utf8')
 const folder = (name, extra = {}) => ({ name, path: `/Volumes/WD/${name}`, isDirectory: true, ...extra })
@@ -63,12 +64,12 @@ test('file panels and the editor tree open the folder menu from breadcrumbs thro
   assert.match(menu, /getFileIcon\(folder, folder\.path === props\.request\.currentPath\)/u)
   assert.match(menu, /:class="folderIcon\(folder\)"/u)
   // Rows match the file tree (font, row height, icon size), not the context menu.
-  const styles = await read('src/styles/main.css')
+  const styles = compiledStyles('src/styles/main.scss')
   assert.match(styles, /\.file-tree,\s*\.tree-children \{[^}]*font-size: 0\.75rem;/u)
   assert.match(styles, /\.dropdown-menu\.folder-path-menu \{[^}]*--bs-dropdown-font-size: 0\.75rem;/u)
   assert.match(styles, /\.dropdown-menu\.folder-path-menu \.dropdown-item:has\(> \.mdi\) \{[^}]*height: var\(--file-tree-row-height\);/u)
   assert.match(styles, /\.dropdown-menu\.folder-path-menu \.dropdown-item > \.mdi \{[^}]*font-size: var\(--file-tree-icon-size\);/u)
-  const dropdown = await read('src/styles/dropdown.css')
+  const dropdown = compiledStyles('src/styles/dropdown.scss')
   assert.match(dropdown, /\.dropdown-item:not\(:disabled\):is\(:hover, :active\) > \.mdi,[\s\S]*?\{\s*color: inherit;/u)
 
   for (const [name, source] of [['FilePanel', panel], ['EditorTree', editor]]) {
@@ -84,7 +85,7 @@ test('file panels and the editor tree open the folder menu from breadcrumbs thro
 
   // Left click keeps its existing navigation in file panels.
   assert.match(panel, /@click\.stop="navigateToBreadcrumb\(crumb\)"/u)
-  assert.match(panel, /openDirectory\(\{ \.\.\.folder, type: 'directory', isDirectory: true \}\)/u)
+  assert.match(panel, /openDirectory\(\{ \.\.\.folder, type: ['"]directory['"], isDirectory: true \}\)/u)
   // The editor tree browses locally; opened files keep the original tab context.
   assert.match(editor, /@select="browse\(\$event\.path\)"/u)
   assert.match(editor, /sourceRootPath: props\.context\.sourceRootPath,/u)
