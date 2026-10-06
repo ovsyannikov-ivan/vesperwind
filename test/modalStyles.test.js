@@ -77,7 +77,8 @@ test('targeted neutral actions share one compact btn-neutral style', async () =>
   const actions = panel.match(/<div class="tree-filter-actions">([\s\S]*?)<\/div>/u)[1]
   const classes = [...actions.matchAll(/<button\b[^>]*\bclass="([^"]*)"/gu)].map((match) => match[1].split(/\s+/u))
   assert.equal(classes.length, 2)
-  for (const tokens of classes) assert.deepEqual(tokens, ['btn', 'btn-sm', 'btn-neutral'])
+  // Dense menu actions use the 24px toolbar command surface (AGENTS.md).
+  for (const tokens of classes) assert.deepEqual(tokens, ['btn', 'btn-sm', 'toolbar-button', 'toolbar-command'])
   // Filter actions split the menu width evenly instead of wrapping.
   const compactCss = css.replace(/\s+/gu, ' ')
   assert.match(compactCss, /\.tree-filter-actions \{ display: flex; gap: [^;]+; margin-top: [^;]+; \}/u)

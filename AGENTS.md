@@ -24,6 +24,9 @@ and `src/components/SettingsModal.vue`; do not introduce a separate visual style
   documented reason.
 - Dense sidebar and header controls use `compact-icon-button`, or
   `compact-button` when they need a text label, so they share its 24px height.
+- Text actions inside dense menus (for example the file filter menu's Clear
+  buttons) use `btn btn-sm toolbar-button toolbar-command`: the same neutral
+  surface at the 24px toolbar height, lower than `btn-neutral`.
 - Reuse these shared styles instead of restyling the same kind of action in a
   component. Extend the shared rule when a new state is needed.
 - Use compact form controls (`form-control-sm` / `form-select-sm`), standard

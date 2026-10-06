@@ -71,9 +71,10 @@ test('every dropdown, including the media overlay window, uses the context menu 
     Promise.resolve(compiledStyles('src/media-overlay/media-overlay.scss')), read('src/media-overlay/MediaOverlay.vue'),
   ])
   const menu = styles.match(/^\.dropdown-menu \{([^}]*)\}/mu)[1]
-  // The overlay window does not load main.css, so main.css-only tokens need dark fallbacks.
-  assert.match(menu, /--bs-dropdown-bg: var\(--app-bg, #1c1c1e\);/u)
-  assert.match(menu, /--bs-dropdown-border-color: var\(--dropdown-border-color\);/u)
+  // Bootstrap's body background exists in every window, including the media
+  // overlay that does not load main.scss (where --app-bg is defined).
+  assert.match(menu, /--bs-dropdown-bg: var\(--bs-body-bg\);/u)
+  assert.match(menu, /--bs-dropdown-border-color: var\(--bs-border-color\);/u)
   assert.match(menu, /--bs-dropdown-border-radius: 0\.75rem;/u)
   assert.match(menu, /box-shadow:/u)
   assert.match(styles, /^:root \{\s*--dropdown-border-color:/mu)
