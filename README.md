@@ -8,8 +8,9 @@ between applications.
 
 ## Features
 
-- **File management:** two independent panels, copy/move/rename/delete,
-  drag-and-drop, keyboard shortcuts and context menus.
+- **File management:** two independent panels, copy/move/rename/delete/duplicate,
+  Cut/Copy/Paste (Ctrl/Cmd+X/C/V) between panels and providers, drag-and-drop,
+  keyboard shortcuts and context menus.
 - **Archives & navigation:** create ZIP and extract ZIP/TAR/TGZ/RAR/RAR5 with a
   bundled worker; edit panel paths with Ctrl/Cmd+L or browse breadcrumbs.
 - **SSH & SFTP:** saved connection profiles, host-key verification, remote browsing,
@@ -29,8 +30,13 @@ between applications.
   shuffle and M3U import/export. Open HTTP/HTTPS audio, video and HLS URLs; Tauri
   playback uses bundled libmpv, including FLAC, AC-3 and E-AC-3.
 - **Terminals:** multiple local PTY and SSH terminal tabs.
-- **Desktop integration:** open local files with other applications and reveal them
-  in Finder or Explorer.
+- **Desktop integration:** the system clipboard and drag-and-drop work both ways
+  with Finder and Explorer, for local and SFTP files: copy in Finder/Explorer and
+  paste into any panel (uploads for SFTP), or copy/drag from Vesperwind into a
+  folder. Remote files stream on demand (file promises on macOS, virtual files on
+  Windows). Mount and eject disk images from the context menu (DMG and ISO on
+  macOS, ISO on Windows), open files with other applications and reveal them in
+  Finder or Explorer.
 
 ## Platforms
 

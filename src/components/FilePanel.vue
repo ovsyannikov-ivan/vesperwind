@@ -731,8 +731,8 @@ watch(entryChange, (change) => {
 								</div>
 								<label class="dropdown-item tree-filter-choice"><input v-model="directoryView.keepFolders" type="checkbox" /> Keep folders visible</label>
 								<div class="tree-filter-actions">
-									<button class="btn btn-sm toolbar-button toolbar-command align-self-center" type="button" @click="directoryView.name = ''">Clear name</button
-									><button class="btn btn-sm toolbar-button toolbar-command align-self-center" type="button" @click="clearFilters">Clear all filters</button>
+									<button class="btn btn-sm toolbar-button toolbar-command" type="button" @click="directoryView.name = ''">Clear name</button
+									><button class="btn btn-sm toolbar-button toolbar-command" type="button" @click="clearFilters">Clear all filters</button>
 								</div>
 							</div></Teleport
 						>

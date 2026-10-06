@@ -41,6 +41,9 @@
 .toolbar-button {
 	display: inline-flex;
 	align-items: center;
+	// A flex button ignores text-align; center its content when it is stretched
+	// (e.g. the filter menu's equal-width actions).
+	justify-content: center;
 	gap: 5px;
 	padding: 2px 9px;
 
@@ -101,8 +104,6 @@
 	font-size: 15px;
 }
 
-// Shared neutral action (Cancel, Clear, secondary Save): the toolbar command
-// surface for dialogs and menus. Pair with `btn btn-sm`.
 .panel-address-form {
 	flex: 1;
 	min-width: 0;
@@ -113,6 +114,8 @@
 	}
 }
 
+// Shared neutral action (Cancel, Clear, secondary Save): the toolbar command
+// surface for dialogs and menus. Pair with `btn btn-sm`.
 .btn-neutral {
 	--bs-btn-color: var(--text);
 	--bs-btn-bg: var(--toolbar-control-active-bg);
