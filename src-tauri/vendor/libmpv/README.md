@@ -2,9 +2,8 @@
 
 This directory is the Tauri bundle input for the pinned libmpv build described
 in `docs/libmpv.md`. The macOS arm64 directory contains the complete dynamic
-dependency closure built by `scripts/build-libmpv-macos.sh`. The Windows x64
-directory contains the DLL closure built by `scripts/build-libmpv-windows.ps1`
-and its UCRT64 shell stages. Both use the same pinned media-library versions.
+dependency closure and the Windows x64 directory the DLL closure, both built by
+`npm run build:libmpv` on the respective platform. Both use the same pinned media-library versions.
 
 Expected entry libraries:
 

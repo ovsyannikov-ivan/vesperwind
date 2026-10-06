@@ -3,7 +3,8 @@ set -euo pipefail
 
 # Reproducible arm64 macOS libmpv runtime used by the Tauri bundle. This build
 # intentionally excludes GPL/non-free components. See docs/libmpv.md before
-# changing any source, version, or configure flag.
+# changing any source, version, or configure flag. Run it through
+# `npm run build:libmpv` (scripts/libmpv-build/macos.js).
 
 if [[ "$(uname -s)" != "Darwin" || "$(uname -m)" != "arm64" ]]; then
   echo "This script currently builds the arm64 macOS runtime only." >&2
@@ -35,10 +36,7 @@ Vesperwind's VideoToolbox-enabled libmpv runtime requires the full Xcode SDK.
 The active developer directory is:
   $developer_dir
 
-Install/open Xcode, then run this script with either:
-  sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
-or:
-  DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer $0
+Install and open Xcode, then run: npm run build:libmpv
 EOF
   exit 1
 fi
@@ -140,7 +138,11 @@ fi
 patch --directory="$source_root/libplacebo" -p1 \
   < "$project_root/scripts/patches/libplacebo-macos-private-glslang.patch"
 
-python3 -m venv "$venv"
+# Use Xcode's Python, not whichever python3 is first on PATH: libplacebo
+# 7.351's Vulkan generator fails on Python 3.14's ElementTree (Homebrew).
+python_bin="$developer_dir/usr/bin/python3"
+[[ -x "$python_bin" ]] || python_bin=/usr/bin/python3
+"$python_bin" -m venv --clear "$venv"
 "$venv/bin/python" -m pip install --disable-pip-version-check \
   "meson==1.9.1" "ninja==1.13.0"
 export PATH="$venv/bin:$build_tools_bin:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -424,5 +426,5 @@ replacement = '  "macos": ' + json.dumps(m, indent=2).replace('\n', '\n  ') + ',
 p.write_text(re.sub(r'  "macos": \{.*?\n  \},\n  "windows":', lambda _: replacement, raw, count=1, flags=re.S))
 PYMANIFEST
 
-node "$project_root/scripts/verify-libmpv-bundle.js" macos
+# npm run build:libmpv verifies the bundle next, with the Rust toolchain on PATH.
 echo "Created $bundle"

@@ -62,7 +62,7 @@ export async function verifyWindowsBundle(directory, manifest) {
   const dovi = checkDoviManifest(manifest.windows)
   checkWindowsDoviEvidence(info, dovi.artifact)
   if (dovi.pending) {
-    console.warn(`Windows artifact has libplacebo -Ddovi=${dovi.artifact}; the build recipe has -Ddovi=${dovi.recipe}. Rebuild with scripts/build-libmpv-windows.ps1.`)
+    console.warn(`Windows artifact has libplacebo -Ddovi=${dovi.artifact}; the build recipe has -Ddovi=${dovi.recipe}. Rebuild it with npm run build:libmpv.`)
   }
   for (const [name, version] of Object.entries(manifest.windows.shaderToolchainPackages ?? {})) {
     if (!info.toolchainPackages?.includes(`${name} ${version}`)) throw new Error(`Unconfirmed shader package: ${name}`)

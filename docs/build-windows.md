@@ -102,44 +102,61 @@ The application remains an x86_64 MSVC build. Its dynamically loaded C-ABI media
 libraries are built separately with MSYS2 UCRT64 GCC/MinGW. MSYS2 is a build-time
 dependency only. Do not install a prebuilt mpv package or copy codec DLLs from PATH.
 
-Install MSYS2 outside this repository, update it with `pacman -Syu` (restart the
-shell and repeat after a core-runtime update), then install these build tools:
-
-```sh
-pacman -S --needed make git diffutils patch mingw-w64-ucrt-x86_64-gcc \
-  mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-meson \
-  mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-pkgconf \
-  mingw-w64-ucrt-x86_64-nasm mingw-w64-ucrt-x86_64-shaderc \
-  mingw-w64-ucrt-x86_64-spirv-cross
-```
-
-From PowerShell at the project root:
+From the project root:
 
 ```powershell
-.\scripts\build-libmpv-windows.ps1 -MsysRoot C:\msys64 -BuildRoot C:\Temp\vesperwind-libmpv-windows
-node scripts/verify-libmpv-bundle.js windows
+npm ci
+npm run build:libmpv
 ```
 
-Use a short ASCII build path outside the repository. The wrapper does not install
-MSYS2 or change the machine PATH. Use a fresh BuildRoot when changing source pins,
-toolchain or general build flags; completed stages are reused on an interrupted build.
-For the same source/toolchain pins, `-PresentationOnly` configures libplacebo and
-mpv from scratch (their build directories are removed first, so changed Meson
-options such as `-Ddovi` and the new libplacebo headers are always picked up) and
-reuses the completed FFmpeg/FreeType/FriBidi/HarfBuzz/libass prefix without
-rebuilding it. It fails, asking for a full build with a fresh BuildRoot, if that
-prefix is absent, its FFmpeg lacks Schannel/HTTPS/HLS/D3D11VA, or it was built
-from different source pins.
+That is the whole procedure. The command prepares MSYS2 and its build tools,
+builds the bundle into `src-tauri/vendor/libmpv/windows`, updates BUILD-INFO,
+SHA256SUMS and the manifest, and verifies the result. If it stops, it prints one
+message naming what it could not do itself (for example: no Rust toolchain, no
+`winget` to install MSYS2, too little disk space); fix that and run the same
+command again.
+
+Optional flags: `npm run build:libmpv -- --clean` discards the build cache and
+rebuilds everything; `-- --dry-run` prints the chosen MSYS2, cache and build mode.
+
+### Advanced: what the command does
+
+- **MSYS2.** It looks in `MSYS2_ROOT`, `C:\msys64`, Chocolatey's
+  `C:\tools\msys64`, Scoop, `%LOCALAPPDATA%\msys64`, the folder of
+  `msys2_shell.cmd` on PATH and the uninstall registry. Without MSYS2 it runs
+  `winget install MSYS2.MSYS2` (Windows may ask for permission) and continues.
+- **Build tools.** It compares the installed packages with the ones the build
+  script needs (`make git diffutils curl tar` and UCRT64 `gcc cmake meson ninja
+  pkgconf nasm python shaderc spirv-cross`) and installs only the missing ones
+  with pacman after updating MSYS2. It then runs
+  `scripts/libmpv-build/check-ucrt64.sh` in the UCRT64 environment and requires every
+  tool and `gcc -dumpmachine` = `x86_64-w64-mingw32`.
+- **Build cache.** `%LOCALAPPDATA%\Vesperwind\build\libmpv`, or
+  `C:\vesperwind-build\libmpv` when that path is not short ASCII without spaces.
+  `VESPERWIND_LIBMPV_BUILD_DIR` overrides it. Nothing heavy is stored in the
+  repository.
+- **Full or incremental.** If the cache holds a completed FFmpeg/FreeType/
+  FriBidi/HarfBuzz/libass prefix built from the current source pins and the
+  current GCC, with Schannel, HTTPS, HLS and D3D11VA, only libplacebo and mpv are
+  rebuilt (configured from scratch, so changed Meson options such as `-Ddovi`
+  always apply). Otherwise a full build runs: stages from other pins or another
+  toolchain are discarded, an interrupted build of the same pins resumes, and
+  verified source archives are kept.
+- **Script.** UCRT64 is entered through its environment variables and PATH,
+  running the internal `scripts/build-libmpv-windows.sh` as a file; no login
+  shell or nested quoting is involved. Do not run that script directly.
+- **CI.** With `CI`, `GITHUB_ACTIONS`, `TF_BUILD` or `--ci`, nothing is installed:
+  a missing prerequisite fails with the same message.
 
 `manifest.json` separates the build recipe (`buildRecipeLibplaceboOptions`) from
 the checked-in artifact (`requiredLibplaceboOptions`, `doviProcessing`). While
 they differ, `artifactPendingRebuild` is true and the verifier accepts the old
 artifact as what it is. Packaging records libplacebo's resolved Meson options,
-`pl_has_dovi`/`pl_has_libdovi` and the `PL_HAVE_LAV_DOLBY_VISION` check in
-BUILD-INFO, rewrites the Windows manifest entry from them (refusing a build that
-does not match the recipe), regenerates SHA256SUMS and verifies the result. No
-manual manifest edit is needed after a rebuild. The shader toolchain package pins are recorded in `manifest.json`;
-the verifier rejects a bundle built with different revisions.
+`pl_has_dovi`/`pl_has_libdovi`, the `PL_HAVE_LAV_DOLBY_VISION` check and the
+installed toolchain packages in BUILD-INFO, rewrites the Windows manifest entry
+from them (refusing a build that does not match the recipe), regenerates
+SHA256SUMS and verifies the result. The verifier rejects a bundle whose recorded
+shader toolchain packages differ from the manifest.
 The source archive hashes are in `scripts/libmpv-windows-sources.json`; libplacebo
 and its submodules are verified by Git revisions. The macOS source patches are
 not applied. `BUILD-INFO.txt` records the exact installed toolchain package set,

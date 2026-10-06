@@ -91,6 +91,13 @@ await fs.writeFile(path.join(stage, 'BUILD-INFO.txt'), JSON.stringify(info, null
 // The manifest describes the checked-in artifact: record what Meson actually
 // built (rejecting a build that does not honour the recipe) before verifying.
 manifest.windows = recordBuiltArtifact(manifest.windows, info.libplaceboOptions)
+// Toolchain packages come from the installed MSYS2; record the ones used.
+manifest.windows.buildToolchain = `MSYS2 UCRT64 ${info.toolchain}; application x86_64-pc-windows-msvc`
+manifest.windows.shaderToolchainPackages = Object.fromEntries(Object.keys(manifest.windows.shaderToolchainPackages ?? {}).map((name) => {
+  const installed = info.toolchainPackages.find((line) => line.startsWith(`${name} `))
+  if (!installed) throw new Error(`Missing shader toolchain package: ${name}`)
+  return [name, installed.slice(name.length + 1)]
+}))
 if (!manifest.windows.runtimeValidation?.startsWith('Not validated after this source rebuild')) {
   manifest.windows.runtimeValidation = `Not validated after this source rebuild; repeat docs/build-windows.md acceptance. Previous artifact: ${manifest.windows.runtimeValidation}`
 }
@@ -98,7 +105,7 @@ await fs.writeFile(path.join(stage, 'SOURCE-OFFER.txt'), `Vesperwind Windows lib
 
 Exact upstream source URLs, SHA-256 hashes, revisions, toolchain packages and
 configuration flags are in BUILD-INFO.txt and scripts/libmpv-windows-sources.json.
-Rebuild with scripts/build-libmpv-windows.ps1; see docs/build-windows.md.
+Rebuild with npm run build:libmpv; see docs/build-windows.md.
 libplacebo and its submodules are checked out at the recorded Git revisions.
 Compiler support libraries are from MSYS2 UCRT64; package sources and build
 recipes are available at https://github.com/msys2/MINGW-packages and

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
-[[ "${MSYSTEM:-}" == UCRT64 ]] || { echo 'Use the PowerShell wrapper with MSYS2 UCRT64' >&2; exit 1; }
+# Implementation detail of `npm run build:libmpv` (scripts/libmpv-build/windows.js),
+# which provisions MSYS2 UCRT64, checks its tools and chooses the build cache and
+# mode before running this file with MSYSTEM=UCRT64.
+[[ "${MSYSTEM:-}" == UCRT64 ]] || { echo 'Run npm run build:libmpv' >&2; exit 1; }
 project_root="$(cygpath -u "$VESPERWIND_LIBMPV_PROJECT")"
 work_root="$(cygpath -u "$VESPERWIND_LIBMPV_BUILD_DIR")"
 jobs="${VESPERWIND_LIBMPV_JOBS:-4}"
@@ -23,8 +26,10 @@ for tool in gcc g++ cmake meson ninja pkg-config nasm make git curl python; do
 done
 [[ "$(gcc -dumpmachine)" == x86_64-w64-mingw32 ]] || exit 1
 mkdir -p "$prefix" "$source_root" "$build_root" "$archive_root" "$stage/LICENSES"
-# Source/toolchain changes require a fresh BuildRoot. PresentationOnly explicitly
-# reconfigures mpv/libplacebo while reusing the verified codec/font prefix.
+# A full build records the source pins and toolchain it started from
+# (cache-sources.sha256, cache-toolchain.txt) and, once the codec/font prefix is
+# complete, prefix-complete. A presentation-only
+# rebuild reuses that prefix and rebuilds libplacebo and mpv.
 common_flags="-O2 -D_WIN32_WINNT=0x0A00 -ffile-prefix-map=$(cygpath -m "$work_root")=. -ffile-prefix-map=$work_root=."
 export CFLAGS="$common_flags" CXXFLAGS="$common_flags"
 export LDFLAGS='-Wl,--no-insert-timestamp'
@@ -76,6 +81,8 @@ PY
   meson install -C "$build_root/$name"
 }
 if [[ "${VESPERWIND_LIBMPV_PRESENTATION_ONLY:-0}" != 1 ]]; then
+printf '%s\n' "$VESPERWIND_LIBMPV_SOURCES_SHA256" > "$work_root/cache-sources.sha256"
+printf '%s\n' "$VESPERWIND_LIBMPV_TOOLCHAIN" > "$work_root/cache-toolchain.txt"
 cmake -S "$source_root/freetype" -B "$build_root/freetype" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$prefix" -DBUILD_SHARED_LIBS=ON \
   -DFT_DISABLE_ZLIB=ON -DFT_DISABLE_BZIP2=ON -DFT_DISABLE_PNG=ON \
@@ -127,8 +134,7 @@ PY
   make -j"$jobs"
   make install
 )
-# Marks a prefix whose codec/font stages were built from these source pins.
-sha256sum "$project_root/scripts/libmpv-windows-sources.json" | cut -d' ' -f1 > "$work_root/prefix-sources.sha256"
+touch "$work_root/prefix-complete"
 else
   # Incrementally rebuild presentation against the existing pinned codec/font
   # prefix. Do not silently substitute MSYS2 media packages for missing stages.
@@ -137,22 +143,22 @@ else
   done
   [[ -f "$build_root/d3d11va-probe.json" ]] || exit 1
   # The reused FFmpeg must already be the Schannel/HLS/D3D11VA configuration
-  # the package requires; older BuildRoots predate it and need a full build.
+  # the package requires; older build directories predate it.
   for evidence in 'config.h:#define CONFIG_SCHANNEL 1' 'config_components.h:#define CONFIG_HTTPS_PROTOCOL 1' \
     'config_components.h:#define CONFIG_HLS_DEMUXER 1' 'config.h:#define CONFIG_D3D11VA 1' \
     'config_components.h:#define CONFIG_HEVC_D3D11VA_HWACCEL 1'; do
     grep -qx "${evidence#*:}" "$build_root/ffmpeg/${evidence%%:*}" 2>/dev/null || {
-      echo "BuildRoot is incompatible (FFmpeg lacks ${evidence#*#define }); run a full build with a fresh BuildRoot" >&2; exit 1; }
+      echo "The built FFmpeg lacks ${evidence#*#define }; a full build is required" >&2; exit 1; }
   done
-  grep -q -e '--enable-schannel' "$build_root/ffmpeg-flags.txt" || { echo 'BuildRoot predates Schannel; run a full build' >&2; exit 1; }
-  if [[ -f "$work_root/prefix-sources.sha256" ]] && [[ "$(cat "$work_root/prefix-sources.sha256")" != \
-    "$(sha256sum "$project_root/scripts/libmpv-windows-sources.json" | cut -d' ' -f1)" ]]; then
-    echo 'BuildRoot prefix was built from different source pins; run a full build with a fresh BuildRoot' >&2; exit 1
-  fi
-  # Configure libplacebo and mpv from scratch so changed Meson options (for
-  # example -Ddovi) and the new libplacebo headers cannot reuse stale objects.
-  rm -rf "$build_root/libplacebo" "$build_root/mpv"
+  grep -q -e '--enable-schannel' "$build_root/ffmpeg-flags.txt" || { echo 'The build directory predates Schannel; a full build is required' >&2; exit 1; }
+  [[ -f "$work_root/prefix-complete" \
+    && "$(cat "$work_root/cache-sources.sha256" 2>/dev/null)" == "$VESPERWIND_LIBMPV_SOURCES_SHA256" \
+    && "$(cat "$work_root/cache-toolchain.txt" 2>/dev/null)" == "$VESPERWIND_LIBMPV_TOOLCHAIN" ]] || {
+    echo 'The codec/font prefix is incomplete or from other source pins or toolchain; a full build is required' >&2; exit 1; }
 fi
+# Configure libplacebo and mpv from scratch so changed Meson options (for
+# example -Ddovi) and new libplacebo headers can never reuse stale objects.
+rm -rf "$build_root/libplacebo" "$build_root/mpv"
 pkg-config --exists shaderc spirv-cross-c-shared || {
   echo 'Install UCRT64 shaderc and spirv-cross build dependencies first' >&2; exit 1;
 }

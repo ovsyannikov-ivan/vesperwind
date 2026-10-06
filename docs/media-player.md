@@ -68,16 +68,12 @@ playlist sizing and workspace clamps remain shared with the previous player.
 
 ## Bundled networking and validation
 
-The previous checked-in bundles lacked HTTPS/TLS. Only FFmpeg n8.0's ABI-compatible
-avformat library was replaced: SecureTransport on macOS, Schannel on Windows.
-Codec libraries, libmpv, hardware acceleration and renderers remain unchanged.
-No OpenSSL runtime dependency was added; LGPL/GPL restrictions remain intact.
-Full build scripts enable TLS explicitly despite `--disable-autodetect`.
-The macOS bundle has since been rebuilt in full with SecureTransport, so its
-avformat comes from `build-libmpv-macos.sh` itself.
-`scripts/build-libmpv-network.sh` reproduces the avformat-only update; Windows
-uses the pinned official llvm-mingw 20260826 UCRT macOS cross toolchain recorded
-in BUILD-INFO. The bundle verifier enumerates protocols from the actual library
+Both platform builds enable TLS in FFmpeg explicitly despite
+`--disable-autodetect`: SecureTransport on macOS, Schannel on Windows. No OpenSSL
+runtime dependency is added; LGPL/GPL restrictions remain intact. (An earlier
+Windows bundle carried an avformat cross-built separately for TLS; the next
+`npm run build:libmpv` on Windows replaces it with the full build's own.)
+The bundle verifier enumerates protocols from the actual library
 and requires HTTP, HTTPS, TLS, HLS, TCP, crypto, file and the HLS demuxer on both
 target OSes. Windows also verifies Schannel's system import closure.
 

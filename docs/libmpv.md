@@ -155,7 +155,7 @@ The built-in `dovi` code (LGPL-2.1+) reshapes from FFmpeg's parsed
 was rebuilt this way. The Windows manifest entry records the recipe
 (`buildRecipeLibplaceboOptions`, dovi enabled) separately from the committed
 artifact (`requiredLibplaceboOptions`, still `-Ddovi=disabled`, with
-`artifactPendingRebuild: true`) until `build-libmpv-windows.ps1` rebuilds it; see
+`artifactPendingRebuild: true`) until `npm run build:libmpv` rebuilds it on Windows; see
 docs/build-windows.md. `scripts/libmpv-dovi.js` makes both
 bundle verifiers require the manifest, the `doviProcessing` note and the
 artifact's own evidence (`pl_has_dovi`/`pl_has_libdovi`, and a compiled
@@ -393,17 +393,21 @@ runtime and platform-specific source patches remain unchanged.
 
 ## Rebuilding
 
-Requirements are full Xcode (not Command Line Tools alone), Python 3, CMake, Git, and network access
-to the pinned upstream repositories. Run:
+Requirements are full Xcode (not Command Line Tools alone) and network access to
+the pinned upstream repositories. Run:
 
 ```bash
-./scripts/build-libmpv-macos.sh
-node scripts/verify-libmpv-bundle.js macos
+npm ci
+npm run build:libmpv
 ```
 
-`VESPERWIND_LIBMPV_BUILD_DIR` can select another temporary build directory. The
-script accepts `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`, verifies
-that `xcodebuild` and the full macOS SDK are available, verifies archive SHA-256
+The command finds Xcode even when `xcode-select` points at the Command Line
+Tools (and opens the App Store page when Xcode is missing), installs missing
+CMake/pkg-config with Homebrew, builds in `~/Library/Caches/vesperwind-build/libmpv`
+(`VESPERWIND_LIBMPV_BUILD_DIR` overrides it; `-- --clean` empties it), and
+verifies the bundle. In CI (`CI=true` or `--ci`) it installs nothing. The
+internal `scripts/build-libmpv-macos.sh` verifies that `xcodebuild` and the full macOS
+SDK are available, verifies archive SHA-256
 values, records the two required compatibility
 configuration inputs, builds every dynamic dependency, rewrites install names, applies
 ad-hoc development signatures, copies license texts, and creates bundle checksums.
@@ -455,8 +459,7 @@ the SDR playback matrix on Windows independently of the future DXGI HDR work.
 
 ## Experimental macOS Metal build and checks
 
-Run `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer bash scripts/build-libmpv-macos.sh`.
-The default recipe builds Vulkan/MoltenVK with the embedded context and retains
+Run `npm run build:libmpv`. The default recipe builds Vulkan/MoltenVK with the embedded context and retains
 OpenGL. `VESPERWIND_LIBMPV_MACOS_PRESENTATION=opengl` builds the earlier minimal
 closure. MoltenVK 1.3.0 and glslang 15.1.0 are pinned and checksum verified; the
 MoltenVK dependency refs, notices and build feature evidence accompany the dylibs.

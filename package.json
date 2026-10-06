@@ -19,7 +19,8 @@
     "start": "node server/index.js",
     "test": "node scripts/test.js",
     "test:smoke": "node scripts/runtime-smoke.js",
-    "build:archives": "node scripts/build-archive-worker.js"
+    "build:archives": "node scripts/build-archive-worker.js",
+    "build:libmpv": "node scripts/build-libmpv.js"
   },
   "dependencies": {
     "@docx-editor.dev/core": "2.22.0",
