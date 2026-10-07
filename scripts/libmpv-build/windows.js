@@ -96,9 +96,25 @@ const msysTool = (root, name) => path.win32.join(root, 'usr', 'bin', `${name}.ex
 const pacman = (root, args, failure) => run(msysTool(root, 'pacman'), args, { env: ucrt64Environment(root), failure })
 const installedPackages = (root) => spawnSync(msysTool(root, 'pacman'), ['-Qq'], { encoding: 'utf8', env: ucrt64Environment(root) }).stdout || ''
 
-// Official MSYS2 mirrors (from its mirrorlist) in different networks.
-const probeUrls = ['https://repo.msys2.org/msys/x86_64/', 'https://mirror.msys2.org/msys/x86_64/', 'https://mirror.yandex.ru/mirrors/msys2/msys/x86_64/']
-const probeHttps = (root) => httpsProbeResult(probeUrls.map((url) => spawnSync(msysTool(root, 'curl'),
+// MSYS2 has two CA stores: the MSYS one (pacman, git, /usr/bin/curl) and the
+// UCRT64 one (/ucrt64/bin/curl, which the source download finds first on PATH).
+// Each is probed against the hosts it serves: official MSYS2 mirrors (from its
+// mirrorlist) in different networks, and the source archive and libplacebo hosts.
+// UCRT64's update-ca-trust only refreshes extracted/; curl reads ssl/, which its
+// package install script copies from there, so publish does the same.
+const trustStores = (root) => {
+  const ucrt64 = path.win32.join(root, 'ucrt64', 'etc')
+  const extracted = path.win32.join(ucrt64, 'pki', 'ca-trust', 'extracted')
+  return [
+    { name: 'MSYS', directory: path.win32.join(root, 'etc'), update: '/usr/bin/update-ca-trust', curl: msysTool(root, 'curl'), publish: [],
+      urls: ['https://repo.msys2.org/msys/x86_64/', 'https://mirror.msys2.org/msys/x86_64/', 'https://mirror.yandex.ru/mirrors/msys2/msys/x86_64/'] },
+    { name: 'UCRT64', directory: ucrt64, update: '/ucrt64/bin/update-ca-trust', curl: path.win32.join(root, 'ucrt64', 'bin', 'curl.exe'),
+      publish: [['pem\\tls-ca-bundle.pem', 'ssl\\certs\\ca-bundle.crt'], ['pem\\tls-ca-bundle.pem', 'ssl\\cert.pem'], ['openssl\\ca-bundle.trust.crt', 'ssl\\certs\\ca-bundle.trust.crt']]
+        .map(([from, to]) => [path.win32.join(extracted, from), path.win32.join(ucrt64, to)]),
+      urls: ['https://codeload.github.com/', 'https://code.videolan.org/'] },
+  ].filter((store) => exists(store.curl))
+}
+const probeHttps = (root, store) => httpsProbeResult(store.urls.map((url) => spawnSync(store.curl,
   ['--silent', '--show-error', '--head', '--max-time', '20', '--output', '/dev/null', url],
   { encoding: 'utf8', env: ucrt64Environment(root) })))
 
@@ -111,18 +127,20 @@ const windowsTrustedCertificates = () => {
   return (result.stdout || '').split(/(?=-----BEGIN CERTIFICATE-----)/)
 }
 
-// MSYS2 has its own CA bundle. When HTTPS is intercepted, add the certificates
-// Windows already trusts as MSYS2 trust anchors (nothing Windows does not trust).
+// When HTTPS is intercepted, add the certificates Windows already trusts as
+// trust anchors of each affected MSYS2 store (nothing Windows does not trust).
 const ensureMsysHttps = async (root) => {
-  const state = probeHttps(root)
-  if (state !== 'untrusted-certificate') return
-  log('HTTPS from MSYS2 is intercepted by a certificate that only Windows trusts (corporate proxy or antivirus). Adding the Windows-trusted certificates to MSYS2.')
-  const anchors = path.win32.join(root, 'etc', 'pki', 'ca-trust', 'source', 'anchors')
-  fs.mkdirSync(anchors, { recursive: true })
-  fs.writeFileSync(path.win32.join(anchors, 'vesperwind-windows-trusted.crt'), pemBundle(windowsTrustedCertificates()))
-  await run(msysTool(root, 'bash'), ['/usr/bin/update-ca-trust'], { env: ucrt64Environment(root), failure: 'MSYS2 could not update its certificate store.' })
-  if (probeHttps(root) === 'untrusted-certificate') {
-    throw new BuildError('HTTPS connections from MSYS2 are intercepted by a certificate that Windows does not trust either. Ask the network administrator for the inspection root certificate, add it to Windows (Trusted Root Certification Authorities), and rerun:\n\n  npm run build:libmpv')
+  for (const store of trustStores(root)) {
+    if (probeHttps(root, store) !== 'untrusted-certificate') continue
+    log(`HTTPS from MSYS2 ${store.name} is intercepted by a certificate that only Windows trusts (corporate proxy or antivirus). Adding the Windows-trusted certificates to its CA store.`)
+    const anchors = path.win32.join(store.directory, 'pki', 'ca-trust', 'source', 'anchors')
+    fs.mkdirSync(anchors, { recursive: true })
+    fs.writeFileSync(path.win32.join(anchors, 'vesperwind-windows-trusted.crt'), pemBundle(windowsTrustedCertificates()))
+    await run(msysTool(root, 'bash'), [store.update], { env: ucrt64Environment(root), failure: `MSYS2 could not update its ${store.name} certificate store.` })
+    for (const [from, to] of store.publish) fs.copyFileSync(from, to)
+    if (probeHttps(root, store) === 'untrusted-certificate') {
+      throw new BuildError('HTTPS connections from MSYS2 are intercepted by a certificate that Windows does not trust either. Ask the network administrator for the inspection root certificate, add it to Windows (Trusted Root Certification Authorities), and rerun:\n\n  npm run build:libmpv')
+    }
   }
 }
 
@@ -172,6 +190,9 @@ export const build = async ({ cache, options, policy }) => {
   const root = findMsys() || await installMsys(policy)
   log(`MSYS2: ${root}`)
   await provisionPackages(root, policy)
+  // Source downloads and the libplacebo clone also need trusted HTTPS, including
+  // through the UCRT64 curl that package installation may just have added.
+  await ensureMsysHttps(root)
   fs.mkdirSync(cache, { recursive: true })
   const report = checkToolchain(root, cache)
   const current = { sources: sourcesHash(), toolchain: report.toolchain }

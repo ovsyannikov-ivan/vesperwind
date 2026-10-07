@@ -44,28 +44,46 @@
     "artifactStatus": "built-from-pinned-source",
     "architecture": "x86_64",
     "minimumVersion": "10",
-    "buildToolchain": "MSYS2 UCRT64 GCC 16.2.0 (Rev4); application x86_64-pc-windows-msvc",
+    "buildToolchain": "MSYS2 UCRT64 gcc.exe (Rev4, Built by MSYS2 project) 16.2.0; application x86_64-pc-windows-msvc",
     "entry": "windows/mpv-2.dll",
     "upstreamEntry": "libmpv-2.dll",
     "ffmpegVersion": "8.0",
     "audioOutput": "WASAPI",
     "hardwareDecode": true,
     "hardwareDecodePolicy": "auto-safe with direct D3D11VA surfaces for owned D3D11; auto-copy-safe for WGL; software fallback",
-    "hardwareDecodeBuildEvidence": {"h264D3d11va": true, "hevcD3d11va": true},
+    "hardwareDecodeBuildEvidence": {
+      "h264D3d11va": true,
+      "hevcD3d11va": true
+    },
     "presentation": "mpv-owned gpu-next D3D11: HDR10 PQ/BT.2020 policy with negotiated target verification; RGBA8 SDR fallback; OpenGL Render API WGL SDR fallback; physical HDR output not verified",
-    "requiredMesonOptions": ["-Dd3d11=enabled", "-Dshaderc=enabled", "-Dspirv-cross=enabled"],
-    "requiredLibplaceboOptions": ["-Dd3d11=enabled", "-Dopengl=enabled", "-Dshaderc=enabled", "-Ddovi=disabled", "-Dlibdovi=disabled"],
-    "buildRecipeLibplaceboOptions": ["-Dd3d11=enabled", "-Dopengl=enabled", "-Dshaderc=enabled", "-Ddovi=enabled", "-Dlibdovi=disabled"],
-    "artifactPendingRebuild": true,
-    "doviProcessing": "libplacebo built-in Dolby Vision RPU reshaping: disabled; libdovi: disabled; system Dolby Vision output: not used",
+    "requiredMesonOptions": [
+      "-Dd3d11=enabled",
+      "-Dshaderc=enabled",
+      "-Dspirv-cross=enabled"
+    ],
+    "requiredLibplaceboOptions": [
+      "-Dopengl=enabled",
+      "-Dd3d11=enabled",
+      "-Dshaderc=enabled",
+      "-Ddovi=enabled",
+      "-Dlibdovi=disabled"
+    ],
+    "buildRecipeLibplaceboOptions": [
+      "-Dd3d11=enabled",
+      "-Dopengl=enabled",
+      "-Dshaderc=enabled",
+      "-Ddovi=enabled",
+      "-Dlibdovi=disabled"
+    ],
+    "doviProcessing": "libplacebo built-in Dolby Vision RPU reshaping: enabled; libdovi: disabled; system Dolby Vision output: not used",
     "shaderToolchainPackages": {
-      "mingw-w64-ucrt-x86_64-shaderc": "2026.3-1",
-      "mingw-w64-ucrt-x86_64-spirv-cross": "1~1.4.357.0-1",
+      "mingw-w64-ucrt-x86_64-shaderc": "2026.4-1",
+      "mingw-w64-ucrt-x86_64-spirv-cross": "1~1.4.363.0-1",
       "mingw-w64-ucrt-x86_64-glslang": "16.3.0-1",
-      "mingw-w64-ucrt-x86_64-spirv-tools": "3~1.4.357.0-1"
+      "mingw-w64-ucrt-x86_64-spirv-tools": "3~1.4.363.0-1"
     },
     "buildEvidence": "windows/BUILD-INFO.txt",
-    "runtimeValidation": "Windows Intel UHD 630: Local H.264/HEVC D3D11VA copy-back and WASAPI API smoke passed; gpu-next/D3D11 SDR video, source switching, seek, fullscreen and EOF rewind/replay application smoke passed; automatic WGL fallback tested with the prior runtime; WGL/ASS baseline smoke passed; SFTP, audible listening and updated macOS fullscreen visuals unverified",
+    "runtimeValidation": "Not validated after this source rebuild; repeat docs/build-windows.md acceptance. Previous artifact: Windows Intel UHD 630: Local H.264/HEVC D3D11VA copy-back and WASAPI API smoke passed; gpu-next/D3D11 SDR video, source switching, seek, fullscreen and EOF rewind/replay application smoke passed; automatic WGL fallback tested with the prior runtime; WGL/ASS baseline smoke passed; SFTP, audible listening and updated macOS fullscreen visuals unverified",
     "validationInstructions": "../../../docs/build-windows.md",
     "tlsBackend": "schannel"
   },

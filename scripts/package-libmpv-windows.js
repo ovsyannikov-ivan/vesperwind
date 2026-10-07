@@ -127,11 +127,9 @@ for (const name of all) {
 }
 await fs.writeFile(path.join(stage, 'SHA256SUMS'), sums.join('\n') + '\n')
 await verifyWindowsBundle(stage, manifest)
-await fs.mkdir(destination, { recursive: true })
-// Refuse to silently retain stale DLLs from another build.
-for (const name of await fs.readdir(destination)) {
-  if (/\.dll$/i.test(name) && !copied.has(name.toLowerCase())) throw new Error(`Stale destination DLL: ${name}`)
-}
+// The verified stage replaces the checked-in bundle as a whole, so no DLL or
+// license from another build (for example an earlier toolchain) is retained.
+await fs.rm(destination, { recursive: true, force: true })
 await fs.cp(stage, destination, { recursive: true })
 // Replace only the Windows entry; keep the macOS entry and its formatting.
 const windowsBlock = /\n  "windows": \{[\s\S]*?\n  \},\n/

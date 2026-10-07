@@ -131,12 +131,21 @@ rebuilds everything; `-- --dry-run` prints the chosen MSYS2, cache and build mod
   with pacman after updating MSYS2. It then runs
   `scripts/libmpv-build/check-ucrt64.sh` in the UCRT64 environment and requires every
   tool and `gcc -dumpmachine` = `x86_64-w64-mingw32`.
-- **HTTPS inspection.** MSYS2 uses its own CA bundle. When a corporate proxy or
-  antivirus re-signs HTTPS, its mirrors fail with "self-signed certificate in
-  certificate chain". The command detects this and adds the certificates
-  Windows already trusts to MSYS2's trust anchors
-  (`etc/pki/ca-trust/source/anchors/vesperwind-windows-trusted.crt`), never
-  anything Windows itself does not trust.
+- **HTTPS inspection.** MSYS2 has two CA stores of its own: the MSYS one
+  (pacman, git, `/usr/bin/curl`) and the UCRT64 one (`/ucrt64/bin/curl`, which
+  downloads the source archives). When a corporate proxy or antivirus (for
+  example Kaspersky) re-signs HTTPS, they fail with "self-signed certificate in
+  certificate chain". On every run the command probes each store against the
+  hosts it serves (MSYS2 mirrors; `codeload.github.com`, `code.videolan.org`)
+  and, where a store is intercepted, adds the certificates Windows already
+  trusts to its trust anchors
+  (`etc/pki/ca-trust/source/anchors/vesperwind-windows-trusted.crt` and
+  `ucrt64/etc/pki/ca-trust/source/anchors/…`), never anything Windows itself
+  does not trust. UCRT64's `update-ca-trust` only refreshes `extracted/`, so the
+  command then copies the bundles to `ucrt64/etc/ssl/` exactly as the
+  `ca-certificates` package install does; later package upgrades keep the
+  anchors. Interception can be intermittent, so a run that needs no change
+  prints nothing.
 - **Build cache.** `%LOCALAPPDATA%\Vesperwind\build\libmpv`, or
   `C:\vesperwind-build\libmpv` when that path is not short ASCII without spaces.
   `VESPERWIND_LIBMPV_BUILD_DIR` overrides it. Nothing heavy is stored in the
@@ -157,7 +166,12 @@ rebuilds everything; `-- --dry-run` prints the chosen MSYS2, cache and build mod
 `manifest.json` separates the build recipe (`buildRecipeLibplaceboOptions`) from
 the checked-in artifact (`requiredLibplaceboOptions`, `doviProcessing`). While
 they differ, `artifactPendingRebuild` is true and the verifier accepts the old
-artifact as what it is. Packaging records libplacebo's resolved Meson options,
+artifact as what it is. The current Windows artifact is built from the recipe
+(`-Ddovi=enabled -Dlibdovi=disabled`, `pl_has_dovi=1`), so the flag is absent;
+its `runtimeValidation` says the acceptance below must be repeated for it.
+The Dolby Vision mapping probe (`scripts/probe-libmpv-dovi.c`) only includes
+libplacebo's libav header with `PL_LIBAV_IMPLEMENTATION 0`, so it needs neither
+FFmpeg nor libplacebo at link time. Packaging records libplacebo's resolved Meson options,
 `pl_has_dovi`/`pl_has_libdovi`, the `PL_HAVE_LAV_DOLBY_VISION` check and the
 installed toolchain packages in BUILD-INFO, rewrites the Windows manifest entry
 from them (refusing a build that does not match the recipe), regenerates
@@ -173,6 +187,11 @@ across different compiler/package versions.
 Packaging follows normal and delay-load PE imports recursively. Only libraries
 built in the private prefix and explicitly permitted compiler/shader support DLLs can
 be copied; other dependencies must belong to the Windows system allowlist.
+The verified bundle replaces `src-tauri/vendor/libmpv/windows` as a whole, so no
+DLL or license file from an earlier build (such as the LLVM exception text of the
+former llvm-mingw `avformat-62.dll`) is retained. `npm run build:tauri` bundles
+that directory unchanged as the `vendor/libmpv/**/*` resource; it does not
+rebuild libmpv.
 `mpv.exe` is never built or packaged. The verifier checks x86_64 PE32+, closure,
 build evidence, source pins, absence of local build paths, license/source-offer
 files and checksums covering every file. It needs only Node.js, not MSYS2.

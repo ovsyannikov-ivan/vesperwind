@@ -62,7 +62,7 @@ test('build caches are stable platform caches outside the repository', () => {
   assert.equal(cacheDirectory('windows', { VESPERWIND_LIBMPV_BUILD_DIR: 'E:\\cache' }, '', 'D:\\vesperwind'), 'E:\\cache')
   assert.throws(() => cacheDirectory('windows', { VESPERWIND_LIBMPV_BUILD_DIR: 'E:\\my cache' }, '', 'D:\\vesperwind'), /short ASCII/)
   assert.throws(() => cacheDirectory('windows', { VESPERWIND_LIBMPV_BUILD_DIR: 'd:\\Vesperwind\\cache' }, '', 'D:\\vesperwind'), /outside the repository/)
-  assert.throws(() => cacheDirectory('macos', { VESPERWIND_LIBMPV_BUILD_DIR: path.join(repo, 'cache') }, '/Users/dev', repo), /outside the repository/)
+  assert.throws(() => cacheDirectory('macos', { VESPERWIND_LIBMPV_BUILD_DIR: '/Users/dev/vesperwind/cache' }, '/Users/dev', '/Users/dev/vesperwind'), /outside the repository/)
   assert.equal(usableWindowsBuildPath('C:\\Program Files\\x'), false)
 })
 

@@ -103,20 +103,16 @@ test('Windows Dolby Vision handoff keeps recipe and checked-in artifact explicit
   // The recipe in the manifest is what the build script asks Meson for.
   for (const flag of manifest.windows.buildRecipeLibplaceboOptions.filter((flag) => /dovi/.test(flag))) assert.ok(script.includes(flag), flag)
 
-  // Before the Windows rebuild: the old artifact is accepted as dovi-disabled.
-  assert.deepEqual(checkDoviManifest(manifest.windows), { artifact: 'disabled', recipe: 'enabled', pending: true })
-  checkWindowsDoviEvidence(info, 'disabled')
-  assert.throws(() => checkWindowsDoviEvidence(info, 'enabled'))
-  const { artifactPendingRebuild, ...unmarked } = manifest.windows
-  assert.equal(artifactPendingRebuild, true)
-  assert.throws(() => checkDoviManifest(unmarked), /artifactPendingRebuild/)
-
-  // After it: packaging records the Meson result and the entry matches the recipe.
-  const built = recordBuiltArtifact(manifest.windows, manifest.windows.buildRecipeLibplaceboOptions)
-  assert.deepEqual(checkDoviManifest(built), { artifact: 'enabled', recipe: 'enabled', pending: false })
-  assert.equal(built.doviProcessing, doviNote('enabled'))
-  assert.equal('artifactPendingRebuild' in built, false)
-  assert.throws(() => checkDoviManifest({ ...built, artifactPendingRebuild: true }), /matches its build recipe/)
+  // The checked-in artifact was rebuilt from the recipe: packaging recorded the
+  // Meson result, and the build evidence shows built-in dovi without libdovi.
+  assert.deepEqual(checkDoviManifest(manifest.windows), { artifact: 'enabled', recipe: 'enabled', pending: false })
+  assert.equal(manifest.windows.doviProcessing, doviNote('enabled'))
+  assert.equal('artifactPendingRebuild' in manifest.windows, false)
+  checkWindowsDoviEvidence(info, 'enabled')
+  assert.throws(() => checkWindowsDoviEvidence(info, 'disabled'))
+  assert.throws(() => checkDoviManifest({ ...manifest.windows, artifactPendingRebuild: true }), /matches its build recipe/)
+  assert.deepEqual(recordBuiltArtifact(manifest.windows, info.libplaceboOptions), manifest.windows)
   // A build that ignored the recipe is never recorded.
-  assert.throws(() => recordBuiltArtifact(manifest.windows, info.libplaceboOptions), /recipe requires -Ddovi=enabled/)
+  const ignored = info.libplaceboOptions.map((flag) => flag === '-Ddovi=enabled' ? '-Ddovi=disabled' : flag)
+  assert.throws(() => recordBuiltArtifact(manifest.windows, ignored), /recipe requires -Ddovi=enabled/)
 })

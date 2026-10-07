@@ -1,6 +1,9 @@
 /* Build-time evidence that mpv, compiled against these libplacebo and FFmpeg
  * headers, maps FFmpeg's AVDOVIMetadata (PL_HAVE_LAV_DOLBY_VISION). The libav
- * helpers are static inline, so the define is the only inspectable fact. */
+ * helpers are static inline, so the define is the only inspectable fact.
+ * Declarations only: GCC would otherwise emit the helpers, which need FFmpeg
+ * and libplacebo at link time. */
+#define PL_LIBAV_IMPLEMENTATION 0
 #include <stdio.h>
 #include <libplacebo/utils/libav.h>
 
