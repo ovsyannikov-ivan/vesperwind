@@ -2,6 +2,10 @@ import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import { fileURLToPath, URL } from "node:url";
 
+const ignoredClientDirectivePackages = ["/node_modules/@radix-ui/", "/node_modules/cmdk/", "/node_modules/sonner/"];
+
+const ignoreClientDirectiveWarning = (warning) => warning.code === "MODULE_LEVEL_DIRECTIVE" && warning.message.includes('"use client"') && ignoredClientDirectivePackages.some((path) => warning.id?.includes(path));
+
 export default defineConfig({
 	plugins: [
 		vue({
@@ -15,8 +19,6 @@ export default defineConfig({
 	css: {
 		preprocessorOptions: {
 			scss: {
-				// Stylesheets and Vue `<style lang="scss">` blocks can `@use` shared
-				// partials from src/styles without relative paths.
 				loadPaths: [fileURLToPath(new URL("./src/styles", import.meta.url))],
 			},
 		},
@@ -40,6 +42,11 @@ export default defineConfig({
 	},
 	build: {
 		rollupOptions: {
+			onwarn(warning, warn) {
+				if (ignoreClientDirectiveWarning(warning)) return;
+				warn(warning);
+			},
+
 			input: {
 				main: fileURLToPath(new URL("./index.html", import.meta.url)),
 				mediaOverlay: fileURLToPath(new URL("./media-overlay.html", import.meta.url)),
