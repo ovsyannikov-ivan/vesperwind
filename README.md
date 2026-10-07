@@ -45,9 +45,7 @@ mode with a Node.js backend is also available. Linux desktop packaging is not ye
 supported.
 
 For setup and build instructions, see the [development guide](docs/development.md)
-and the [Windows build guide](docs/build-windows.md). The bundled libmpv runtime
-is rebuilt from pinned sources with a single `npm run build:libmpv` on macOS and
-Windows.
+and the [Windows build guide](docs/build-windows.md).
 
 ## Learn more
 

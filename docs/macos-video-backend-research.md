@@ -194,11 +194,11 @@ with Apple's opaque per-frame display attachments.
 
 | Input | Base layer | Built-in libplacebo path (mpv 0.41) | Status / output claim |
 | --- | --- | --- | --- |
-| 8.1 | HDR10-compatible | parsed RPU + reshaping | verified on a real file with VideoToolbox and software decode; HDR/EDR, not native DV signalling |
-| 8.4 | HLG-compatible | same path | no sample; HDR/EDR, not native DV signalling |
-| 5 | none (IPTPQc2) | same path; reshaping required for correct colors | no sample; Info reports incorrect colors without gpu-next |
+| 8.1 | HDR10-compatible | parsed RPU + reshaping | verified on a real file (VideoToolbox and software decode) and the FFmpeg FATE sample; HDR/EDR, not native DV signalling |
+| 8.4 | HLG-compatible | same path | verified with the FATE `dv84.mov` sample; HDR/EDR, not native DV signalling |
+| 5 | none (IPTPQc2) | same path; reshaping required for correct colors | verified with the FATE P5 sample (old bundle: `bt.709`); Info reports incorrect colors without gpu-next |
 | 7 MEL | compatible HDR10 BL | not mapped while the RPU enables the residual | BL fallback, reported as "RPU not applied" |
-| 7 FEL | compatible HDR10 BL | residual/EL reconstruction needs mpv master + libplacebo API 367 | BL fallback only; no FEL claim |
+| 7 FEL | compatible HDR10 BL | residual/EL reconstruction needs mpv master + libplacebo API 367 | BL fallback verified with the FATE P7 FEL sample; no FEL claim |
 
 libplacebo's pinned Vulkan swapchain explicitly does not map
 VK_COLOR_SPACE_DOLBYVISION_EXT. Built-in reshaping is not Dolby Vision link/output

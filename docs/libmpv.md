@@ -139,9 +139,9 @@ instead of setting gpu-next-only options.
 | --- | --- | --- |
 | HDR10 / HEVC Main10, BT.2020 PQ | Experimental Metal PQ/BT.2020 target with OpenGL FP16 EDR fallback; actual application HDR-display validation pending | D3D11 PQ/BT.2020 output policy implemented; actual RGB10A2/PQ target checked through mpv. HDR display/HDMI validation: **not verified** |
 | HLG | Metal maps HLG to PQ; OpenGL retains its linear EDR path. Actual application HDR-display validation pending | SDR tone mapping; native HLG output planned after HDR10 validation |
-| Dolby Vision profile 8.x | gpu-next applies libplacebo's built-in RPU reshaping (verified on a real 8.1 file: `colormatrix=dolbyvision`, VideoToolbox, Metal). The OpenGL fallback keeps the base layer | D3D11 gpu-next applies the same reshaping (verified with FFmpeg FATE 8.1 and 8.4 samples: `colormatrix=dolbyvision`, D3D11VA). The WGL fallback keeps the base layer |
-| Dolby Vision profile 5 | Same mapping and reshaping path as profile 8 (residual disabled); not yet verified with a real file. Without gpu-next, Info reports incorrect colors | As profile 8.x, verified with the FATE P5 sample on D3D11; WGL reports "RPU not applied" |
-| Dolby Vision profile 7 | MEL/FEL is classified from the first frame's RPU. mpv 0.41 maps only residual-disabled RPUs, so MEL/FEL streams play the HDR10 base layer; no enhancement-layer reconstruction | As macOS (FATE P7 FEL sample: `bt.2020-ncl`, "RPU not applied"); the enhancement layer shows as unknown because Windows has no FFmpeg probe sidecar |
+| Dolby Vision profile 8.x | gpu-next applies libplacebo's built-in RPU reshaping (verified on a real 8.1 file and the FATE 8.1 and 8.4 samples: `colormatrix=dolbyvision`, VideoToolbox, Metal). The OpenGL fallback keeps the base layer and reports "RPU not applied" | D3D11 gpu-next applies the same reshaping (verified with FFmpeg FATE 8.1 and 8.4 samples: `colormatrix=dolbyvision`, D3D11VA). The WGL fallback keeps the base layer |
+| Dolby Vision profile 5 | Same mapping and reshaping path as profile 8 (residual disabled), verified with the FATE P5 sample (`colormatrix=dolbyvision`; the earlier dovi-disabled bundle decoded it as `bt.709`, i.e. wrong colors). The OpenGL fallback reports "RPU not applied" and incorrect colors | As profile 8.x, verified with the FATE P5 sample on D3D11; WGL reports "RPU not applied" |
+| Dolby Vision profile 7 | MEL/FEL is classified from the first frame's RPU. mpv 0.41 maps only residual-disabled RPUs, so MEL/FEL streams play the HDR10 base layer; no enhancement-layer reconstruction (FATE P7 FEL sample: `bt.2020-ncl`, "RPU not applied", enhancement layer "Present (FEL)", "Not decoded") | As macOS (FATE P7 FEL sample: `bt.2020-ncl`, "RPU not applied"); the enhancement layer shows as unknown because Windows has no FFmpeg probe sidecar |
 
 Profile 8.1 has an HDR10-compatible base layer and Profile 8.4 has an
 HLG-compatible base layer. Successful playback of such a file can therefore
@@ -401,7 +401,9 @@ runtime and platform-specific source patches remain unchanged.
 
 ## Rebuilding
 
-Requirements are full Xcode (not Command Line Tools alone) and network access to
+The bundled libmpv runtime is rebuilt from pinned sources with a single
+`npm run build:libmpv` on macOS and on Windows; the Windows specifics are in
+[build-windows.md](build-windows.md). On macOS, requirements are full Xcode (not Command Line Tools alone) and network access to
 the pinned upstream repositories. Run:
 
 ```bash
