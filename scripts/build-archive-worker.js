@@ -12,6 +12,17 @@ const run = (command, args, options = {}) => {
   const result = spawnSync(command, args, { ...options, stdio: 'inherit', shell: false })
   if (result.error || result.status !== 0) throw result.error || new Error(`${command} failed (${result.status})`)
 }
+// The Windows sidecar is an MSVC build (Release subdirectory of a Visual Studio
+// generator). A CMake on PATH, such as Strawberry Perl's, may predate the
+// installed Visual Studio and silently fall back to Ninja and MinGW gcc, so use
+// the CMake that ships with Visual Studio when it is available.
+const visualStudioCmake = () => {
+  const vswhere = path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Microsoft Visual Studio', 'Installer', 'vswhere.exe')
+  const result = spawnSync(vswhere, ['-latest', '-products', '*', '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
+    '-find', 'Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin\\cmake.exe'], { encoding: 'utf8' })
+  return result.status === 0 ? result.stdout.split(/\r?\n/).find(Boolean) : undefined
+}
+const cmake = (process.platform === 'win32' && visualStudioCmake()) || 'cmake'
 await fs.mkdir(work, { recursive: true })
 for (const [name, source] of Object.entries(sources)) {
   const archive = path.join(work, path.basename(new URL(source.url).pathname))
@@ -23,15 +34,20 @@ for (const [name, source] of Object.entries(sources)) {
   const hash = createHash('sha256').update(await fs.readFile(archive)).digest('hex')
   if (hash !== source.sha256) throw new Error(`${name}: source checksum mismatch`)
   const directory = path.join(work, `${name}-${source.version}`)
-  try { await fs.access(directory) } catch { run('cmake', ['-E', 'chdir', work, 'cmake', '-E', 'tar', 'xf', archive]) }
+  try { await fs.access(directory) } catch { run(cmake, ['-E', 'chdir', work, cmake, '-E', 'tar', 'xf', archive]) }
 }
 const host = spawnSync('rustc', ['-vV'], { encoding: 'utf8' }).stdout?.match(/^host: (.+)$/m)?.[1]
 if (!host || !/apple-darwin|unknown-linux-gnu|pc-windows-msvc/.test(host)) throw new Error('Unsupported native build target')
 const build = path.join(work, `build-${host}`)
-run('cmake', ['-S', path.join(root, 'native/archive-worker'), '-B', build,
+// A build directory configured by another generator (for example a MinGW
+// fallback) cannot be reconfigured; start it over.
+const generator = (await fs.readFile(path.join(build, 'CMakeCache.txt'), 'utf8').catch(() => ''))
+  .match(/^CMAKE_GENERATOR:INTERNAL=(.+)$/m)?.[1]?.trim()
+if (process.platform === 'win32' && generator && !generator.startsWith('Visual Studio')) await fs.rm(build, { recursive: true, force: true })
+run(cmake, ['-S', path.join(root, 'native/archive-worker'), '-B', build,
   `-DLIBARCHIVE_SOURCE=${path.join(work, `libarchive-${sources.libarchive.version}`)}`,
   `-DZLIB_SOURCE=${path.join(work, `zlib-${sources.zlib.version}`)}`, '-DCMAKE_BUILD_TYPE=Release'])
-run('cmake', ['--build', build, '--config', 'Release', '--target', 'vesperwind-archive', 'archive-space-test', '--parallel', '8'])
+run(cmake, ['--build', build, '--config', 'Release', '--target', 'vesperwind-archive', 'archive-space-test', '--parallel', '8'])
 const suffix = process.platform === 'win32' ? '.exe' : ''
 const binary = path.join(build, process.platform === 'win32' ? 'Release' : '', `vesperwind-archive${suffix}`)
 const spaceTest = path.join(build, process.platform === 'win32' ? 'Release' : '', `archive-space-test${suffix}`)

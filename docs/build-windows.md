@@ -11,7 +11,7 @@ build. Use the MSVC toolchain for the same architecture as your Node.js install.
 | Rust stable with `x86_64-pc-windows-msvc` | Tauri's Rust backend on 64-bit Windows |
 | Microsoft Edge WebView2 Runtime | Tauri's Windows webview; it may already be installed |
 | Strawberry Perl | Compiling vendored OpenSSL for the SSH/SFTP backend |
-| CMake 3.20+ | Building the pinned libarchive/zlib archive sidecar |
+| CMake 3.20+ (the copy bundled with Visual Studio is used when present) | Building the pinned libarchive/zlib archive sidecar |
 
 The [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) explain the
 C++ Build Tools, WebView2, and Rust setup. Follow the
@@ -55,6 +55,12 @@ npm run build:archives
 
 Then run `npm run dev:tauri` for development or `npm run build:tauri` for a
 production native build.
+
+`npm run build:archives` builds the sidecar with MSVC. It locates the CMake that
+ships with Visual Studio through `vswhere`, because a CMake earlier on PATH (for
+example Strawberry Perl's `C:\Strawberry\c\bin\cmake.exe`) may not know the
+installed Visual Studio and silently falls back to Ninja and MinGW gcc. A build
+directory configured by another generator is discarded and configured again.
 
 Use the default build command on this Windows machine without an explicit
 `--target` or `CARGO_BUILD_TARGET`. Installers are written to
@@ -167,8 +173,9 @@ rebuilds everything; `-- --dry-run` prints the chosen MSYS2, cache and build mod
 the checked-in artifact (`requiredLibplaceboOptions`, `doviProcessing`). While
 they differ, `artifactPendingRebuild` is true and the verifier accepts the old
 artifact as what it is. The current Windows artifact is built from the recipe
-(`-Ddovi=enabled -Dlibdovi=disabled`, `pl_has_dovi=1`), so the flag is absent;
-its `runtimeValidation` says the acceptance below must be repeated for it.
+(`-Ddovi=enabled -Dlibdovi=disabled`, `pl_has_dovi=1`), so the flag is absent.
+Packaging resets `runtimeValidation` to "Not validated after this source
+rebuild"; replace it with the results once the playback checks below pass.
 The Dolby Vision mapping probe (`scripts/probe-libmpv-dovi.c`) only includes
 libplacebo's libav header with `PL_LIBAV_IMPLEMENTATION 0`, so it needs neither
 FFmpeg nor libplacebo at link time. Packaging records libplacebo's resolved Meson options,
@@ -240,6 +247,27 @@ close/reopen, audible audio and end-of-file behavior require the application smo
 pass. Repeat Local/SFTP playback in the installed application with a minimal PATH,
 and confirm loaded DLL paths belong to its own bundle. Do not put credentials in
 test URLs or logs.
+
+### Dolby Vision
+
+Build a debug application and run the Dolby Vision acceptance once per backend
+and sample (FFmpeg FATE `mov/dovi-p81.mp4`, `hevc/dv84.mov`, `mov/dovi-p5.mp4`,
+`mkv/dovi-p7-hvce.mkv`, kept outside the repository):
+
+```powershell
+npm run build:tauri -- --debug --no-bundle
+$env:VESPERWIND_NATIVE_BINARY = "$PWD\src-tauri\target\debug\vesperwind.exe"
+$env:VESPERWIND_MPV_WINDOWS_BACKEND = 'd3d11'   # then 'wgl'
+node scripts/media-dolby-vision-acceptance.mjs C:\media\dv\dovi-p81.mp4 C:\media\dv\results\d3d11-p81
+```
+
+D3D11 must report `colormatrix=dolbyvision`, `current-vo=gpu-next` and
+"RPU reshaping active (libplacebo)" for profiles 8.1, 8.4 and 5, and
+`bt.2020-ncl` with "RPU not applied" for profile 7 FEL. WGL (`vo=libmpv`) reports
+"RPU not applied" for all of them. Windows builds have no pinned FFmpeg probe
+sidecar, so the Info panel shows compatibility id and enhancement layer as
+unknown. The driver's `videoSmoke` action (seek, fullscreen enter/exit, resume,
+close) is available for the same session.
 
 Keep machine-specific validation reports and logs outside versioned documentation.
 Do not include personal filenames, user-profile paths or credentials in reports

@@ -179,8 +179,8 @@ The old FP16 EDR path remains the independent recovery/diagnostic backend.
 
 ## 11. Dolby Vision / libplacebo
 
-Both platform scripts now build libplacebo with `-Ddovi=enabled -Dlibdovi=disabled`
-(see docs/libmpv.md for evidence and the pending Windows artifact). Built-in dovi
+Both platform bundles are built with libplacebo `-Ddovi=enabled -Dlibdovi=disabled`
+(see docs/libmpv.md for evidence and verification results). Built-in dovi
 does not require a GPL dependency. [libplacebo's build](https://github.com/haasn/libplacebo/blob/3188549fba13bbdf3a5a98de2a38c2e71f04e21e/src/meson.build)
 has independent options: dovi enables its own reshaping shaders, while libdovi adds
 an external parser. With FFmpeg 8 parsed AVDOVIMetadata, built-in reshaping can

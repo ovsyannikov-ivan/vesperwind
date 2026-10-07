@@ -9,9 +9,12 @@
 - Windows: MSVC/C++ Build Tools, Windows SDK, WebView2, Python 3 and Strawberry
   Perl. Follow the [Windows setup and build guide](build-windows.md).
 
-Normal Tauri builds use the vendored libmpv runtime. Rebuilding that runtime
-requires an additional media toolchain, including Python 3 and CMake; see
-[native libmpv integration](libmpv.md).
+Normal Tauri builds use the vendored libmpv runtime in `src-tauri/vendor/libmpv`
+as it is. To rebuild it, run `npm run build:libmpv` on the target platform: it
+prepares its own media toolchain (full Xcode plus Homebrew CMake/pkg-config on
+macOS, MSYS2 UCRT64 on Windows), builds, packages and verifies the bundle. See
+[native libmpv integration](libmpv.md#rebuilding) and the
+[Windows guide](build-windows.md#rebuilding-the-windows-libmpv-runtime).
 
 ## Run locally
 

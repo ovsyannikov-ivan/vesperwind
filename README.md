@@ -44,7 +44,10 @@ Desktop builds target **macOS (Apple Silicon)** and **Windows (x64)**. A browser
 mode with a Node.js backend is also available. Linux desktop packaging is not yet
 supported.
 
-For setup and build instructions, see the [development guide](docs/development.md).
+For setup and build instructions, see the [development guide](docs/development.md)
+and the [Windows build guide](docs/build-windows.md). The bundled libmpv runtime
+is rebuilt from pinned sources with a single `npm run build:libmpv` on macOS and
+Windows.
 
 ## Learn more
 
@@ -52,7 +55,9 @@ For setup and build instructions, see the [development guide](docs/development.m
 - [Word documents](docs/word-documents.md) and [spreadsheets](docs/spreadsheets.md)
 - [Quick Look and playback coordination](docs/quick-look.md)
 - [Media URLs, HLS and persistent playlists](docs/media-player.md)
-- [Video seeking and thumbnail previews](docs/video-thumbnails.md)
+- [Video seeking and thumbnail previews](docs/video-thumbnails.md),
+  [playback position history](docs/media-history.md) and
+  [media content availability](docs/media-content.md)
 - [Archives, address bar and mounted network shares](docs/archives-and-navigation.md)
 - [Native playback, HDR and Dolby Vision details](docs/libmpv.md#hdr-and-color-pipeline)
   for media enthusiasts, including current limitations and verification results

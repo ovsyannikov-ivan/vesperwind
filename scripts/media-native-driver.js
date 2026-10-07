@@ -107,9 +107,13 @@
       const id = (await invoke('player_overlay_snapshot')).context?.sessionId
       const snapshot = id && await invoke('player_snapshot', { sessionId: id })
       const diagnostics = snapshot?.state?.diagnostics
-      if (snapshot?.state?.status !== 'playing' || !diagnostics) return false
+      // Short clips reach EOF and rewind paused; their diagnostics stay valid.
+      if (!['playing', 'paused'].includes(snapshot?.state?.status) || !diagnostics) return false
       const dv = diagnostics.dolbyVision
-      return (!diagnostics.dolbyVisionProfile || (dv?.rpuProcessingActive != null && !/only/.test(dv.evidence))) && snapshot.state
+      // The probe has resolved once it completed or reported itself unavailable
+      // (no pinned FFmpeg sidecar, for example on Windows debug builds).
+      const probed = dv && dv.evidence !== 'mpv track and video-params only'
+      return (!diagnostics.dolbyVisionProfile || (dv?.rpuProcessingActive != null && probed)) && snapshot.state
     }
     await wait(ready, timeout)
     // Output negotiation settles after the first frames; read it afterwards.
@@ -131,6 +135,25 @@
   }
   const actions = {
     navigate, open, thumbnail, inspect, videoInfo,
+    // Seek, fullscreen enter/exit and close through the overlay's own controls.
+    videoSmoke: async ({ seconds = 1.5 } = {}) => {
+      const id = (await invoke('player_overlay_snapshot')).context?.sessionId
+      const state = async () => (await invoke('player_snapshot', { sessionId: id }))?.state
+      await invoke('player_pause', { sessionId: id })
+      await invoke('player_seek', { sessionId: id, seconds })
+      const seeked = await wait(async () => { const s = await state(); return Math.abs((s?.currentTime ?? -1) - seconds) < 0.5 && s })
+      document.querySelector('.media-overlay-header button[aria-label="Enter fullscreen"]').click()
+      await wait(() => document.querySelector('.media-overlay.is-fullscreen'))
+      await sleep(1000)
+      const fullscreenStatus = (await state())?.status
+      document.querySelector('.media-overlay-fullscreen-close').click()
+      await wait(() => !document.querySelector('.media-overlay.is-fullscreen'))
+      await invoke('player_play', { sessionId: id })
+      await sleep(500)
+      const resumed = (await state())?.status
+      document.querySelector('.media-overlay-header button[aria-label="Close"]').click()
+      return { seekedTo: seeked.currentTime, statusAfterSeek: seeked.status, fullscreenStatus, resumed, closeRequested: true }
+    },
     panels: () => panels(),
     waitClosedVideo: async () => { await wait(() => !document.body.classList.contains('modal-open')); return true },
     closeVideo: () => { document.querySelector('.media-overlay-header button[title="Close"], .media-overlay-header button[aria-label="Close"]')?.click(); return true },
