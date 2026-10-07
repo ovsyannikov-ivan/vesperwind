@@ -131,6 +131,12 @@ rebuilds everything; `-- --dry-run` prints the chosen MSYS2, cache and build mod
   with pacman after updating MSYS2. It then runs
   `scripts/libmpv-build/check-ucrt64.sh` in the UCRT64 environment and requires every
   tool and `gcc -dumpmachine` = `x86_64-w64-mingw32`.
+- **HTTPS inspection.** MSYS2 uses its own CA bundle. When a corporate proxy or
+  antivirus re-signs HTTPS, its mirrors fail with "self-signed certificate in
+  certificate chain". The command detects this and adds the certificates
+  Windows already trusts to MSYS2's trust anchors
+  (`etc/pki/ca-trust/source/anchors/vesperwind-windows-trusted.crt`), never
+  anything Windows itself does not trust.
 - **Build cache.** `%LOCALAPPDATA%\Vesperwind\build\libmpv`, or
   `C:\vesperwind-build\libmpv` when that path is not short ASCII without spaces.
   `VESPERWIND_LIBMPV_BUILD_DIR` overrides it. Nothing heavy is stored in the

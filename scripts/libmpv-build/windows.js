@@ -5,9 +5,10 @@
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
+import tls from 'node:tls'
 import path from 'node:path'
 import { BuildError, exists, findOnPath, jobs, log, projectRoot, requireFreeSpace, run } from './common.js'
-import { chooseBuildMode, missingPackages, msysPath, parseToolchainReport, toolchainProblem } from './options.js'
+import { chooseBuildMode, httpsProbeResult, missingPackages, msysPath, parseToolchainReport, pemBundle, toolchainProblem } from './options.js'
 
 export const sourcesHash = () => createHash('sha256')
   .update(fs.readFileSync(path.join(projectRoot, 'scripts/libmpv-windows-sources.json')))
@@ -95,6 +96,36 @@ const msysTool = (root, name) => path.win32.join(root, 'usr', 'bin', `${name}.ex
 const pacman = (root, args, failure) => run(msysTool(root, 'pacman'), args, { env: ucrt64Environment(root), failure })
 const installedPackages = (root) => spawnSync(msysTool(root, 'pacman'), ['-Qq'], { encoding: 'utf8', env: ucrt64Environment(root) }).stdout || ''
 
+// Official MSYS2 mirrors (from its mirrorlist) in different networks.
+const probeUrls = ['https://repo.msys2.org/msys/x86_64/', 'https://mirror.msys2.org/msys/x86_64/', 'https://mirror.yandex.ru/mirrors/msys2/msys/x86_64/']
+const probeHttps = (root) => httpsProbeResult(probeUrls.map((url) => spawnSync(msysTool(root, 'curl'),
+  ['--silent', '--show-error', '--head', '--max-time', '20', '--output', '/dev/null', url],
+  { encoding: 'utf8', env: ucrt64Environment(root) })))
+
+// Certificates Windows trusts, including roots added by an organisation or a
+// TLS-inspecting antivirus.
+const windowsTrustedCertificates = () => {
+  if (typeof tls.getCACertificates === 'function') return tls.getCACertificates('system')
+  const script = 'Get-ChildItem Cert:\\CurrentUser\\Root, Cert:\\LocalMachine\\Root, Cert:\\LocalMachine\\CA | ForEach-Object { "-----BEGIN CERTIFICATE-----`n" + [Convert]::ToBase64String($_.RawData, "InsertLineBreaks") + "`n-----END CERTIFICATE-----" }'
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8' })
+  return (result.stdout || '').split(/(?=-----BEGIN CERTIFICATE-----)/)
+}
+
+// MSYS2 has its own CA bundle. When HTTPS is intercepted, add the certificates
+// Windows already trusts as MSYS2 trust anchors (nothing Windows does not trust).
+const ensureMsysHttps = async (root) => {
+  const state = probeHttps(root)
+  if (state !== 'untrusted-certificate') return
+  log('HTTPS from MSYS2 is intercepted by a certificate that only Windows trusts (corporate proxy or antivirus). Adding the Windows-trusted certificates to MSYS2.')
+  const anchors = path.win32.join(root, 'etc', 'pki', 'ca-trust', 'source', 'anchors')
+  fs.mkdirSync(anchors, { recursive: true })
+  fs.writeFileSync(path.win32.join(anchors, 'vesperwind-windows-trusted.crt'), pemBundle(windowsTrustedCertificates()))
+  await run(msysTool(root, 'bash'), ['/usr/bin/update-ca-trust'], { env: ucrt64Environment(root), failure: 'MSYS2 could not update its certificate store.' })
+  if (probeHttps(root) === 'untrusted-certificate') {
+    throw new BuildError('HTTPS connections from MSYS2 are intercepted by a certificate that Windows does not trust either. Ask the network administrator for the inspection root certificate, add it to Windows (Trusted Root Certification Authorities), and rerun:\n\n  npm run build:libmpv')
+  }
+}
+
 const provisionPackages = async (root, policy) => {
   // A fresh MSYS2 completes its first-run setup (home, pacman keyring) in its
   // first login shell.
@@ -103,11 +134,12 @@ const provisionPackages = async (root, policy) => {
   const missing = missingPackages(installedPackages(root))
   if (!missing.length) return
   if (!policy.install) throw new BuildError(`MSYS2 lacks build packages, and CI builds do not install software: ${missing.join(' ')}`)
+  await ensureMsysHttps(root)
   log(`Installing MSYS2 build packages: ${missing.join(' ')}`)
   // Synchronise first so new packages match the installed runtime. A core
   // update ends the first pass early; the second completes it.
   await pacman(root, ['-Syuu', '--noconfirm', '--disable-download-timeout']).catch(() => {})
-  await pacman(root, ['-Syuu', '--noconfirm', '--disable-download-timeout'], 'Updating MSYS2 with pacman failed; check the network connection and rerun npm run build:libmpv.')
+  await pacman(root, ['-Syuu', '--noconfirm', '--disable-download-timeout'], 'MSYS2 could not download its package databases (see the pacman errors above); rerun npm run build:libmpv once the network allows it.')
   await pacman(root, ['-S', '--needed', '--noconfirm', '--disable-download-timeout', ...missing], `pacman could not install: ${missing.join(' ')}`)
   const still = missingPackages(installedPackages(root))
   if (still.length) throw new BuildError(`MSYS2 packages are still missing after installation: ${still.join(' ')}`)

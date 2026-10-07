@@ -120,3 +120,17 @@ export const msysPath = (windowsPath) => {
   if (!match) throw new BuildError(`Not an absolute Windows path: ${windowsPath}`)
   return `/${match[1].toLowerCase()}/${match[2].replace(/\\/g, '/')}`.replace(/\/$/, '')
 }
+
+// MSYS2's curl (pacman, git, source downloads) trusts only its own CA bundle.
+// Behind TLS inspection (corporate proxy, antivirus) every mirror then fails
+// with curl exit 60 although Windows itself trusts the inspecting root.
+export const httpsProbeResult = (results) => {
+  if (results.some(({ status }) => status === 0)) return 'ok'
+  if (results.some(({ status, stderr = '' }) => status === 60 || /certificate/i.test(stderr))) return 'untrusted-certificate'
+  return 'unreachable'
+}
+
+// One PEM file for MSYS2's trust anchors from the certificates Windows trusts.
+export const pemBundle = (certificates) => [...new Set(certificates.map((pem) => pem.replace(/\r/g, '').trim()))]
+  .filter((pem) => /^-----BEGIN CERTIFICATE-----[\s\S]+-----END CERTIFICATE-----$/.test(pem))
+  .join('\n') + '\n'

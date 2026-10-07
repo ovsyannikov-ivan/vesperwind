@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import {
   bootstrapPolicy, cacheDirectory, chooseBuildMode, missingPackages, msysPath, parseArguments,
-  parseToolchainReport, selectPlatform, toolchainProblem, usableWindowsBuildPath, windowsPackages, windowsTools,
+  httpsProbeResult, parseToolchainReport, pemBundle, selectPlatform, toolchainProblem, usableWindowsBuildPath, windowsPackages, windowsTools,
 } from '../scripts/libmpv-build/options.js'
 import { msysCandidates, readCacheState, sourcesHash } from '../scripts/libmpv-build/windows.js'
 import { resolveDeveloperDirectory, spacelessDirectory } from '../scripts/libmpv-build/macos.js'
@@ -151,4 +151,13 @@ test('macOS finds Xcode without xcode-select and avoids spaces in build flags', 
     assert.equal(fs.realpathSync(link), fs.realpathSync(spaced))
     fs.unlinkSync(link)
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+test('TLS interception is told apart from an unreachable network', () => {
+  assert.equal(httpsProbeResult([{ status: 60, stderr: 'SSL certificate problem: self-signed certificate in certificate chain' }, { status: 0 }]), 'ok')
+  assert.equal(httpsProbeResult([{ status: 28, stderr: 'Connection timed out' }, { status: 60, stderr: '' }]), 'untrusted-certificate')
+  assert.equal(httpsProbeResult([{ status: 35, stderr: 'curl: (35) schannel: SEC_E_UNTRUSTED_ROOT certificate' }]), 'untrusted-certificate')
+  assert.equal(httpsProbeResult([{ status: 28, stderr: 'Connection timed out' }, { status: null, stderr: '' }]), 'unreachable')
+  const pem = '-----BEGIN CERTIFICATE-----\r\nAAAA\r\n-----END CERTIFICATE-----'
+  assert.equal(pemBundle([pem, `${pem}\r\n`, 'garbage', '']), '-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n')
 })
