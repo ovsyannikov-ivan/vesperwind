@@ -63,7 +63,7 @@ export const createContentPreparer = ({ request = backend.request, poll = waitFo
 
     if (response.ok) {
       if (materializing && response.preparation?.state === 'READY') {
-        // NSURL download state can settle after the last FSEvents notification.
+        // Cloud provider metadata can settle after the last OS notification.
         // Refresh current entries once at completion; never poll directory rows.
         onMaterialized({ providerId: payload.filesystemId, path: payload.path })
       }

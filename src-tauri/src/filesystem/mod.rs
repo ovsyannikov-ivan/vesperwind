@@ -41,9 +41,12 @@ pub struct FileEntry {
     pub size: Option<u64>,
     pub modified_at: Option<String>,
     pub metadata_error: Option<MetadataError>,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_availability: Option<availability::ContentAvailability>,
+    #[cfg(target_os = "windows")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cloud_sync: Option<availability::onedrive::CloudSync>,
 }
 
 #[derive(Debug, Serialize)]
@@ -164,7 +167,9 @@ impl Filesystem {
             size: None,
             modified_at: metadata.modified().ok().map(format_time),
             metadata_error: None,
-            #[cfg(target_os = "macos")]
+            #[cfg(target_os = "windows")]
+            cloud_sync: None,
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             content_availability: None,
         })
     }
@@ -182,21 +187,28 @@ impl Filesystem {
                 NativeError::new("ENOTDIR", "This item is not a folder").with_path(requested)
             );
         }
-        let reader = fs::read_dir(&real)
-            .map_err(|error| filesystem_error(&error, requested, "Unable to read this folder"))?;
-        let mut entries = Vec::new();
-
-        for item in reader {
-            let item = item.map_err(|error| {
+        #[cfg(target_os = "windows")]
+        let mut entries = availability::onedrive::native::list_directory(self, &real, &resolved)?;
+        #[cfg(not(target_os = "windows"))]
+        let mut entries = {
+            let reader = fs::read_dir(&real).map_err(|error| {
                 filesystem_error(&error, requested, "Unable to read this folder")
             })?;
-            entries.push(entry_from_path(
-                self,
-                item.path(),
-                resolved.join(item.file_name()),
-                item.file_name(),
-            ));
-        }
+            let mut entries = Vec::new();
+
+            for item in reader {
+                let item = item.map_err(|error| {
+                    filesystem_error(&error, requested, "Unable to read this folder")
+                })?;
+                entries.push(entry_from_path(
+                    self,
+                    item.path(),
+                    resolved.join(item.file_name()),
+                    item.file_name(),
+                ));
+            }
+            entries
+        };
 
         entries.sort_by(
             |left, right| match (left.is_directory, right.is_directory) {
@@ -219,7 +231,9 @@ fn directory_location(name: &str, path: &str, kind: &'static str) -> FileEntry {
         size: None,
         modified_at: None,
         metadata_error: None,
-        #[cfg(target_os = "macos")]
+        #[cfg(target_os = "windows")]
+        cloud_sync: None,
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         content_availability: None,
     }
 }
@@ -277,6 +291,8 @@ fn entry_from_path(
             size: Some(metadata.len()),
             modified_at: metadata.modified().ok().map(format_time),
             metadata_error: None,
+            #[cfg(target_os = "windows")]
+            cloud_sync: None,
             content_availability: availability::inspect_content_availability(
                 &physical_path,
                 metadata,
@@ -298,6 +314,10 @@ fn entry_from_path(
                     size: (!is_directory).then_some(metadata.len()),
                     modified_at: metadata.modified().ok().map(format_time),
                     metadata_error: None,
+                    #[cfg(target_os = "windows")]
+                    cloud_sync: None,
+                    #[cfg(target_os = "windows")]
+                    content_availability: None,
                     #[cfg(target_os = "macos")]
                     content_availability: if metadata.is_file() {
                         availability::inspect_content_availability(&real, &metadata)
@@ -331,7 +351,9 @@ fn metadata_error_entry(name: String, path: PathBuf, error: NativeError) -> File
         size: None,
         modified_at: None,
         metadata_error: Some(MetadataError { code: error.code }),
-        #[cfg(target_os = "macos")]
+        #[cfg(target_os = "windows")]
+        cloud_sync: None,
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         content_availability: None,
     }
 }

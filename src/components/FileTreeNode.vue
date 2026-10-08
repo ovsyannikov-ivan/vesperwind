@@ -5,7 +5,7 @@ import { entryNameError } from '../../shared/entryName.js'
 import { useFileOperations } from '../composables/useFileOperations.js'
 import { entryChange } from '../composables/useEntryChanges.js'
 import { getFileIcon } from '../utils/fileIcons.js'
-import { getContentAvailabilityBadge } from '../utils/contentAvailability.js'
+import { getFileStatusBadge } from '../utils/contentAvailability.js'
 import { useSettings } from '../composables/useSettings.js'
 import {
   formatFileSize,
@@ -186,7 +186,7 @@ const selected = computed(() => props.selectedPaths.includes(props.node.path) ||
   (props.depth === 0 && props.selectedPath === props.node.path))
 const activeSelection = computed(() => props.selectedPath === props.node.path)
 const iconDetails = computed(() => getFileIcon(props.node, expanded.value))
-const availabilityBadge = computed(() => getContentAvailabilityBadge(props.node, props.providerId))
+const statusBadge = computed(() => getFileStatusBadge(props.node, props.providerId))
 const rowPadding = computed(() => ({ paddingLeft: `calc(var(--file-tree-row-padding) + ${props.depth} * var(--file-tree-indent))`}))
 const formattedSize = computed(() =>
   formatFileSize(props.node.size, props.node.isDirectory),
@@ -544,19 +544,21 @@ onBeforeUnmount(() => { listing.dispose(); cancelRenameTimer(); releaseDirectory
         >
         <span v-else class="tree-label" @click="handleNameClick">{{ node.name }}</span>
         <i
-          v-if="availabilityBadge"
-          class="mdi tree-content-badge"
-          :class="availabilityBadge.icon"
-          role="img"
-          :aria-label="availabilityBadge.label"
-          :title="availabilityBadge.label"
-        />
-        <i
           v-if="node.isSymbolicLink"
           class="mdi mdi-arrow-top-right-thin-circle-outline tree-link-badge"
           aria-label="Symbolic link"
         />
       </div>
+      <span class="tree-status-cell">
+        <i
+          v-if="statusBadge"
+          class="mdi tree-content-badge"
+          :class="[statusBadge.icon, statusBadge.className]"
+          role="img"
+          :aria-label="statusBadge.label"
+          :title="statusBadge.label"
+        />
+      </span>
       <span v-if="!compact" class="tree-size" :title="formattedSize">{{ formattedSize }}</span>
       <time
         v-if="!compact"

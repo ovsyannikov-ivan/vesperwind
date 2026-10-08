@@ -152,8 +152,10 @@ pub async fn filesystem_list(
 ) -> Result<Value, String> {
     let filesystem = Arc::clone(&state.filesystem);
     let ssh = Arc::clone(&state.ssh);
+    #[cfg(target_os = "windows")]
+    let content = Arc::clone(&state.content);
     let path = payload.path.unwrap_or_default();
-    // Foundation metadata and large directory enumeration run off the UI thread.
+    // Cloud metadata and large directory enumeration run off the UI thread.
     let result = tauri::async_runtime::spawn_blocking(move || {
         if let Some(provider) = payload
             .filesystem_id
@@ -165,6 +167,8 @@ pub async fn filesystem_list(
         }
         filesystem::Filesystem::require_local(payload.filesystem_id.as_deref())?;
         let entries = filesystem.list_directory(&path)?;
+        #[cfg(target_os = "windows")]
+        let entries = content.annotate_listing(entries);
         Ok::<_, NativeError>(json!({ "ok": true, "path": path, "entries": entries }))
     })
     .await;

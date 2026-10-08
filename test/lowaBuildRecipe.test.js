@@ -1,13 +1,31 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import path from 'node:path'
 import { memoryPatch, packagePatch, nativeMappingPatch, archiveBuildIdPatch, opensslCrossPatch, argonExternalPatch, argonUnpackPatch, argonArchivePatch, emptyAutotextPatch, coreCommit, profiles } from '../vendor/lowa-build/prepare.mjs'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { foreignModulePatch, staticListPatch, crossLockPatch } from '../vendor/lowa-build/prepare.mjs'
+
+// Strawberry Perl includes GNU make on Windows. These recipe tests still run
+// there rather than assuming the Unix executable path or skipping coverage.
+const make = (process.platform === 'win32' ? ['gmake', 'mingw32-make', 'make'] : ['/usr/bin/make', 'make'])
+  .find((command) => spawnSync(command, ['--version'], { encoding: 'utf8' }).status === 0)
+if (!make) throw new Error('GNU make is required for LOWA recipe tests (included with Strawberry Perl on Windows)')
+const shell = process.platform === 'win32'
+  ? ['sh', `${process.env.ProgramFiles}/Git/bin/sh.exe`].find((command) => spawnSync(command, ['-c', 'true']).status === 0)
+  : null
+if (process.platform === 'win32' && !shell) throw new Error('A POSIX shell is required for LOWA recipe tests (included with Git for Windows)')
+const runMake = (args, options) => execFileSync(make, [...(shell ? ['SHELL=sh'] : []), ...args], {
+  ...options,
+  // Windows make may execute simple recipes directly; Git's POSIX commands
+  // must be on PATH as well as its shell. This affects only these subprocesses.
+  ...(shell && path.isAbsolute(shell) ? { env: { ...process.env,
+    PATH: `${path.resolve(path.dirname(shell), '../usr/bin')}${path.delimiter}${process.env.PATH}` } } : {}),
+})
 
 test('static link arguments do not contain literal echo -n on macOS', () => {
   const recipe = staticListPatch('args := $(shell echo -n \\\n-luno_sal -lcppu)\nall:;@echo $(args)\n')
-  const output = execFileSync('/usr/bin/make', ['-f', '-'], { input: recipe, encoding: 'utf8' }).trim()
+  const output = runMake(['-f', '-'], { input: recipe, encoding: 'utf8' }).trim().replace(/\s+/gu, ' ')
   assert.equal(output, '-luno_sal -lcppu')
   assert.throws(() => staticListPatch('changed'))
 })
@@ -15,8 +33,8 @@ test('static link arguments do not contain literal echo -n on macOS', () => {
 test('Emscripten cross build includes its native lock helper on Mac', () => {
   const original = '$(if $(and $(filter-out ANDROID MACOSX iOS WNT,$(OS))),$(1),$(2))'
   const recipe = 'define cond\n' + crossLockPatch(original) + '\nendef\nall:;@echo $(call cond,yes,no)\n'
-  const run = (os, target = '') => execFileSync('/usr/bin/make', ['-f', '-', `OS=${os}`, `BUILD_TYPE_FOR_HOST=${target}`],
-    { input: recipe, encoding: 'utf8' }).trim()
+  const run = (os, target = '') => runMake(['-f', '-', `OS=${os}`, `BUILD_TYPE_FOR_HOST=${target}`],
+    { input: recipe, encoding: 'utf8' }).trim().replace(/\s+/gu, ' ')
   assert.equal(run('MACOSX', 'LibO EMSCRIPTEN'), 'yes')
   assert.equal(run('MACOSX'), 'no')
   assert.equal(run('WNT', 'LibO EMSCRIPTEN'), 'no')
@@ -28,8 +46,8 @@ test('Emscripten cross build includes its native lock helper on Mac', () => {
 test('foreign module follows dependency gates without disabling Word/OOXML', () => {
   const original = 'modules := sw writerfilter oox \\\n\twriterperfect \\\n\txmloff\n'
   const recipe = foreignModulePatch(original) + 'all:;@echo $(modules)\n'
-  const run = type => execFileSync('/usr/bin/make', ['-f', '-', `BUILD_TYPE=${type}`],
-    { input: recipe, encoding: 'utf8' }).trim()
+  const run = type => runMake(['-f', '-', `BUILD_TYPE=${type}`],
+    { input: recipe, encoding: 'utf8' }).trim().replace(/\s+/gu, ' ')
   assert.equal(run('EMSCRIPTEN'), 'sw writerfilter oox xmloff')
   assert.equal(run('EMSCRIPTEN LIBODFGEN LIBREVENGE'), 'sw writerfilter oox writerperfect xmloff')
   assert.throws(() => foreignModulePatch('changed'))
@@ -41,8 +59,8 @@ test('macOS native tools use dylib and versioned UNO names; Linux mapping is unc
     'gb_Library_FILENAMES := gcc3_uno:libgcc3_uno.a cppu:libuno_cppu.a cppuhelper:libuno_cppuhelpergcc3.a sax:libsaxlo.a',
     'gb_Library_UNOVERLIBS := cppu', 'gb_Library_RTVERLIBS := cppuhelper',
     nativeMappingPatch(original), 'all:;@echo $(gb_Library_FILENAMES_FOR_BUILD)'].join('\n')
-  const run = host => execFileSync('/usr/bin/make', ['-f', '-', 'OS=EMSCRIPTEN', `OS_FOR_BUILD=${host}`],
-    { input: recipe, encoding: 'utf8' }).trim()
+  const run = host => runMake(['-f', '-', 'OS=EMSCRIPTEN', `OS_FOR_BUILD=${host}`],
+    { input: recipe, encoding: 'utf8' }).trim().replace(/\s+/gu, ' ')
   assert.equal(run('MACOSX'), 'gcc3_uno:libgcc3_uno.dylib cppu:libuno_cppu.dylib.3 cppuhelper:libuno_cppuhelpergcc3.dylib.3 sax:libsaxlo.dylib')
   assert.equal(run('LINUX'), 'gcc3_uno:libgcc3_uno.so cppu:libuno_cppu.so cppuhelper:libuno_cppuhelpergcc3.so sax:libsaxlo.so')
   assert.throws(() => nativeMappingPatch('source changed'))

@@ -737,6 +737,10 @@ watch(entryChange, (change) => {
 							</div></Teleport
 						>
 					</div>
+					<div class="tree-column-status" title="Cloud status">
+						<span class="visually-hidden">Cloud status</span>
+						<i class="mdi mdi-cloud-outline" aria-hidden="true" />
+					</div>
 					<div class="tree-column-size">
 						<button class="tree-column-sort" type="button" @click="toggleSort('size')">
 							Size <i v-if="directoryView.sort === 'size'" class="mdi" :class="directoryView.direction === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'" aria-hidden="true" />

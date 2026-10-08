@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import test from 'node:test'
+import path from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { compiledStyles } from './support/styles.js'
 
 const components = new URL('../src/components/', import.meta.url)
@@ -39,7 +41,7 @@ test('all modal headings and footer buttons keep the shared compact style', asyn
 const sourceFiles = async (directory) => {
   const entries = await fs.readdir(directory, { recursive: true, withFileTypes: true })
   return entries.filter((entry) => entry.isFile() && /\.(vue|js)$/u.test(entry.name))
-    .map((entry) => new URL(`${entry.parentPath.slice(directory.pathname.length)}/${entry.name}`.replace(/^\//u, ''), directory))
+    .map((entry) => pathToFileURL(path.join(entry.parentPath || fileURLToPath(directory), entry.name)))
 }
 
 test('targeted neutral actions share one compact btn-neutral style', async () => {

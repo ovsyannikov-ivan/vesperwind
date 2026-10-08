@@ -832,7 +832,9 @@ impl RemoteConnection {
                         .to_rfc3339()
                 }),
                 metadata_error: None,
-                #[cfg(target_os = "macos")]
+                #[cfg(target_os = "windows")]
+                cloud_sync: None,
+                #[cfg(any(target_os = "macos", target_os = "windows"))]
                 content_availability: None,
             });
         }
@@ -977,7 +979,9 @@ fn directory_entry(path: &str) -> FileEntry {
         size: None,
         modified_at: None,
         metadata_error: None,
-        #[cfg(target_os = "macos")]
+        #[cfg(target_os = "windows")]
+        cloud_sync: None,
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         content_availability: None,
     }
 }

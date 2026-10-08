@@ -16,7 +16,7 @@
 }
 
 .tree-table {
-	--tree-columns: minmax(11rem, 1fr) 5.25rem 10.5rem;
+	--tree-columns: minmax(11rem, 1fr) 1.75rem 5.25rem 10.5rem;
 	width: 100%;
 	min-width: 29rem;
 }
@@ -159,7 +159,7 @@
 	user-select: none;
 
 	&.is-compact {
-		grid-template-columns: minmax(0, 1fr);
+		grid-template-columns: minmax(0, 1fr) 1.75rem;
 		min-width: 0;
 	}
 }
@@ -210,6 +210,12 @@
 	&.is-drop-target .tree-link-badge {
 		color: #ffffff;
 	}
+
+	&.is-drop-target .tree-content-badge {
+		color: inherit;
+		&.is-local,
+		&.is-pinned { color: var(--cloud-status-local); }
+	}
 }
 
 .tree-name-cell {
@@ -243,6 +249,8 @@
 }
 
 .tree-file-icon {
+	display: inline-grid;
+	place-items: center;
 	width: 19px;
 	flex: 0 0 19px;
 	margin-right: 4px;
@@ -265,12 +273,53 @@
 }
 
 .tree-content-badge {
-	flex: 0 0 auto;
-	margin-inline: 5px;
-	font-size: var(--file-tree-icon-size);
+	position: relative;
+	display: inline-grid;
+	width: 13px;
+	height: 13px;
+	place-items: center;
+	font-size: 12px;
 	line-height: 1;
-	color: inherit;
-	opacity: 0.75;
+	color: var(--text-muted);
+	opacity: 0.65;
+
+	&::before {
+		position: relative;
+		z-index: 1;
+		line-height: 1;
+	}
+
+	&.is-onedrive {
+		font-size: 13px;
+		opacity: 0.85;
+	}
+
+	&.is-online { color: var(--cloud-status-online); }
+	&.is-local,
+	&.is-pinned {
+		color: var(--cloud-status-local);
+		&::after {
+			content: '';
+			position: absolute;
+			inset: 2px;
+			border-radius: 50%;
+			background: #ffffff;
+		}
+	}
+}
+
+.tree-status-cell,
+.tree-column-status {
+	display: grid;
+	place-items: center;
+	min-width: 0;
+	align-self: center;
+}
+
+.tree-column-status {
+	align-self: stretch;
+	font-size: 12px;
+	opacity: 0.65;
 }
 
 .tree-size,

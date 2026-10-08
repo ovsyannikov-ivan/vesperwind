@@ -25,6 +25,8 @@ struct Operation {
     last_progress: Option<f64>,
     last_activity_marker: Option<u64>,
     last_activity_at: Instant,
+    #[cfg(target_os = "windows")]
+    hydration: Option<Arc<crate::filesystem::availability::onedrive::native::Hydration>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -48,6 +50,31 @@ impl ContentManager {
         Arc::new(Self::default())
     }
 
+    /// Add only activity known to this existing manager, without starting I/O
+    /// or interpreting provider PARTIAL metadata as an active download.
+    #[cfg(target_os = "windows")]
+    pub(crate) fn annotate_listing(
+        &self,
+        mut entries: Vec<crate::filesystem::FileEntry>,
+    ) -> Vec<crate::filesystem::FileEntry> {
+        let operations = self
+            .operations
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        for entry in &mut entries {
+            if let Some(operation) = operations.values().find(|operation| {
+                operation.filesystem_id == "local"
+                    && operation.hydration.is_some()
+                    && operation.path.eq_ignore_ascii_case(&entry.path)
+            }) {
+                if let Some(availability) = &mut entry.content_availability {
+                    availability.mark_onedrive_materializing(operation.last_progress);
+                }
+            }
+        }
+        entries
+    }
+
     pub fn prepare(
         &self,
         filesystem: &Filesystem,
@@ -59,6 +86,8 @@ impl ContentManager {
             PrepareOnce::Materializing {
                 progress,
                 activity_marker,
+                #[cfg(target_os = "windows")]
+                hydration,
                 ..
             } => {
                 let operation_id = Uuid::new_v4().to_string();
@@ -75,6 +104,8 @@ impl ContentManager {
                             last_progress: progress,
                             last_activity_marker: activity_marker,
                             last_activity_at: now,
+                            #[cfg(target_os = "windows")]
+                            hydration,
                         },
                     );
                 Ok(materializing(operation_id, progress, 0))
@@ -87,6 +118,25 @@ impl ContentManager {
         filesystem: &Filesystem,
         operation_id: &str,
     ) -> Result<ContentPreparation, NativeError> {
+        #[cfg(target_os = "windows")]
+        let hydration_pending = {
+            let hydration = self
+                .operations
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .get(operation_id)
+                .and_then(|operation| operation.hydration.clone());
+            match hydration {
+                Some(hydration) => match hydration.status() {
+                    Ok(complete) => !complete,
+                    Err(error) => {
+                        self.remove_elapsed(operation_id);
+                        return Err(error);
+                    }
+                },
+                None => false,
+            }
+        };
         let (filesystem_id, path) = {
             let operations = self
                 .operations
@@ -115,6 +165,24 @@ impl ContentManager {
 
         match inspection {
             PrepareOnce::Ready(_) => {
+                #[cfg(target_os = "windows")]
+                if hydration_pending {
+                    let operations = self
+                        .operations
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    let operation = operations.get(operation_id).ok_or_else(|| {
+                        NativeError::new(
+                            "ECONTENT_OPERATION_NOT_FOUND",
+                            "This content preparation is no longer active",
+                        )
+                    })?;
+                    return Ok(materializing(
+                        operation_id.to_string(),
+                        operation.last_progress,
+                        operation.started.elapsed().as_millis(),
+                    ));
+                }
                 let elapsed = self.remove_elapsed(operation_id).unwrap_or_default();
                 eprintln!(
                     "[content-availability] operation_id={operation_id:?} path={path:?} state=READY elapsed_ms={}",

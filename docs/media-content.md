@@ -1,11 +1,93 @@
 # Media content availability and directory refresh
 
+## OneDrive on native Windows
+
+Native Windows local listings keep availability separate from synchronization:
+`contentAvailability: {state: "cloud", provider: "onedrive"}` can coexist with
+`cloudSync: {provider: "onedrive", state: "inSync", localContent: "notFullyLocal",
+inspection: "ok", pinPolicy: "unpinned"}`. Download completion removes the
+cloud indicator, replacing it with a locally available check when local content
+and synchronization are confirmed. Availability and sync remain separate metadata
+facts, summarized by one icon with both facts in its tooltip.
+`notInSync` means the provider has not marked the placeholder synchronized; it
+does not assert an active upload or remote durability. Pin policy is metadata,
+not evidence of completed download. The Windows filled green circle requires
+confirmed local content, IN_SYNC and pinned policy; the outlined green check
+requires confirmed local content and IN_SYNC without pinned policy.
+
+All cloud indicators occupy one narrow status column immediately before Size.
+Compact trees put the same single indicator at the right edge. Windows uses a
+blue cloud for unavailable local content, green availability checks, neutral
+clocks for unconfirmed readiness/sync and arrows only for a tracked download.
+These are not upload or remote durability guarantees. iCloud indicators remain
+monochrome, smaller and muted. The symbolic-link badge retains its size and color;
+the main file icon's centering explicitly overrides Bootstrap's `icon-link` flex
+alignment so shortcut icons align with other file types.
+
+The adapter uses registered roots from `StorageProviderSyncRootManager` (the
+documented `provider!SID!account` ID), then verifies Cloud Files membership with
+`CfGetSyncRootInfoByPath`. It supports multiple registered personal/business
+roots without matching filenames or folder names. Unknown registration,
+unsupported providers and ordinary non-placeholder files receive no cloud claims.
+
+Windows enumeration reuses Unicode `WIN32_FIND_DATAW` attributes and reparse tags
+with `CfGetPlaceholderStateFromAttributeTag`. Windows may disguise placeholders
+for applications: a thread-bound RAII guard temporarily uses the documented
+`RtlSetThreadPlaceholderCompatibilityMode(PHCM_EXPOSE_PLACEHOLDERS)` and restores
+the previous mode. Listing never reads content or requests hydration, and uses
+one registration snapshot/root query per directory rather than per-row handles.
+
+`PARTIALLY_ON_DISK` proves content is not fully local. `PARTIAL` alone produces
+`contentAvailability.state = "notReady"` and unknown local byte availability,
+without claiming a download is active. Invalid flags or a confirmed root's
+inspection error cannot produce a synchronized check. Only an operation already
+tracked by the existing content manager may supply `materializing` in a listing.
+
+Explicit preparation requests the whole file with asynchronous
+`CfHydratePlaceholder(0, CF_EOF)`. The existing content manager owns the stable
+overlapped storage/handle, checks completion and errors, and cancels/drains only
+its own request on teardown. Direct guarded reads/copies can wait for this same
+preparation. Metadata on-disk size is an activity marker; no download percentage
+is guessed. Existing watchers and the one shared refresh after MATERIALIZING to
+READY update both panels; there is no directory or per-row polling loop.
+
+Windows 11 acceptance used disposable text and 16 MiB binary fixtures in one
+registered personal OneDrive root. Native checks verified downloaded/in-sync,
+unpinned online-only plus IN_SYNC, passive listing without hydration, explicit
+whole-file preparation with byte verification, cancellation/retry, a local edit
+clearing IN_SYNC, and pinned policy independent of sync. Both downloads produced
+native watcher events. Two-entry metadata inspection took about 5–6 ms; this is
+fixture evidence, not a large-directory performance guarantee. Business roots
+and PARTIAL-only/error combinations have synthetic coverage, not live account
+acceptance. FileTreeNode layout was checked in both themes, compact mode and
+columns, including independent availability/sync facts in the tooltip, selection
+and 22px row height.
+An isolated native Tauri incognito profile also verified both panels displaying
+online-only plus IN_SYNC, explicit Quick Look opening through preparation to
+READY, and shared watch/targeted refresh removing the cloud badge in both panels.
+The disposable profile did not change the user's settings or WebView storage.
+
+Opt-in native diagnostics are ignored tests:
+`diagnose_registered_roots_and_passive_listing` reads
+`VESPERWIND_DIAGNOSE_LIST_DIRECTORY`; `diagnose_synthetic_preparation` requires
+`VESPERWIND_ONEDRIVE_FIXTURE_FILE` and restricts active tests to `small.txt` or
+`large.bin` under a disposable `vesperwind-availability-*` directory.
+`VESPERWIND_ONEDRIVE_CANCEL_FIRST` tests cancellation/retry, and
+`VESPERWIND_ONEDRIVE_MODIFY_FIXTURE` modifies only the disposable text fixture.
+Keep paths, logs and machine-specific reports under ignored `target/local-checks`.
+
+See Microsoft's [placeholder states](https://learn.microsoft.com/windows/win32/api/cfapi/ne-cfapi-cf_placeholder_state),
+[sync root IDs](https://learn.microsoft.com/uwp/api/windows.storage.provider.storageprovidersyncrootinfo.id),
+[placeholder compatibility mode](https://learn.microsoft.com/windows-hardware/drivers/ddi/ntifs/nf-ntifs-rtlsetthreadplaceholdercompatibilitymode),
+and [hydration API](https://learn.microsoft.com/windows/win32/api/cfapi/nf-cfapi-cfhydrateplaceholder).
+The macOS/iCloud contract below is preserved; this Windows run is not native Mac acceptance.
+
 ## iCloud badges in file panels
 
 Native macOS local listings expose optional `contentAvailability` metadata:
 `{"state":"cloud"}`, `{"state":"materializing","progress":0.42}`, or
-`{"state":"failed"}`. Ready files omit the field. A cloud download icon beside
-the name means content is absent locally; cloud sync indicates an active download,
+`{"state":"failed"}`. Ready files omit the field. A small muted cloud download
+icon in the status column means content is absent locally; cloud sync indicates an active download,
 and cloud alert indicates a download or inspection failure. Progress appears only
 when Foundation supplies a finite value. The main file-type icon stays intact.
 
@@ -30,9 +112,10 @@ after the last FSEvents notification. This single coalesced refresh removes stal
 badges in panels and compact editor trees. There is no per-row polling. Foundation
 keys may be missing: dataless remains strong fallback evidence, while ambiguous
 ubiquitous metadata without dataless produces no badge (unknown, not verified ready).
-An inspection error without absence evidence displays the alert badge. This is
-currently macOS/iCloud-specific; Windows, Linux, SFTP and browser/Node listings
-omit availability and do not infer it from names or paths.
+An inspection error without absence evidence displays the alert badge. This
+section describes macOS/iCloud; native Windows OneDrive support is described
+below. Linux, SFTP and browser/Node listings omit cloud metadata and do not infer
+it from names or paths.
 
 For opt-in passive native diagnostics, run the ignored
 `diagnose_passive_directory_listing` Rust test with

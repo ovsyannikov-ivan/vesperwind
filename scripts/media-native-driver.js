@@ -21,21 +21,24 @@
     if (value.stage === 'player.open') opens.push(value)
     void post('trace', { label, ...value }).catch(() => {})
   }
-  // Opt-in, read-only instrumentation for real iCloud badge acceptance. It is
+  // Opt-in, read-only instrumentation for real iCloud/OneDrive badge acceptance. It is
   // injected only into the debug regression WebView, never production listings.
   const availabilityDirectory = window.__MEDIA_PROBE_CONFIG__.availabilityDirectory
+  const availabilityRows = () => !availabilityDirectory ? [] : [...document.querySelectorAll('.tree-row[data-file-path]')]
+    .filter(row => row.dataset.filePath.replaceAll('\\', '/').startsWith(`${availabilityDirectory.replaceAll('\\', '/')}/`))
+    .map(row => {
+      const badges = [...row.querySelectorAll('.tree-content-badge')].map(badge => ({
+        icon: badge.className, label: badge.getAttribute('aria-label'),
+      }))
+      return { path: row.dataset.filePath, panel: row.closest('.file-panel')?.getAttribute('aria-label'),
+        badge: badges[0]?.icon || null, label: badges[0]?.label || null, badges, height: row.getBoundingClientRect().height }
+    })
   if (label === 'main' && availabilityDirectory) {
     let previous = ''
     let queued = false
     const recordAvailability = () => {
       queued = false
-      const rows = [...document.querySelectorAll('.tree-row[data-file-path]')]
-        .filter(row => row.dataset.filePath.startsWith(`${availabilityDirectory}/`))
-        .map(row => {
-          const badge = row.querySelector('.tree-content-badge')
-          return { path: row.dataset.filePath, badge: badge?.className || null,
-            label: badge?.getAttribute('aria-label') || null, height: row.getBoundingClientRect().height }
-        })
+      const rows = availabilityRows()
       const signature = JSON.stringify(rows)
       if (rows.length && signature !== previous) {
         previous = signature
@@ -181,6 +184,7 @@
       return { seekedTo: seeked.currentTime, statusAfterSeek: seeked.status, fullscreenStatus, resumed, closeRequested: true }
     },
     panels: () => panels(),
+    availability: () => availabilityRows(),
     waitClosedVideo: async () => { await wait(() => !document.body.classList.contains('modal-open')); return true },
     closeVideo: () => { document.querySelector('.media-overlay-header button[title="Close"], .media-overlay-header button[aria-label="Close"]')?.click(); return true },
     audio: async ({ path, quick = false }) => {

@@ -7,6 +7,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[cfg(any(target_os = "windows", test))]
+pub(crate) mod onedrive;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum AvailabilityState {
@@ -17,16 +20,41 @@ pub enum AvailabilityState {
 
 /// A passive representation of local content availability, not sync/upload status.
 /// Ready and unknown are omitted from listings; neither is a cloud-only claim.
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[derive(Debug, Serialize)]
+pub struct ContentAvailability {
+    #[serde(flatten)]
+    status: ContentAvailabilityStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provider: Option<&'static str>,
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 #[derive(Debug, Serialize)]
 #[serde(tag = "state", rename_all = "camelCase")]
-pub enum ContentAvailability {
+enum ContentAvailabilityStatus {
     Cloud,
     Materializing {
         #[serde(skip_serializing_if = "Option::is_none")]
         progress: Option<f64>,
     },
     Failed,
+    #[cfg(any(target_os = "windows", test))]
+    NotReady,
+}
+
+#[cfg(target_os = "windows")]
+impl ContentAvailability {
+    pub(crate) fn mark_onedrive_materializing(&mut self, progress: Option<f64>) {
+        if self.provider == Some("onedrive")
+            && matches!(
+                self.status,
+                ContentAvailabilityStatus::Cloud | ContentAvailabilityStatus::NotReady
+            )
+        {
+            self.status = ContentAvailabilityStatus::Materializing { progress };
+        }
+    }
 }
 
 #[cfg(any(target_os = "macos", test))]
@@ -34,9 +62,18 @@ impl ContentAvailability {
     fn from_inspection(inspection: Inspection) -> Option<Self> {
         match inspection {
             Inspection::Ready | Inspection::Unknown { .. } => None,
-            Inspection::NotAvailable { .. } => Some(Self::Cloud),
-            Inspection::Materializing { progress, .. } => Some(Self::Materializing { progress }),
-            Inspection::Failed(_) => Some(Self::Failed),
+            Inspection::NotAvailable { .. } => Some(Self {
+                status: ContentAvailabilityStatus::Cloud,
+                provider: None,
+            }),
+            Inspection::Materializing { progress, .. } => Some(Self {
+                status: ContentAvailabilityStatus::Materializing { progress },
+                provider: None,
+            }),
+            Inspection::Failed(_) => Some(Self {
+                status: ContentAvailabilityStatus::Failed,
+                provider: None,
+            }),
         }
     }
 }
@@ -148,6 +185,8 @@ pub(crate) enum PrepareOnce {
         path: PathBuf,
         progress: Option<f64>,
         activity_marker: Option<u64>,
+        #[cfg(target_os = "windows")]
+        hydration: Option<std::sync::Arc<onedrive::native::Hydration>>,
     },
 }
 
@@ -204,12 +243,21 @@ pub(crate) fn prepare_once(
                 path: real,
                 progress,
                 activity_marker,
+                #[cfg(target_os = "windows")]
+                hydration: None,
             })
         }
         Inspection::NotAvailable {
             progress,
             activity_marker,
         } => {
+            #[cfg(target_os = "windows")]
+            let hydration = if request_materialization {
+                Some(onedrive::native::Hydration::start(&real)?)
+            } else {
+                None
+            };
+            #[cfg(not(target_os = "windows"))]
             if request_materialization {
                 request_download(&real)?;
             }
@@ -224,6 +272,8 @@ pub(crate) fn prepare_once(
                 path: real,
                 progress,
                 activity_marker,
+                #[cfg(target_os = "windows")]
+                hydration,
             })
         }
         Inspection::Failed(error) => {
@@ -248,16 +298,35 @@ pub fn require_content_ready(
 ) -> Result<PathBuf, NativeError> {
     match prepare_once(filesystem, provider_id, requested, true)? {
         PrepareOnce::Ready(path) => Ok(path),
-        PrepareOnce::Materializing { path, .. } => Err(NativeError::new(
-            "ECONTENT_MATERIALIZING",
-            "This file is still being prepared. Try again when preparation completes.",
-        )
-        .with_path(path)),
+        PrepareOnce::Materializing {
+            path,
+            #[cfg(target_os = "windows")]
+            hydration,
+            ..
+        } => {
+            #[cfg(target_os = "windows")]
+            if let Some(hydration) = hydration {
+                hydration.wait()?;
+                if matches!(inspect(&path)?, Inspection::Ready) {
+                    return Ok(path);
+                }
+            }
+            Err(NativeError::new(
+                "ECONTENT_MATERIALIZING",
+                "This file is still being prepared. Try again when preparation completes.",
+            )
+            .with_path(path))
+        }
     }
 }
 
 fn inspect(path: &Path) -> Result<Inspection, NativeError> {
     let metadata = fs::metadata(path).map_err(|error| availability_io_error(&error, path))?;
+
+    #[cfg(target_os = "windows")]
+    if let Some(inspection) = onedrive::native::inspect_preparing(path, &metadata)? {
+        return Ok(inspection);
+    }
 
     #[cfg(target_os = "macos")]
     match macos::inspect(path, &metadata, InspectionMode::Preparing) {
@@ -293,7 +362,7 @@ fn request_download(path: &Path) -> Result<(), NativeError> {
     macos::request_download(path)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn request_download(path: &Path) -> Result<(), NativeError> {
     Err(NativeError::new(
         "ECLOUD_NOT_LOCAL",
@@ -958,18 +1027,41 @@ mod tests {
         let filesystem = Filesystem::from_root(root, root.to_path_buf()).unwrap();
         let started = std::time::Instant::now();
         let mut request = true;
+        #[cfg(target_os = "windows")]
+        let mut hydration_request: Option<
+            std::sync::Arc<super::onedrive::native::Hydration>,
+        > = None;
         loop {
+            #[cfg(target_os = "windows")]
+            if let Some(hydration) = &hydration_request {
+                hydration.status().unwrap();
+            }
             let outcome = prepare_once(&filesystem, Some("local"), &path, request).unwrap();
             request = false;
             match outcome {
                 PrepareOnce::Ready(_) => {
+                    #[cfg(target_os = "windows")]
+                    if let Some(hydration) = &hydration_request {
+                        hydration.wait().unwrap();
+                    }
                     eprintln!(
                         "diagnostic_result=READY elapsed_ms={}",
                         started.elapsed().as_millis()
                     );
                     break;
                 }
-                PrepareOnce::Materializing { progress, .. } => {
+                PrepareOnce::Materializing {
+                    progress,
+                    #[cfg(target_os = "windows")]
+                    hydration,
+                    ..
+                } => {
+                    #[cfg(target_os = "windows")]
+                    if hydration.is_some() {
+                        // Keep native I/O alive across this opt-in diagnostic's
+                        // polling iterations, just as ContentManager does.
+                        hydration_request = hydration;
+                    }
                     eprintln!("diagnostic_result=MATERIALIZING progress={progress:?}");
                 }
             }
