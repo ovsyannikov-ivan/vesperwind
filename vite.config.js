@@ -1,13 +1,25 @@
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import { fileURLToPath, URL } from "node:url";
+import fs from "node:fs/promises";
 
 const ignoredClientDirectivePackages = ["/node_modules/@radix-ui/", "/node_modules/cmdk/", "/node_modules/sonner/"];
 
 const ignoreClientDirectiveWarning = (warning) => warning.code === "MODULE_LEVEL_DIRECTIVE" && warning.message.includes('"use client"') && ignoredClientDirectivePackages.some((path) => warning.id?.includes(path));
 
 export default defineConfig({
+	worker: { format: "es" },
 	plugins: [
+		{
+			name: "vesperwind-editor-notices",
+			async generateBundle() {
+				const directory = new URL("./src/editor/themes/licenses/", import.meta.url);
+				for (const name of await fs.readdir(directory)) {
+					this.emitFile({ type: "asset", fileName: `editor-notices/${name}`, source: await fs.readFile(new URL(name, directory), "utf8") });
+				}
+				this.emitFile({ type: "asset", fileName: "editor-notices/THIRD-PARTY-NOTICES.md", source: await fs.readFile(new URL("./src/editor/themes/THIRD-PARTY-NOTICES.md", import.meta.url), "utf8") });
+			},
+		},
 		vue({
 			template: {
 				compilerOptions: {

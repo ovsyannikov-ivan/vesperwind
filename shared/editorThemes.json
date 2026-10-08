@@ -1,0 +1,92 @@
+[
+  {
+    "id": "auto",
+    "name": "Follow application theme",
+    "type": "auto"
+  },
+  {
+    "id": "vesperwind-dark-2026",
+    "name": "Vesperwind Dark 2026",
+    "type": "dark"
+  },
+  {
+    "id": "one-dark-pro",
+    "name": "One Dark Pro",
+    "type": "dark"
+  },
+  {
+    "id": "dracula",
+    "name": "Dracula",
+    "type": "dark"
+  },
+  {
+    "id": "nord",
+    "name": "Nord",
+    "type": "dark"
+  },
+  {
+    "id": "night-owl",
+    "name": "Night Owl",
+    "type": "dark"
+  },
+  {
+    "id": "monokai",
+    "name": "Monokai",
+    "type": "dark"
+  },
+  {
+    "id": "monokai-bright",
+    "name": "Monokai Bright",
+    "type": "dark"
+  },
+  {
+    "id": "github-dark",
+    "name": "GitHub Dark",
+    "type": "dark"
+  },
+  {
+    "id": "github-light",
+    "name": "GitHub Light",
+    "type": "light"
+  },
+  {
+    "id": "solarized-dark",
+    "name": "Solarized Dark",
+    "type": "dark"
+  },
+  {
+    "id": "solarized-light",
+    "name": "Solarized Light",
+    "type": "light"
+  },
+  {
+    "id": "oceanic-next",
+    "name": "Oceanic Next",
+    "type": "dark"
+  },
+  {
+    "id": "cobalt2",
+    "name": "Cobalt2",
+    "type": "dark"
+  },
+  {
+    "id": "tomorrow-night",
+    "name": "Tomorrow Night",
+    "type": "dark"
+  },
+  {
+    "id": "tomorrow-night-eighties",
+    "name": "Tomorrow Night Eighties",
+    "type": "dark"
+  },
+  {
+    "id": "zenburn",
+    "name": "Zenburnesque",
+    "type": "dark"
+  },
+  {
+    "id": "xcode-default",
+    "name": "Xcode Default",
+    "type": "light"
+  }
+]

@@ -5,6 +5,8 @@ import { useTextFiles } from './useTextFiles.js'
 import { media } from '../api/media.js'
 import { getDocumentHandler } from '../editor/documentHandlers.js'
 import { filesystem } from '../api/filesystem.js'
+import { settings } from './settingsState.js'
+import { prepareTextSave } from '../editor/formatting/saveFormatting.js'
 
 const tabs = ref([])
 const activeTabId = ref(null)
@@ -173,7 +175,7 @@ export const useEditorWorkspace = () => {
     const tab = tabs.value.find((candidate) => candidate.id === tabId)
 
     const handler = tab && getDocumentHandler(tab.type)
-    if (!handler?.save || tab.loading || tab.saving || tab.error) {
+    if (!handler?.save || tab.loading || tab.saving || tab.formatting || tab.error) {
       return { ok: false, error: tab?.error || { message: 'No file to save' } }
     }
 
@@ -185,19 +187,30 @@ export const useEditorWorkspace = () => {
       return { ok: false, error: { code: 'EINVALID_EXTENSION', message: 'Word documents must be saved as .docx' } }
     }
 
-    const contentBeingSaved = tab.content
+    let contentBeingSaved
     tab.saving = true
     tab.saveError = null
     let response
     let created = false
 
     try {
+      const formatted = await prepareTextSave(tab, destination, settings.value.editor.formatting)
+      if (formatted) {
+        tab.content = formatted.content
+        tab.dirty = tab.content !== tab.savedContent
+      }
+      contentBeingSaved = tab.content
+      const serialized = formatted?.serialized ?? (tab.type === 'text' && tab.formattingEol === 'cr'
+        ? contentBeingSaved.replace(/\r\n|\r|\n/g, '\r') : null)
       if (destination) {
         const createdResponse = await filesystem.createFile({ providerId: destination.providerId, path: destination.directoryPath }, destination.name)
         if (!createdResponse.ok) return createdResponse
         created = true
       }
-      response = await handler.save(tab, { writeTextFile, destination })
+      response = await handler.save(tab, {
+        writeTextFile: serialized !== null ? (path, _content, providerId) => writeTextFile(path, serialized, providerId) : writeTextFile,
+        destination,
+      })
     } catch (error) {
       response = {
         ok: false,
@@ -222,6 +235,7 @@ export const useEditorWorkspace = () => {
       tab.filesystemId = destination.providerId
       tab.filePath = destination.path
       tab.fileName = destination.name
+      if (tab.type === 'text') tab.language = getEditorLanguage(destination.name)
       tab.importedFrom = null
       tab.sourceRootPath = destination.directoryPath
       tab.sourceRootName = destination.directoryPath.split(/[\\/]/).at(-1) || destination.directoryPath
@@ -248,6 +262,7 @@ export const useEditorWorkspace = () => {
       return
     }
 
+    if (tabs.value[index].saving || tabs.value[index].formatting) return
     preparationControllers.get(tabId)?.abort()
     preparationControllers.delete(tabId)
 

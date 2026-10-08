@@ -18,3 +18,15 @@ export const onNativeOpenSettings = (callback) => {
     unlisten?.()
   }
 }
+
+export const installNativeEditHistory = () => {
+  if (!isTauriRuntime()) return () => {}
+  let disposed = false, unlisten
+  void listen('vesperwind:edit-history', ({ payload }) => {
+    if (!document.hasFocus()) return
+    if (!['undo', 'redo'].includes(payload)) return
+    const event = new CustomEvent('vesperwind:native-edit-history', { detail: payload, cancelable: true })
+    if (window.dispatchEvent(event)) document.execCommand(payload)
+  }).then((stop) => { if (disposed) stop(); else unlisten = stop }).catch(() => {})
+  return () => { disposed = true; unlisten?.() }
+}

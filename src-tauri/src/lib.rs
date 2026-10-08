@@ -153,11 +153,53 @@ pub fn run() {
                 app_menu.insert(&settings, 2)?;
                 app_menu.insert(&PredefinedMenuItem::separator(app)?, 3)?;
             }
+            // WebKit's native Undo stack does not include Monaco model edits.
+            // Route these two commands to the focused web editor, with the
+            // frontend retaining native DOM undo for ordinary input controls.
+            #[cfg(target_os = "macos")]
+            for item in menu.items()? {
+                if let MenuItemKind::Submenu(edit_menu) = item {
+                    if edit_menu.text()? == "Edit" {
+                        let entries = edit_menu.items()?;
+                        for entry in entries.iter().take(2) {
+                            edit_menu.remove(entry)?;
+                        }
+                        edit_menu.insert(
+                            &MenuItem::with_id(
+                                app,
+                                "editor-undo",
+                                "Undo",
+                                true,
+                                Some("CmdOrCtrl+Z"),
+                            )?,
+                            0,
+                        )?;
+                        edit_menu.insert(
+                            &MenuItem::with_id(
+                                app,
+                                "editor-redo",
+                                "Redo",
+                                true,
+                                Some("CmdOrCtrl+Shift+Z"),
+                            )?,
+                            1,
+                        )?;
+                    }
+                }
+            }
             Ok(menu)
         })
         .on_menu_event(|app, event| {
             if event.id() == "open-settings" {
                 let _ = app.emit("vesperwind:open-settings", ());
+            }
+            if event.id() == "editor-undo" || event.id() == "editor-redo" {
+                let action = if event.id() == "editor-undo" {
+                    "undo"
+                } else {
+                    "redo"
+                };
+                let _ = app.emit("vesperwind:edit-history", action);
             }
         });
 

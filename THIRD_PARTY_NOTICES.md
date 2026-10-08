@@ -101,3 +101,11 @@ Regular retains its embedded copyright and OFL-1.1 text. See
 
 Browser/SEA DOC/RTF conversion remains an optional separately installed local
 LibreOffice capability. It is not a native Tauri fallback.
+
+## Bundled Monaco themes and Prettier
+
+The curated editor themes, their pinned source revisions, individual upstream
+licenses and notices are recorded in `src/editor/themes/THIRD-PARTY-NOTICES.md`,
+`SOURCES.json` and `licenses/`. Vite includes these texts in `editor-notices/`
+in every frontend distribution. Prettier 3.9.9 uses MIT and ships its standard
+plugins offline; users do not need a global or project installation.

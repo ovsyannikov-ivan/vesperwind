@@ -5,19 +5,15 @@ import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import '../editor/monacoEnvironment.js'
 import { registerEditorLanguages } from '../editor/languages.js'
 import { registerEnrichedLanguages } from '../editor/enrichedLanguages.js'
-import {
-  dark2026Theme,
-  VESPERWIND_DARK_2026_THEME_ID,
-} from '../editor/themes/dark2026.js'
-import { htmlTokenRules } from '../editor/themes/htmlTokens.js'
-import { monarchTokenRules } from '../editor/themes/monarchTokens.js'
+import { useSettings } from '../composables/useSettings.js'
+import { applyEditorTheme } from '../editor/themes/registry.js'
+import { getFormattingParser, FORMATTING_LANGUAGES } from '../editor/formatting/parsers.js'
+import { formatInWorker } from '../editor/formatting/client.js'
+import { applyFormattedText, replacementEdit } from '../editor/formatting/modelEdits.js'
+import { registerSaveFormatter } from '../editor/formatting/saveFormatting.js'
 
 registerEditorLanguages(monaco)
 registerEnrichedLanguages(monaco)
-monaco.editor.defineTheme(VESPERWIND_DARK_2026_THEME_ID, {
-  ...dark2026Theme,
-  rules: [...dark2026Theme.rules, ...htmlTokenRules, ...monarchTokenRules],
-})
 
 const props = defineProps({
   activeTab: {
@@ -37,16 +33,18 @@ const props = defineProps({
 const emit = defineEmits(['change', 'history-state', 'status-change'])
 const container = ref(null)
 const models = new Map()
+const { settings } = useSettings()
+const disposables = []
+let unregisterFormatter
+let themeSequence = 0
+let formatterContext
 let editor = null
 let resizeObserver = null
 let contentSubscription = null
 let cursorSubscription = null
 let optionsSubscription = null
 
-const currentTheme = () =>
-  document.documentElement.dataset.bsTheme === 'light'
-    ? 'vs'
-    : VESPERWIND_DARK_2026_THEME_ID
+const currentTheme = () => document.documentElement.dataset.bsTheme === 'light' ? 'vs' : 'vs-dark'
 
 const modelUri = (tab) =>
   monaco.Uri.from({
@@ -82,12 +80,13 @@ const syncActiveTab = async () => {
   const tab = props.activeTab
   const model = getOrCreateModel(tab)
   editor.setModel(model)
-  editor.updateOptions({ readOnly: Boolean(tab?.loading || tab?.saving) })
+  editor.updateOptions({ readOnly: Boolean(tab?.loading || tab?.saving || tab?.formatting) })
 
   if (model && model.getValue() !== tab.content) {
     model.setValue(tab.content)
   }
 
+  formatterContext?.set(Boolean(tab && getFormattingParser(tab.fileName)))
   emitHistoryState()
   emitStatus()
 
@@ -109,8 +108,10 @@ const disposeClosedModels = () => {
   }
 }
 
-const handleThemeChange = () => {
-  monaco.editor.setTheme(currentTheme())
+const handleThemeChange = async () => {
+  const sequence = ++themeSequence
+  await applyEditorTheme(monaco, settings.value.editor.theme,
+    document.documentElement.dataset.bsTheme, () => sequence === themeSequence && Boolean(editor))
 }
 
 const emitHistoryState = () => {
@@ -136,6 +137,67 @@ const emitStatus = () => {
     insertSpaces: options?.insertSpaces ?? true,
     eol: model?.getEOL() === '\r\n' ? 'CRLF' : 'LF',
   })
+}
+
+const requestFormatting = async (tab, fileName, options, cancellation) => {
+  const model = getOrCreateModel(tab)
+  if (!model) throw Object.assign(new Error('Formatting failed: document is unavailable'), { code: 'EFORMAT' })
+  const version = model.getVersionId()
+  const active = editor?.getModel() === model
+  const cursorOffset = active ? model.getOffsetAt(editor.getPosition()) : -1
+  const result = await formatInWorker({ text: model.getValue(), fileName,
+    settings: { ...options }, cursorOffset })
+  if (cancellation?.isCancellationRequested || model.isDisposed() ||
+      version !== model.getVersionId() || !props.tabs.some((item) => item.id === tab.id)) {
+    throw Object.assign(new Error('Formatting cancelled: document changed or closed'), { code: 'EFORMAT_CANCELLED' })
+  }
+  return { model, result }
+}
+
+const formatTabForSave = async (tab, fileName, options) => {
+  const { model, result } = await requestFormatting(tab, fileName, options)
+  const content = applyFormattedText(model, result, editor, monaco)
+  // Monaco represents bare CR internally as LF; retain the disk serialization.
+  tab.formattingEol = result.text.includes('\r') && !result.text.includes('\n') ? 'cr' : null
+  emit('change', tab.id, content)
+  emitHistoryState(); emitStatus()
+  return { content, serialized: result.text }
+}
+
+const formatDocument = async () => {
+  const tab = props.activeTab
+  if (!tab || tab.saving || tab.formatting || !getFormattingParser(tab.fileName)) return
+  tab.formatting = true; tab.saveError = null
+  try { await formatTabForSave(tab, tab.fileName, settings.value.editor.formatting) }
+  catch (error) { tab.saveError = { code: error.code || 'EFORMAT', message: error.message } }
+  finally { tab.formatting = false; editor?.focus() }
+}
+
+const registerFormatters = () => {
+  formatterContext = editor.createContextKey('vesperwindPrettier', false)
+  disposables.push(editor.addAction({ id: 'vesperwind.formatDocument', label: 'Format Document (Prettier)',
+    keybindings: [monaco.KeyMod.Alt | monaco.KeyMod.Shift | monaco.KeyCode.KeyF],
+    precondition: 'vesperwindPrettier && !editorReadonly', contextMenuGroupId: '1_modification',
+    contextMenuOrder: 1.3, run: formatDocument }))
+  for (const language of FORMATTING_LANGUAGES) {
+    disposables.push(monaco.languages.registerDocumentFormattingEditProvider(language, {
+      displayName: 'Prettier',
+      async provideDocumentFormattingEdits(model, _options, cancellation) {
+        const tab = props.tabs.find((item) => models.get(item.id) === model)
+        if (!tab || tab.saving || tab.formatting || !getFormattingParser(tab.fileName)) return []
+        tab.formatting = true; tab.saveError = null
+        try {
+          const { result } = await requestFormatting(tab, tab.fileName, settings.value.editor.formatting, cancellation)
+          const text = result.text.replace(/\r\n|\r|\n/g, model.getEOL())
+          tab.formattingEol = result.text.includes('\r') && !result.text.includes('\n') ? 'cr' : null
+          const edit = replacementEdit(model, text)
+          return edit ? [edit] : []
+        } catch (error) { tab.saveError = { code: error.code || 'EFORMAT', message: error.message }; return [] }
+        finally { tab.formatting = false }
+      },
+    }))
+  }
+  unregisterFormatter = registerSaveFormatter(formatTabForSave)
 }
 
 const setIndentation = (options) => {
@@ -167,6 +229,11 @@ const runCommand = (command) => {
 
 const undo = () => runCommand('undo')
 const redo = () => runCommand('redo')
+const handleNativeHistory = (event) => {
+  if (!props.visible || !editor?.hasTextFocus()) return
+  event.preventDefault()
+  if (!props.activeTab?.saving && !props.activeTab?.formatting) runCommand(event.detail)
+}
 
 const runFindAction = async (...actionIds) => {
   if (!editor?.getModel()) {
@@ -217,6 +284,7 @@ defineExpose({
   findPrevious,
   setIndentation,
   detectIndentation,
+  formatDocument,
 })
 
 onMounted(() => {
@@ -232,6 +300,8 @@ onMounted(() => {
     tabSize: 2,
     theme: currentTheme(),
   })
+  registerFormatters()
+  handleThemeChange()
   contentSubscription = editor.onDidChangeModelContent(() => {
     if (props.activeTab && editor.getModel()) {
       emit('change', props.activeTab.id, editor.getValue())
@@ -243,6 +313,7 @@ onMounted(() => {
   resizeObserver = new ResizeObserver(() => editor?.layout())
   resizeObserver.observe(container.value)
   window.addEventListener('vesperwind:theme-changed', handleThemeChange)
+  window.addEventListener('vesperwind:native-edit-history', handleNativeHistory)
   syncActiveTab()
 })
 
@@ -251,6 +322,8 @@ watch(
     props.activeTab?.id,
     props.activeTab?.loading,
     props.activeTab?.saving,
+    props.activeTab?.formatting,
+    props.activeTab?.fileName,
     props.activeTab?.language,
     props.visible,
   ],
@@ -262,8 +335,14 @@ watch(
   disposeClosedModels,
 )
 
+watch(() => settings.value.editor.theme, handleThemeChange)
+
 onBeforeUnmount(() => {
+  themeSequence++
+  unregisterFormatter?.()
+  for (const item of disposables) item.dispose()
   window.removeEventListener('vesperwind:theme-changed', handleThemeChange)
+  window.removeEventListener('vesperwind:native-edit-history', handleNativeHistory)
   resizeObserver?.disconnect()
   contentSubscription?.dispose()
   cursorSubscription?.dispose()

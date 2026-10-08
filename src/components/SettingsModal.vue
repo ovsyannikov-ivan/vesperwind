@@ -3,6 +3,8 @@ import Modal from "bootstrap/js/dist/modal";
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useSettings } from "../composables/useSettings.js";
 import { useTheme } from "../composables/useTheme.js";
+import { editorThemes } from "../editor/themes/registry.js";
+import { DEFAULT_FORMATTING } from "../../shared/editorFormatting.js";
 import { parseEditableFilesText } from "../utils/editableFiles.js";
 
 const props = defineProps({
@@ -21,12 +23,17 @@ const theme = ref("system");
 const locale = ref("");
 const suffixesText = ref("");
 const editableFilesText = ref("");
+const editorTheme = ref("auto");
+const formatting = ref({ ...DEFAULT_FORMATTING });
+const formattingCheckboxes = [{ key: "formatOnSave", label: "Format on save" }, { key: "useTabs", label: "Use tabs" }, { key: "semi", label: "Semicolons" }, { key: "singleQuote", label: "Single quotes" }, { key: "bracketSpacing", label: "Bracket spacing" }];
 const loading = ref(false);
 const saving = ref(false);
 const errorMessage = ref("");
 let modal = null;
 
 const syncDraft = () => {
+	editorTheme.value = settings.value.editor.theme;
+	formatting.value = { ...settings.value.editor.formatting };
 	theme.value = settings.value.appearance.theme;
 	locale.value = settings.value.appearance.locale;
 	suffixesText.value = settings.value.filesystem.hiddenNameSuffixes.join("\n");
@@ -94,6 +101,8 @@ const save = async () => {
 		},
 		editor: {
 			...settings.value.editor,
+			theme: editorTheme.value,
+			formatting: { ...formatting.value },
 			editableFiles,
 		},
 	});
@@ -234,10 +243,48 @@ onBeforeUnmount(() => {
 									</section>
 
 									<section class="settings-panel" :class="{ 'is-active': activeSection === 'editor' }" :aria-hidden="activeSection !== 'editor'" :inert="activeSection !== 'editor'">
-										<h2 class="h6 mb-1">Editor</h2>
-										<p class="text-body-secondary mb-4">Choose which files open in the Monaco text editor.</p>
-
-										<label class="form-label" for="editable-files"> Editable files </label>
+										<h2 class="h6 mb-2">Editor appearance</h2>
+                                        <label class="form-label" for="editor-theme">Theme</label>
+                                        <select id="editor-theme" v-model="editorTheme" class="form-select form-select-sm">
+                                            <option v-for="item in editorThemes" :key="item.id" :value="item.id">{{ item.name }}</option>
+                                        </select>
+                                        <div class="form-text">Applies to Monaco only. Themes are available offline.</div>
+                                        <hr class="my-3" />
+                                        <h2 class="h6 mb-2">Formatting</h2>
+                                        <div class="row g-2 mb-3">
+                                            <div v-for="item in formattingCheckboxes" :key="item.key" class="col-sm-6">
+                                                <div class="form-check">
+                                                    <input :id="`formatting-${item.key}`" v-model="formatting[item.key]" class="form-check-input" type="checkbox" />
+                                                    <label class="form-check-label" :for="`formatting-${item.key}`">{{ item.label }}</label>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="row g-2">
+                                            <div class="col-sm-6">
+                                                <label class="form-label" for="formatting-print-width">Print width</label>
+                                                <input id="formatting-print-width" v-model.number="formatting.printWidth" class="form-control form-control-sm" type="number" min="40" max="300" step="1" />
+                                            </div>
+                                            <div class="col-sm-6">
+                                                <label class="form-label" for="formatting-tab-width">Tab width</label>
+                                                <input id="formatting-tab-width" v-model.number="formatting.tabWidth" class="form-control form-control-sm" type="number" min="1" max="8" step="1" />
+                                            </div>
+                                            <div class="col-sm-6">
+                                                <label class="form-label" for="formatting-trailing-comma">Trailing commas</label>
+                                                <select id="formatting-trailing-comma" v-model="formatting.trailingComma" class="form-select form-select-sm"><option value="all">All</option><option value="es5">ES5</option><option value="none">None</option></select>
+                                            </div>
+                                            <div class="col-sm-6">
+                                                <label class="form-label" for="formatting-arrow-parens">Arrow parentheses</label>
+                                                <select id="formatting-arrow-parens" v-model="formatting.arrowParens" class="form-select form-select-sm"><option value="always">Always</option><option value="avoid">Avoid</option></select>
+                                            </div>
+                                            <div class="col-sm-6">
+                                                <label class="form-label" for="formatting-eol">End of line</label>
+                                                <select id="formatting-eol" v-model="formatting.endOfLine" class="form-select form-select-sm"><option value="auto">Auto</option><option value="lf">LF</option><option value="crlf">CRLF</option><option value="cr">CR</option></select>
+                                            </div>
+                                        </div>
+                                        <div class="form-text">Prettier options are independent of Monaco indentation controls. A formatting error cancels saving.</div>
+                                        <hr class="my-3" />
+                                        <h2 class="h6 mb-2">Editable files</h2>
+                                        <label class="form-label" for="editable-files"> Editable files </label>
 										<textarea
 											id="editable-files"
 											v-model="editableFilesText"

@@ -8,7 +8,7 @@ use std::{
 };
 use uuid::Uuid;
 
-const SETTINGS_VERSION: u64 = 6;
+const SETTINGS_VERSION: u64 = 7;
 const EDITOR_FORMATS_V6: &[&str] = &[
     ".jsx",
     ".tsx",
@@ -234,7 +234,7 @@ fn default_settings() -> Value {
         "version": SETTINGS_VERSION,
         "appearance": { "theme": "system", "locale": "" },
         "filesystem": { "hiddenNameSuffixes": [".localized"] },
-        "editor": { "editableFiles": DEFAULT_EDITABLE_FILES },
+        "editor": { "theme": "auto", "formatting": default_formatting(), "editableFiles": DEFAULT_EDITABLE_FILES },
         "connections": [],
     })
 }
@@ -270,10 +270,66 @@ fn normalize_settings(value: &Value) -> Value {
             )
         },
         "editor": {
+            "theme": normalize_editor_theme(value.pointer("/editor/theme")),
+            "formatting": normalize_formatting(value.pointer("/editor/formatting")),
             "editableFiles": normalize_editable_files(value)
         },
         "connections": normalize_connections(value.get("connections")),
     })
+}
+
+fn default_formatting() -> Value {
+    json!({ "formatOnSave": false, "printWidth": 100, "tabWidth": 2, "useTabs": false,
+        "semi": true, "singleQuote": false, "bracketSpacing": true, "trailingComma": "all",
+        "arrowParens": "always", "endOfLine": "auto" })
+}
+
+fn normalize_editor_theme(value: Option<&Value>) -> String {
+    let id = value.and_then(Value::as_str).unwrap_or("auto");
+    let catalog: Value = serde_json::from_str(include_str!("../../../shared/editorThemes.json"))
+        .expect("bundled editor theme catalog is valid JSON");
+    if catalog
+        .as_array()
+        .is_some_and(|items| items.iter().any(|item| item["id"] == id))
+    {
+        id.to_owned()
+    } else {
+        "auto".to_owned()
+    }
+}
+
+fn normalize_formatting(value: Option<&Value>) -> Value {
+    let mut result = default_formatting();
+    for key in [
+        "formatOnSave",
+        "useTabs",
+        "semi",
+        "singleQuote",
+        "bracketSpacing",
+    ] {
+        if let Some(candidate) = value.and_then(|v| v.get(key)).and_then(Value::as_bool) {
+            result[key] = json!(candidate);
+        }
+    }
+    for (key, min, max) in [("printWidth", 40, 300), ("tabWidth", 1, 8)] {
+        if let Some(candidate) = value.and_then(|v| v.get(key)).and_then(Value::as_u64) {
+            if (min..=max).contains(&candidate) {
+                result[key] = json!(candidate);
+            }
+        }
+    }
+    for (key, allowed) in [
+        ("trailingComma", &["all", "es5", "none"][..]),
+        ("arrowParens", &["always", "avoid"][..]),
+        ("endOfLine", &["lf", "crlf", "cr", "auto"][..]),
+    ] {
+        if let Some(candidate) = value.and_then(|v| v.get(key)).and_then(Value::as_str) {
+            if allowed.contains(&candidate) {
+                result[key] = json!(candidate);
+            }
+        }
+    }
+    result
 }
 
 fn normalize_editable_files(value: &Value) -> Vec<String> {
@@ -284,7 +340,7 @@ fn normalize_editable_files(value: &Value) -> Vec<String> {
         true,
     );
     let version = value.get("version").and_then(Value::as_u64);
-    if version.is_some_and(|version| version < SETTINGS_VERSION) {
+    if version.is_some_and(|version| version < 6) {
         let mut seen: HashSet<String> = files.iter().map(|item| item.to_lowercase()).collect();
         for item in EDITOR_FORMATS_V6 {
             if seen.insert(item.to_lowercase()) {
@@ -362,7 +418,7 @@ fn settings_io_error(error: std::io::Error) -> NativeError {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_settings;
+    use super::{default_settings, normalize_settings, SettingsStore};
     use serde_json::json;
 
     #[test]
@@ -378,5 +434,76 @@ mod tests {
             json!([".CACHE"])
         );
         assert_eq!(result["editor"]["editableFiles"], json!([".js", ".Vue"]));
+    }
+
+    #[test]
+    fn editor_formatting_and_themes_are_validated_without_changing_v6_file_choices() {
+        let defaults = default_settings();
+        assert_eq!(defaults["editor"]["theme"], "auto");
+        let result = normalize_settings(&json!({ "version": 6, "editor": {
+            "theme": "one-dark-pro", "editableFiles": [".js"], "formatting": {
+                "formatOnSave": true, "printWidth": 301, "tabWidth": 0,
+                "semi": "false", "singleQuote": true, "useTabs": true,
+                "bracketSpacing": false, "trailingComma": "bad", "arrowParens": "bad", "endOfLine": "bad"
+            }
+        }}));
+        assert_eq!(result["editor"]["theme"], "one-dark-pro");
+        assert_eq!(result["editor"]["editableFiles"], json!([".js"]));
+        for key in [
+            "printWidth",
+            "tabWidth",
+            "semi",
+            "trailingComma",
+            "arrowParens",
+            "endOfLine",
+        ] {
+            assert_eq!(
+                result["editor"]["formatting"][key],
+                defaults["editor"]["formatting"][key]
+            );
+        }
+        assert_eq!(result["editor"]["formatting"]["formatOnSave"], true);
+        assert_eq!(result["editor"]["formatting"]["singleQuote"], true);
+        assert_eq!(result["editor"]["formatting"]["useTabs"], true);
+        assert_eq!(result["editor"]["formatting"]["bracketSpacing"], false);
+        assert_eq!(
+            normalize_settings(&json!({ "editor": { "theme": "../../evil" }}))["editor"]["theme"],
+            "auto"
+        );
+        for (key, value) in [
+            ("printWidth", json!(40)),
+            ("tabWidth", json!(8)),
+            ("trailingComma", json!("es5")),
+            ("arrowParens", json!("avoid")),
+            ("endOfLine", json!("crlf")),
+        ] {
+            let mut input = json!({ "editor": { "formatting": {} }});
+            input["editor"]["formatting"][key] = value.clone();
+            assert_eq!(
+                normalize_settings(&input)["editor"]["formatting"][key],
+                value
+            );
+        }
+    }
+
+    #[test]
+    fn editor_settings_persist_across_store_instances_and_reset_to_defaults() {
+        let root =
+            std::env::temp_dir().join(format!("vesper-editor-settings-{}", uuid::Uuid::new_v4()));
+        let path = root.join("settings.json");
+        let store = SettingsStore {
+            path: path.clone(),
+            cached: std::sync::Mutex::new(None),
+        };
+        store.save(&json!({ "editor": { "theme": "github-light", "formatting": { "formatOnSave": true } }})).unwrap();
+        let reopened = SettingsStore {
+            path,
+            cached: std::sync::Mutex::new(None),
+        };
+        let loaded = reopened.load().unwrap();
+        assert_eq!(loaded["editor"]["theme"], "github-light");
+        assert_eq!(loaded["editor"]["formatting"]["formatOnSave"], true);
+        assert_eq!(reopened.reset().unwrap(), default_settings());
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

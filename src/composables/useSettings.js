@@ -1,9 +1,8 @@
 import { ref } from 'vue'
-import { createDefaultSettings } from '../../shared/defaultSettings.js'
+import { settings } from './settingsState.js'
 import { settingsApi } from '../api/settings.js'
 import { setThemePreference } from './useTheme.js'
 
-const settings = ref(createDefaultSettings())
 const storagePath = ref('')
 const revision = ref(0)
 const loading = ref(false)

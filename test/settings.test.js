@@ -24,7 +24,7 @@ test('creates a versioned JSON settings file with defaults', async () => {
   const storedSettings = JSON.parse(await fs.readFile(fixturePath, 'utf8'))
 
   assert.equal(settingsFilePath, fixturePath)
-  assert.equal(settings.version, 6)
+  assert.equal(settings.version, 7)
   assert.equal(settings.appearance.theme, 'system')
   assert.equal(settings.appearance.locale, '')
   assert.deepEqual(settings.filesystem.hiddenNameSuffixes, ['.localized'])
@@ -65,9 +65,12 @@ test('falls back to the system theme for unknown values', async () => {
 })
 
 test('can restore default settings', async () => {
+  await saveSettings({ editor: { theme: 'one-dark-pro', formatting: { formatOnSave: true } } })
   const settings = await resetSettings()
 
   assert.equal(settings.appearance.theme, 'system')
   assert.equal(settings.appearance.locale, '')
   assert.deepEqual(settings.filesystem.hiddenNameSuffixes, ['.localized'])
+  assert.equal(settings.editor.theme, 'auto')
+  assert.equal(settings.editor.formatting.formatOnSave, false)
 })

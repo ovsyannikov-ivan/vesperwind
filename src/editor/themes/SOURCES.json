@@ -1,0 +1,125 @@
+{
+  "nord": {
+    "source": "https://github.com/nordtheme/visual-studio-code",
+    "revision": "8ead09822c02d0d49d0f764104505e5a34d3689f",
+    "path": "themes/nord-color-theme.json",
+    "license": "MIT",
+    "sha256": "778bf2b1850b3a2b431328ac4e28da278c856b36c25130a17a75ca693a35d902"
+  },
+  "cobalt2": {
+    "source": "https://github.com/wesbos/cobalt2-vscode",
+    "revision": "c4e9574372b85afad1682ed0fdd1ac0411c62512",
+    "path": "theme/cobalt2.json",
+    "license": "MIT",
+    "sha256": "a355eff6665b9f28604267f3f83cc0b3e88d4636e475f1c9af13fede7f28d53a"
+  },
+  "night-owl": {
+    "source": "https://github.com/sdras/night-owl-vscode-theme",
+    "revision": "cc291eba7976b20d7c66bde6883c27b902196b07",
+    "path": "themes/Night Owl-color-theme.json",
+    "license": "MIT",
+    "sha256": "cbc5a06af51224c09daa37078090c4b9570ae3f91532a4d379ba32bbbf354494"
+  },
+  "one-dark-pro": {
+    "source": "https://github.com/Binaryify/OneDark-Pro",
+    "revision": "ce79c5f7116607d635e06b7ef4413d85a77905e4",
+    "path": "themes/OneDark-Pro.json",
+    "license": "MIT",
+    "sha256": "aea3e41b6d43ba734f3e075e5b3f3f6d0236fbcb5003b898fbe4ebe61ab69a32"
+  },
+  "github-dark": {
+    "source": "https://github.com/dongchengjie/monaco-editor-themes",
+    "revision": "041579b715b0353fda4acdd924aeb61a3efded1c",
+    "path": "vscode/dark/github.json",
+    "upstream": "https://github.com/primer/github-vscode-theme",
+    "license": "MIT",
+    "sha256": "a66715a9dfd84404856e1b33267bac9fb9a0bb86782d50354f8111e9fe89a221"
+  },
+  "github-light": {
+    "source": "https://github.com/dongchengjie/monaco-editor-themes",
+    "revision": "041579b715b0353fda4acdd924aeb61a3efded1c",
+    "path": "vscode/light/github.json",
+    "upstream": "https://github.com/primer/github-vscode-theme",
+    "license": "MIT",
+    "sha256": "747a016e35014fc86c985a8aead65fdc71bf1f9a2df3bf1a7006ad17a3e77788"
+  },
+  "monokai": {
+    "source": "https://github.com/microsoft/vscode",
+    "revision": "53e9983e61535999978c09e080fedfe3356309ed",
+    "path": "extensions/theme-monokai/themes/monokai-color-theme.json",
+    "license": "MIT",
+    "sha256": "4a84265bc7532795b529a6a232d65ccd6df93eeaa521699a5c69bfc01dd71258"
+  },
+  "dracula": {
+    "source": "https://github.com/brijeshb42/monaco-themes",
+    "revision": "92a2aa78967b84f4773e9adf1905598a88b4256b",
+    "path": "themes/Dracula.json",
+    "upstream": "https://github.com/dracula/textmate",
+    "license": "MIT",
+    "sha256": "e367a0d6035e9b30cbcca2469c75a80d5ffb03ebc6fae706bccd51e502d5adf1"
+  },
+  "monokai-bright": {
+    "source": "https://github.com/brijeshb42/monaco-themes",
+    "revision": "92a2aa78967b84f4773e9adf1905598a88b4256b",
+    "path": "themes/Monokai Bright.json",
+    "upstream": "https://github.com/JetBrains/colorSchemeTool",
+    "license": "Apache-2.0",
+    "sha256": "83248746c7b73be501ae0fd244b00a25b9eb7b460ed3122579f85424dd309617"
+  },
+  "solarized-dark": {
+    "source": "https://github.com/brijeshb42/monaco-themes",
+    "revision": "92a2aa78967b84f4773e9adf1905598a88b4256b",
+    "path": "themes/Solarized-dark.json",
+    "upstream": "https://github.com/altercation/solarized",
+    "license": "MIT",
+    "sha256": "9fa5480f6bed9ef345e6e02d9da25c134ad4b9287a05da100572ff08e375805b"
+  },
+  "solarized-light": {
+    "source": "https://github.com/brijeshb42/monaco-themes",
+    "revision": "92a2aa78967b84f4773e9adf1905598a88b4256b",
+    "path": "themes/Solarized-light.json",
+    "upstream": "https://github.com/altercation/solarized",
+    "license": "MIT",
+    "sha256": "d16bce2b48cebc5752992bebd6c177d9758d01d7715207add94820ab67f8ad42"
+  },
+  "oceanic-next": {
+    "source": "https://github.com/brijeshb42/monaco-themes",
+    "revision": "92a2aa78967b84f4773e9adf1905598a88b4256b",
+    "path": "themes/Oceanic Next.json",
+    "upstream": "https://github.com/voronianski/oceanic-next-color-scheme",
+    "license": "MIT",
+    "sha256": "21c722cbcc13f61f3fd691d7326f88e84e0c18299b933f6a1be0eda62f480285"
+  },
+  "tomorrow-night": {
+    "source": "https://github.com/brijeshb42/monaco-themes",
+    "revision": "92a2aa78967b84f4773e9adf1905598a88b4256b",
+    "path": "themes/Tomorrow-Night.json",
+    "upstream": "https://github.com/chriskempson/tomorrow-theme",
+    "license": "MIT",
+    "sha256": "4883ffeabbdcd702921d043d9b99a66b2f5ec7d9d901f102a6e208990f87e9f4"
+  },
+  "tomorrow-night-eighties": {
+    "source": "https://github.com/brijeshb42/monaco-themes",
+    "revision": "92a2aa78967b84f4773e9adf1905598a88b4256b",
+    "path": "themes/Tomorrow-Night-Eighties.json",
+    "upstream": "https://github.com/chriskempson/tomorrow-theme",
+    "license": "MIT",
+    "sha256": "f96074f167ffafb616bf7c8c1f417f8855797b75cc1883c419c3e4be07ae31d6"
+  },
+  "zenburn": {
+    "source": "https://github.com/brijeshb42/monaco-themes",
+    "revision": "92a2aa78967b84f4773e9adf1905598a88b4256b",
+    "path": "themes/Zenburnesque.json",
+    "upstream": "https://github.com/JetBrains/colorSchemeTool",
+    "license": "Apache-2.0",
+    "sha256": "93f1f1bc3e9b5cf76bf676afb335f74e1dc0b592fe6c639438518cfba49d13c2"
+  },
+  "xcode-default": {
+    "source": "https://github.com/brijeshb42/monaco-themes",
+    "revision": "92a2aa78967b84f4773e9adf1905598a88b4256b",
+    "path": "themes/Xcode_default.json",
+    "upstream": "https://github.com/ajaxorg/ace",
+    "license": "BSD-3-Clause",
+    "sha256": "f67fe3f88a7e46ae85cdeeea2eab0668a4ff2d92842088d35a070d571fb4b43c"
+  }
+}

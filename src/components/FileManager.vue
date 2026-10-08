@@ -43,7 +43,7 @@ import FilePanel from './FilePanel.vue'
 import FileOperationConfirmModal from './FileOperationConfirmModal.vue'
 import FileEntryContextMenu from './FileEntryContextMenu.vue'
 import { desktop } from '../api/desktop.js'
-import { onNativeOpenSettings } from '../api/nativeAppMenu.js'
+import { onNativeOpenSettings, installNativeEditHistory } from '../api/nativeAppMenu.js'
 import FileOperationMenu from './FileOperationMenu.vue'
 import MediaViewerModal from './MediaViewerModal.vue'
 import SettingsModal from './SettingsModal.vue'
@@ -1093,6 +1093,7 @@ const handleCommanderKeydown = (event) => {
 onMounted(() => {
   loadSettings()
   unsubscribeNativeSettings = onNativeOpenSettings(openSettings)
+  shellSubscriptions.push(installNativeEditHistory())
   unsubscribeConnection = connection.onStatusChange((isConnected) => {
     if (isConnected) {
       handleConnect()

@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><title>Monaco formatting integration checks</title></head>
+<body><h1>Monaco formatting integration checks</h1><pre id="results">Running…</pre><div id="editor" style="height:240px;width:800px"></div>
+<script type="module">
+import * as monaco from 'monaco-editor'
+import '../../../src/editor/monacoEnvironment.js'
+import { applyFormattedText } from '../../../src/editor/formatting/modelEdits.js'
+import { editorThemes, applyEditorTheme, loadEditorTheme } from '../../../src/editor/themes/registry.js'
+import { formatText } from '../../../src/editor/formatting/prettier.js'
+const results = []
+const assert = (condition, message) => { if (!condition) throw new Error(message) }
+const test = async (name, fn) => { document.getElementById('results').textContent = `Running: ${name}`; try { await fn(); results.push(`PASS ${name}`) } catch (error) { results.push(`FAIL ${name}: ${error.message}`) } }
+const editor = monaco.editor.create(document.getElementById('editor'), { model: null })
+await test('format is one undoable edit and preserves the cursor', async () => {
+  const original = 'const user={name:"Ivan"}\nfunction hello(x){return x+1}\n'
+  const model = monaco.editor.createModel(original, 'javascript'); editor.setModel(model)
+  editor.setPosition({ lineNumber: 2, column: 20 })
+  document.getElementById('results').textContent = 'Loading Prettier…'
+  const result = await formatText({ text: original, fileName: 'test.js', cursorOffset: model.getOffsetAt(editor.getPosition()) })
+  applyFormattedText(model, result, editor, monaco)
+  assert(model.getValue() === result.text, 'model differs from Prettier result')
+  assert(editor.getPosition().lineNumber > 1, 'cursor jumped to start')
+  document.getElementById('results').textContent = 'Checking Undo…'
+  await model.undo(); assert(model.getValue() === original, 'Undo lost original content')
+  await model.redo(); assert(model.getValue() === result.text, 'Redo lost formatting')
+  editor.setModel(null); model.dispose()
+})
+await test('EOL conversion and text formatting undo together', async () => {
+  const original = 'const x=1\r\nconst y=2\r\n'
+  const model = monaco.editor.createModel(original, 'javascript'); editor.setModel(model)
+  const result = await formatText({ text: original, fileName: 'test.js', settings: { endOfLine: 'lf' } })
+  applyFormattedText(model, result, editor, monaco)
+  assert(model.getEOL() === '\n', 'EOL was not converted')
+  await model.undo(); assert(model.getValue() === original, 'Undo did not restore text and CRLF')
+  editor.setModel(null); model.dispose()
+})
+await test('selection stays nonempty and indentation options stay independent', async () => {
+  const model = monaco.editor.createModel('const x={a:1}\nconst y=2\n', 'javascript'); editor.setModel(model)
+  model.updateOptions({ insertSpaces: false, tabSize: 8 })
+  editor.setSelection(new monaco.Selection(1, 1, 2, 10))
+  const result = await formatText({ text: model.getValue(), fileName: 'test.js' })
+  applyFormattedText(model, result, editor, monaco)
+  assert(!editor.getSelection().isEmpty(), 'selection collapsed')
+  assert(model.getOptions().tabSize === 8 && !model.getOptions().insertSpaces, 'Monaco indentation overwritten')
+  editor.setModel(null); model.dispose()
+})
+await test('syntax errors leave the actual Monaco model and undo history untouched', async () => {
+  const original = 'const = {'; const model = monaco.editor.createModel(original, 'javascript')
+  let failed = false
+  try { await formatText({ text: original, fileName: 'test.js' }) } catch { failed = true }
+  assert(failed && model.getValue() === original && !model.canUndo(), 'invalid document changed')
+  model.dispose()
+})
+await test('every bundled theme defines and applies its actual editor background', async () => {
+  const themeModel = monaco.editor.createModel('const x = 1;', 'javascript'); editor.setModel(themeModel)
+  for (const item of editorThemes.filter(item => item.id !== 'auto')) {
+    const theme = await item.loader()
+    document.getElementById('results').textContent = `Applying theme: ${item.id}`
+    monaco.editor.defineTheme('theme-validation-probe', await loadEditorTheme(item.id))
+    monaco.editor.setTheme('theme-validation-probe')
+    await applyEditorTheme(monaco, item.id, 'dark')
+    const element = document.querySelector('.monaco-editor .monaco-editor-background')
+    const actual = getComputedStyle(element).backgroundColor
+    const expected = document.createElement('div'); expected.style.backgroundColor = theme.colors['editor.background']; document.body.append(expected)
+    const wanted = getComputedStyle(expected).backgroundColor; expected.remove()
+    assert(actual === wanted, `${item.id}: ${actual} instead of ${wanted}`)
+  }
+  editor.setModel(null); themeModel.dispose()
+})
+editor.dispose()
+document.getElementById('results').textContent = results.join('\n')
+</script></body></html>

@@ -3,6 +3,8 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useEditorLayout } from '../composables/useEditorLayout.js'
 import { useEditorWorkspace } from '../composables/useEditorWorkspace.js'
 import { getDocumentHandler } from '../editor/documentHandlers.js'
+import { useSettings } from '../composables/useSettings.js'
+import { getFormattingParser } from '../editor/formatting/parsers.js'
 import {
   DOCUMENT_FIND_INTENTS,
   getDocumentFindIntent,
@@ -25,6 +27,7 @@ const props = defineProps({
 const emit = defineEmits(['show-files', 'open-file', 'empty'])
 const workspaceElement = ref(null)
 const monacoEditor = ref(null)
+const { settings } = useSettings()
 const pdfViewerRefs = new Map()
 const pendingClose = ref(null)
 const pendingRevert = ref(null)
@@ -121,7 +124,7 @@ const canSave = computed(() =>
       !activeEditableTab.value.loading &&
       !activeEditableTab.value.error &&
       activeEditableTab.value.dirty &&
-      !activeEditableTab.value.saving,
+      !activeEditableTab.value.saving && !activeEditableTab.value.formatting,
   ),
 )
 const canRevert = computed(() =>
@@ -136,12 +139,14 @@ const editorStatus = computed(() => {
     return ''
   }
 
+  if (activeEditableTab.value.formatting) return 'Formatting…'
+
   if (activeEditableTab.value.saving) {
     return 'Saving…'
   }
 
   if (activeEditableTab.value.saveError) {
-    return 'Save failed'
+    return activeEditableTab.value.saveError.code?.startsWith('EFORMAT') ? 'Formatting failed' : 'Save failed'
   }
 
   return activeEditableTab.value.dirty ? 'Unsaved' : 'Saved'
@@ -165,6 +170,7 @@ const finishClose = (tabId) => {
 }
 
 const requestClose = (tab) => {
+  if (tab.saving || tab.formatting) return
   if (getDocumentHandler(tab.type)?.save && tab.dirty) {
     pendingClose.value = tab
     closeError.value = ''
@@ -478,7 +484,7 @@ onBeforeUnmount(() => {
               aria-hidden="true"
             />
             <span class="editor-tab-name">{{ tab.fileName }}</span>
-            <span v-if="tab.saving" class="spinner-border spinner-border-sm editor-tab-spinner" aria-hidden="true" />
+            <span v-if="tab.saving || tab.formatting" class="spinner-border spinner-border-sm editor-tab-spinner" aria-hidden="true" />
             <span
               v-else
               class="tab-close"
@@ -540,7 +546,7 @@ onBeforeUnmount(() => {
             class="btn btn-sm toolbar-button toolbar-command"
             type="button"
             title="Save As"
-            :disabled="activeEditableTab.loading || activeEditableTab.saving"
+            :disabled="activeEditableTab.loading || activeEditableTab.saving || activeEditableTab.formatting"
             @click="requestSaveAs()"
           >
             <i class="mdi mdi-content-save-move-outline" aria-hidden="true" />
@@ -620,6 +626,10 @@ onBeforeUnmount(() => {
         >{{ indentationLabel }}</button>
         <span class="editor-statusbar-item">{{ activeEditorPosition.eol }}</span>
         <span class="editor-statusbar-item" title="Text files are read and saved as UTF-8">UTF-8</span>
+        <button v-if="getFormattingParser(activeTextTab.fileName)" class="compact-button" type="button"
+          :disabled="activeTextTab.saving || activeTextTab.formatting"
+          :title="`Format Document (Option/Alt+Shift+F). Format on save: ${settings.editor.formatting.formatOnSave ? 'On' : 'Off'}`"
+          @click="monacoEditor?.formatDocument()">Prettier</button>
       </div>
       <div
         v-if="activeTabReady && indentationMenuOpen"

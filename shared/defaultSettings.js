@@ -1,4 +1,9 @@
-export const SETTINGS_VERSION = 6
+import { EDITOR_THEMES as editorThemes } from './editorThemeCatalog.js'
+import { DEFAULT_FORMATTING, normalizeFormatting } from './editorFormatting.js'
+
+export const SETTINGS_VERSION = 7
+const editorThemeIds = new Set(editorThemes.map(({ id }) => id))
+export const normalizeEditorTheme = (id) => editorThemeIds.has(id) ? id : 'auto'
 
 const EDITOR_FORMATS_V6 = [
   '.jsx', '.tsx', '.markdown', '.toml', '.properties', '.rs', '.go', '.java',
@@ -171,6 +176,8 @@ export const createDefaultSettings = () => ({
     hiddenNameSuffixes: ['.localized'],
   },
   editor: {
+    theme: 'auto',
+    formatting: { ...DEFAULT_FORMATTING },
     editableFiles: [...DEFAULT_EDITABLE_FILES],
   },
   connections: [],
@@ -188,6 +195,8 @@ export const normalizeSettings = (value) => ({
     ),
   },
   editor: {
+    theme: normalizeEditorTheme(value?.editor?.theme),
+    formatting: normalizeFormatting(value?.editor?.formatting),
     editableFiles: normalizeEditableFiles(
       Number.isFinite(value?.version) && value.version < 6
         ? Array.isArray(value?.editor?.editableFiles)

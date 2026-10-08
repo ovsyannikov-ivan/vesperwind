@@ -8,7 +8,7 @@ import {
 test('uses the system color mode by default', () => {
   const settings = createDefaultSettings()
 
-  assert.equal(settings.version, 6)
+  assert.equal(settings.version, 7)
   assert.equal(settings.appearance.theme, 'system')
   assert.equal(settings.appearance.locale, '')
 })
@@ -21,7 +21,7 @@ test('migrates version 1 settings and preserves filesystem filters', () => {
     },
   })
 
-  assert.equal(settings.version, 6)
+  assert.equal(settings.version, 7)
   assert.equal(settings.appearance.theme, 'system')
   assert.deepEqual(settings.filesystem.hiddenNameSuffixes, ['.localized', '.cache'])
 })
