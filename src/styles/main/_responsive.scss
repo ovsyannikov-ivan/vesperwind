@@ -1,7 +1,8 @@
 // Reduced motion and small-height adjustments.
 
 @media (prefers-reduced-motion: reduce) {
-	.settings-panel {
+	.settings-panel,
+	.settings-formatting-options {
 		transition: none;
 	}
 }

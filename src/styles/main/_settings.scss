@@ -51,6 +51,26 @@
 	background: var(--modal-bg);
 }
 
+.settings-formatting-options {
+	display: grid;
+	grid-template-rows: 0fr;
+	opacity: 0;
+	visibility: hidden;
+	transition: grid-template-rows 200ms ease, opacity 200ms ease, visibility 0s linear 200ms;
+
+	&.is-expanded {
+		grid-template-rows: 1fr;
+		opacity: 1;
+		visibility: visible;
+		transition-delay: 0s;
+	}
+
+	.settings-formatting-options-body {
+		min-height: 0;
+		overflow: hidden;
+	}
+}
+
 .settings-textarea.form-control {
 	min-height: 8rem;
 	resize: vertical;

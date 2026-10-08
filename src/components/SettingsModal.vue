@@ -255,6 +255,8 @@ onBeforeUnmount(() => {
                                             <input id="formatting-enabled" v-model="formatting.enabled" class="form-check-input" type="checkbox" />
                                             <label class="form-check-label" for="formatting-enabled">Enable Prettier</label>
                                         </div>
+                                        <div class="settings-formatting-options" :class="{ 'is-expanded': formatting.enabled !== false }" :aria-hidden="formatting.enabled === false" :inert="formatting.enabled === false">
+                                        <div class="settings-formatting-options-body">
                                         <fieldset :disabled="formatting.enabled === false" class="border-0 p-0 m-0">
                                         <legend class="visually-hidden">Prettier options</legend>
                                         <div class="row g-2 mb-3">
@@ -289,6 +291,8 @@ onBeforeUnmount(() => {
                                         </div>
                                         <div class="form-text">Prettier options are independent of Monaco indentation controls. A formatting error cancels saving.</div>
                                         </fieldset>
+                                        </div>
+                                        </div>
                                         <hr class="my-3" />
                                         <h2 class="h6 mb-2">Editable files</h2>
                                         <label class="form-label" for="editable-files"> Editable files </label>

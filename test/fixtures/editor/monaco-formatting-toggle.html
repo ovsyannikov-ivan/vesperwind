@@ -4,6 +4,8 @@
 <body><h1>Prettier availability regression checks</h1><pre id="results">Running…</pre><div id="app"></div>
 <script type="module">
 import * as monaco from 'monaco-editor'
+import 'bootstrap/dist/css/bootstrap.min.css'
+import '../../../src/styles/main.scss'
 import { createApp, ref, h, nextTick } from 'vue'
 import MonacoEditor from '../../../src/components/MonacoEditor.vue'
 import SettingsModal from '../../../src/components/SettingsModal.vue'
@@ -70,7 +72,22 @@ await test('live enable/disable preserves the model, selection, manual indentati
   }
   assert(providers().length === 1, 'repeated toggles duplicated providers')
 })
-await test('Settings disables dependent controls while retaining draft values', async () => {
+await test('Settings slides formatter controls closed/open while retaining draft values and blocking hidden focus', async () => {
+  const modal = document.querySelector('.modal')
+  modal.style.display = 'block'
+  modal.classList.add('show')
+  ;[...modal.querySelectorAll('[role="tab"]')].find(item => item.textContent.trim() === 'Editor').click()
+  await nextTick()
+  const options = document.querySelector('.settings-formatting-options')
+  const frame = () => new Promise(resolve => requestAnimationFrame(resolve))
+  const finishTransition = async () => {
+    await frame()
+    await Promise.all(options.getAnimations().map(animation => animation.finished))
+  }
+  const expandedHeight = options.getBoundingClientRect().height
+  assert(expandedHeight > 100, 'formatter options did not start expanded')
+  await frame()
+  await frame()
   const change = (id, value) => {
     const control = document.getElementById(id)
     if (control.type === 'checkbox') control.checked = value
@@ -86,8 +103,21 @@ await test('Settings disables dependent controls while retaining draft values', 
   assert(controls.length === 10 && [...controls].every(item => item.matches(':disabled')), 'dependent controls remain enabled')
   assert(!document.getElementById('formatting-enabled').matches(':disabled'), 'enable toggle disabled itself')
   assert(!document.getElementById('editor-theme').matches(':disabled'), 'theme was disabled')
+  assert(options.inert && options.getAttribute('aria-hidden') === 'true', 'hidden controls are accessible')
+  await frame()
+  await frame()
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    assert(options.getAnimations().some(animation => animation.transitionProperty === 'grid-template-rows'), 'slide animation missing')
+    assert(options.getBoundingClientRect().height > 0 && options.getBoundingClientRect().height < expandedHeight,
+      `height did not animate: ${options.getBoundingClientRect().height} of ${expandedHeight}`)
+  }
+  await finishTransition()
+  assert(options.getBoundingClientRect().height < 1 && getComputedStyle(options).visibility === 'hidden', 'options did not collapse')
   change('formatting-enabled', true)
   await nextTick()
+  assert(!options.inert && options.getAttribute('aria-hidden') === 'false', 'restored controls are inaccessible')
+  await finishTransition()
+  assert(Math.abs(options.getBoundingClientRect().height - expandedHeight) < 1, 'options did not slide open')
   assert([...controls].every(item => !item.matches(':disabled')), 'controls did not recover')
   assert(document.getElementById('formatting-formatOnSave').checked && document.getElementById('formatting-useTabs').checked,
     'checkbox choices were reset')
