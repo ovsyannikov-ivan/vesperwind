@@ -18,6 +18,111 @@ use tauri::{AppHandle, Emitter, State};
 
 const MAX_TEXT_FILE_BYTES: u64 = 10 * 1024 * 1024;
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PropertiesPayload {
+    filesystem_id: String,
+    path: String,
+    update: Option<filesystem::properties::PermissionUpdate>,
+}
+#[tauri::command]
+pub async fn filesystem_properties(
+    state: State<'_, AppState>,
+    payload: PropertiesPayload,
+) -> Result<Value, String> {
+    let filesystem = Arc::clone(&state.filesystem);
+    let ssh = Arc::clone(&state.ssh);
+    Ok(
+        match tauri::async_runtime::spawn_blocking(move || {
+            if payload.filesystem_id == "local" {
+                filesystem::properties::read(&filesystem, &payload.path)
+            } else {
+                ssh.properties(&payload.filesystem_id, &payload.path)
+            }
+        })
+        .await
+        {
+            Ok(Ok(properties)) => success("properties", properties),
+            Ok(Err(e)) => failure(e),
+            Err(e) => failure(NativeError::new("EPROPERTIES", e.to_string())),
+        },
+    )
+}
+#[tauri::command]
+pub async fn filesystem_update_properties(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    payload: PropertiesPayload,
+) -> Result<Value, String> {
+    let filesystem = Arc::clone(&state.filesystem);
+    let ssh = Arc::clone(&state.ssh);
+    Ok(match tauri::async_runtime::spawn_blocking(move || {
+        let update = payload.update.ok_or_else(|| NativeError::new("EINVAL", "A permissions update is required"))?;
+        let result = if payload.filesystem_id == "local" { filesystem::properties::update(&filesystem, &payload.path, &update) }
+            else { ssh.update_properties(&payload.filesystem_id, &payload.path, &update) };
+        // Also invalidate on partial mutation (e.g. chown succeeded, chmod failed).
+        let _ = app.emit("filesystem:changed", json!({"providerId": payload.filesystem_id,
+            "directoryPath": std::path::Path::new(&payload.path).parent().map(|p| p.to_string_lossy()), "kind": "metadata"}));
+        result
+    }).await {
+        Ok(Ok(properties)) => success("properties", properties), Ok(Err(e)) => failure(e),
+        Err(e) => failure(NativeError::new("EPROPERTIES", e.to_string())),
+    })
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SizePayload {
+    filesystem_id: String,
+    path: String,
+    job_id: String,
+}
+#[tauri::command]
+pub fn filesystem_calculate_size(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    payload: SizePayload,
+) -> Value {
+    let jobs = Arc::clone(&state.operation_jobs);
+    let cancelled = jobs.register(&payload.job_id);
+    let filesystem = Arc::clone(&state.filesystem);
+    let ssh = Arc::clone(&state.ssh);
+    tauri::async_runtime::spawn_blocking(move || {
+        let result = filesystem::size::calculate(
+            &filesystem,
+            &ssh,
+            &payload.filesystem_id,
+            &payload.path,
+            &cancelled,
+            |progress| {
+                let _ = app.emit(
+                    "filesystem:size-progress",
+                    json!({"jobId": payload.job_id, "progress": progress, "done": false}),
+                );
+            },
+        );
+        let event = match result {
+            Ok(progress) => json!({"jobId": payload.job_id, "progress": progress, "done": true}),
+            Err(error) => json!({"jobId": payload.job_id, "error": error, "done": true}),
+        };
+        let _ = app.emit("filesystem:size-progress", event);
+        jobs.finish(&payload.job_id);
+    });
+    json!({"ok": true})
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SizeCancelPayload {
+    job_id: String,
+}
+#[tauri::command]
+pub fn filesystem_calculate_size_cancel(
+    state: State<'_, AppState>,
+    payload: SizeCancelPayload,
+) -> Value {
+    state.operation_jobs.cancel(&payload.job_id);
+    json!({"ok": true})
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FilesystemRootPayload {

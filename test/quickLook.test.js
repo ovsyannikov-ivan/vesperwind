@@ -241,8 +241,10 @@ test('read-only spreadsheet pagination includes sparse far cells and preserves m
 test('component contracts preserve existing viewer, audio autoplay/history opt-out and read-only document surfaces', async () => {
   const [shell, word, sheet, bar, manager] = await Promise.all(['src/components/QuickLookModal.vue', 'src/modules/document/WordPreview.vue', 'src/modules/spreadsheet/SpreadsheetPreview.vue', 'src/components/AudioPlayerBar.vue', 'src/components/FileManager.vue'].map(source))
   assert.match(shell, /CustomMediaPlayer kind="audio"[^>]*:autoplay="true"[^>]*:history-enabled="false"/)
-  assert.match(shell, /<pre[^>]*>\{\{ preview.content \}\}/)
-  assert.match(shell, /<PdfViewer/)
+  const sharedPreview = await source('src/components/FilePreview.vue')
+  assert.match(shell, /<FilePreview/)
+  assert.match(sharedPreview, /<pre[^>]*>\{\{ preview.content \}\}/)
+  assert.match(sharedPreview, /<PdfViewer/)
   assert.match(shell, /canCloseQuickLook\(event\)/)
   assert.match(shell, /emit\('close'\)/)
   assert.doesNotMatch(shell, /Monaco|EditorWorkspace|writeText|writeBinary/)
@@ -272,4 +274,15 @@ test('native Quick Look audio prepares content without requesting an HTML source
   assert.equal(q.preview.value.loading, false)
   assert.deepEqual(calls, ['audio', 'prepare'])
   q.close()
+})
+
+test('audio remains in loading state while backend selection is pending and close cancels preparation', async () => {
+  let select, prepared = 0
+  const q = useQuickLook({ beforePlayback: async () => {}, closeMedia() {},
+    selectBackend: () => new Promise((resolve) => { select = resolve }), prepareMedia: async () => { prepared++; return { ok: true, source: 'native-audio' } } })
+  const pending = q.open(context('a.mp3'))
+  await Promise.resolve(); await Promise.resolve()
+  assert.equal(q.current.value.loading, true)
+  q.close(); select('mpv'); await pending
+  assert.equal(prepared, 0); assert.equal(q.current.value, null)
 })

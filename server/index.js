@@ -41,6 +41,7 @@ const startServer = async () => {
     { createLocalWatchRegistry, registerDirectoryWatchHandlers },
     { registerSearchHandlers },
     { registerArchiveHandlers },
+    { registerPropertiesHandlers },
   ] = await Promise.all([
     import('./filesystem.js'),
     import('./fileOperations.js'),
@@ -56,6 +57,7 @@ const startServer = async () => {
     import('./directoryWatch.js'),
     import('./search.js'),
     import('./archives.js'),
+    import('./properties.js'),
   ])
 
   const sshConnections = new Map()
@@ -101,6 +103,7 @@ const startServer = async () => {
     const ssh = registerSshHandlers(socket, { connections: sshConnections })
     registerFilesystemHandlers(socket, { ssh })
     registerSearchHandlers(socket, { ssh })
+    registerPropertiesHandlers(socket, { ssh })
     registerArchiveHandlers(socket)
     registerDirectoryWatchHandlers(socket, directoryWatches)
     registerFileOperationHandlers(socket, { ssh })

@@ -15,7 +15,7 @@ test('PPTX is a normal read-only document and Quick Look presentation with the e
   assert.equal(getQuickLookKind({ name: 'deck.pptx' }), 'presentation')
   assert.equal(getDocumentHandler('presentation').save, undefined)
   for (const name of ['legacy.doc', 'rich.rtf']) assert.equal(getQuickLookKind({ name }), 'word')
-  const [workspace, viewer, preview] = await Promise.all(['src/components/EditorWorkspace.vue', 'src/components/PdfViewer.vue', 'src/components/QuickLookModal.vue'].map(source))
+  const [workspace, viewer, preview] = await Promise.all(['src/components/EditorWorkspace.vue', 'src/components/PdfViewer.vue', 'src/components/FilePreview.vue'].map(source))
   assert.match(workspace, /\['pdf', 'presentation'\]\.includes\(tab\.type\)/)
   assert.match(preview, /PdfViewer v-else-if="\['pdf', 'presentation'\]\.includes\(preview\.kind\)"/)
   assert.match(viewer, /data: props\.tab\.pdfBytes\.slice\(\)/)

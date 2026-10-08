@@ -1,11 +1,11 @@
 import { computed, ref } from 'vue'
 import { canPreviewMedia, getFileExtension, getMediaKind } from '../../shared/mediaTypes.js'
 import { DEFAULT_EDITABLE_FILES } from '../../shared/defaultSettings.js'
-import { TEXT_PREVIEW_MAX_BYTES } from '../../shared/textPreview.js'
 import { isEditableFile } from '../utils/editableFiles.js'
 import { filesystem } from '../api/filesystem.js'
 import { media } from '../api/media.js'
 import { selectPlayerBackend } from '../player/mediaPlayerBackend.js'
+import { createPreviewState, loadFilePreview } from './filePreview.js'
 
 export const getQuickLookKind = (entry, editableFiles = DEFAULT_EDITABLE_FILES) => {
   if (!entry || entry.isDirectory) return null
@@ -43,11 +43,7 @@ export const useQuickLook = ({ openMedia, closeMedia, beforePlayback, io = files
     if (requestGeneration !== generation) return false
     const node = context.node
     const providerId = context.filesystemId || node.providerId || 'local'
-    current.value = { kind, node, providerId, loading: !['image', 'video', 'metadata'].includes(kind),
-      error: null, message: '', content: '', sourceUrl: '', statusMessage: 'Preparing file…', preparationProgress: null,
-      // These are isolated viewer state, never registered with EditorWorkspace.
-      id: `quick-look:${providerId}:${node.path}`, filePath: node.path, fileName: node.name, filesystemId: providerId,
-      currentPage: 1, pageCount: 0, zoomMode: 'fit-width', zoom: 1, scrollTop: 0, scrollLeft: 0, thumbnailsOpen: false }
+    current.value = createPreviewState(node, providerId, kind)
     if (kind === 'image' || kind === 'video') {
       await openMedia({ ...context, filesystemId: providerId }, () => requestGeneration === generation)
       return true
@@ -56,48 +52,9 @@ export const useQuickLook = ({ openMedia, closeMedia, beforePlayback, io = files
     const target = current.value
     controller = new AbortController()
     const signal = controller.signal
-    const options = { signal, onStatus: (status) => { if (!signal.aborted) {
-      target.statusMessage = status?.userMessage || 'Preparing file…'
-      target.preparationProgress = status?.progress ?? null
-    } } }
-    try {
-      let result
-      const location = { providerId, path: node.path }
-      if (kind === 'text') {
-        if (node.size > TEXT_PREVIEW_MAX_BYTES) {
-          target.message = 'This text file is too large for Quick Look.'
-          return true
-        }
-        result = await io.readText(location, { ...options, maxBytes: TEXT_PREVIEW_MAX_BYTES, strictText: true })
-        if (result.ok) target.content = result.content
-        else if (result.error?.code === 'ETEXT_BINARY' && getFileExtension(node.name) === 'ts' && !signal.aborted) {
-          target.kind = 'video'
-          await openMedia({ ...context, filesystemId: providerId }, () => !signal.aborted)
-          return true
-        } else if (result.error?.code === 'EFILE_TOO_LARGE') target.message = 'This text file is too large for Quick Look.'
-      } else if (kind === 'audio' || kind === 'pdf') {
-        result = await prepareMedia(location, { ...options,
-          native: kind === 'audio' && await selectBackend('audio') === 'mpv' })
-        if (result.ok && !signal.aborted && requestGeneration === generation) target.sourceUrl = result.source
-      } else if (kind === 'presentation') {
-        const { loadPresentation } = await import('../modules/presentation/presentationFile.js')
-        if (signal.aborted) return false
-        result = await loadPresentation(target, options, io)
-      } else if (kind === 'word') {
-        const { loadDocument } = await import('../modules/document/services/documentFile.js')
-        if (signal.aborted) return false
-        result = await loadDocument(target, options, io)
-      } else if (kind === 'spreadsheet') {
-        const { loadSpreadsheet } = await import('../modules/spreadsheet/services/spreadsheetFile.js')
-        if (signal.aborted) return false
-        result = await loadSpreadsheet(target, options, io)
-      }
-      if (!signal.aborted && result && !result.ok && !target.message) target.error = result.error
-    } catch (error) {
-      if (!signal.aborted) target.error = { message: error.message || 'Unable to preview this file' }
-    } finally {
-      if (!signal.aborted) target.loading = false
-    }
+    await loadFilePreview(target, { signal, io, prepareMedia,
+      nativeAudio: kind === 'audio' && await selectBackend('audio') === 'mpv',
+      onBinaryTransportStream: () => openMedia({ ...context, filesystemId: providerId }, () => !signal.aborted) })
     return true
   }
   return { current, preview, open, close }

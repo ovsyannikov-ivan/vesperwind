@@ -11,6 +11,9 @@ import { useQuickLook } from '../composables/useQuickLook.js'
 import { canOpenQuickLook } from '../utils/quickLookKeyboard.js'
 import { createPlaybackCoordinator } from '../player/playbackCoordination.js'
 import QuickLookModal from './QuickLookModal.vue'
+import PropertiesModal from './PropertiesModal.vue'
+import { useProperties } from '../composables/useProperties.js'
+import { canOpenProperties } from '../utils/propertiesKeyboard.js'
 import { useSettings } from '../composables/useSettings.js'
 import {
   getEntryOpenAction,
@@ -151,6 +154,7 @@ const handleRemoteConnected = ({ providerId, profile, targetPanel }) => {
   filesystemRevision.value += 1
 }
 const filesystemRevision = ref(0)
+const propertiesState = useProperties({ onChanged: () => { filesystemRevision.value++ } })
 const dropRequest = ref(null)
 const operationBusy = ref(false)
 const activeOperation = ref('')
@@ -254,7 +258,7 @@ const commandAvailability = computed(() => {
       confirmationRequest.value ||
       entryContextRequest.value ||
       viewer.value ||
-      quickLook.current.value ||
+      quickLook.current.value || propertiesState.current.value ||
       operationBusy.value ||
       confirmationBusy.value ||
       workspaceMode.value !== 'files',
@@ -853,8 +857,8 @@ const panelOf = (side) => (side === 'left' ? leftPanel.value : rightPanel.value)
 
 // Items a context-menu Cut/Copy applies to: the selection when the clicked
 // row is part of it, otherwise the clicked row alone.
-const contextEntries = (request) => {
-  if (!request || request.background || isFilesystemRootEntry(request.node)) return []
+const contextEntries = (request, includeRoot = false) => {
+  if (!request || request.background || (!includeRoot && isFilesystemRootEntry(request.node))) return []
   const selection = panelStates[request.sourcePane]?.selectedEntries || []
   return selection.some((entry) => entry.path === request.node.path) ? selection : [request.node]
 }
@@ -968,7 +972,7 @@ const executeEntryClipboard = async (operation) => {
 const clipboardShortcutsBlocked = () => Boolean(
   workspaceMode.value !== 'files' || !connected.value || settingsOpen.value || remoteConnectionsOpen.value ||
   createRequest.value || confirmationRequest.value || archiveRequest.value || playlistRequest.value || viewer.value ||
-  quickLook.current.value || dropRequest.value || entryContextRequest.value || operationBusy.value ||
+  quickLook.current.value || propertiesState.current.value || dropRequest.value || entryContextRequest.value || operationBusy.value ||
   confirmationBusy.value || panelOf(activePanel.value)?.hasOpenMenu(),
 )
 
@@ -1041,15 +1045,27 @@ watch(entryContextRequest, (request) => {
 
 const shellSubscriptions = []
 
+const openProperties = (context) => {
+  if (!context?.node || isComputerPath(context.node.path)) return
+  entryContextRequest.value = null
+  void propertiesState.open(context, settings.value.editor.editableFiles)
+}
 const handleCommanderKeydown = (event) => {
+  if (propertiesState.current.value) return
   const panel = activePanel.value === 'left' ? leftPanel.value : rightPanel.value
+  if (canOpenProperties(event, { selectedCount: panelStates[activePanel.value].selectedEntries.length,
+    workspaceMode: workspaceMode.value, panelVisible: Boolean(panel), blocked: clipboardShortcutsBlocked() })) {
+    event.preventDefault()
+    openProperties(panel.quickLookContext())
+    return
+  }
   if (canOpenQuickLook(event, { workspaceMode: workspaceMode.value, selected: panelStates[activePanel.value].selected,
-    panelVisible: Boolean(panel), blocked: !connected.value || settingsOpen.value || remoteConnectionsOpen.value || createRequest.value || confirmationRequest.value || archiveRequest.value || viewer.value || quickLook.current.value || dropRequest.value || entryContextRequest.value || operationBusy.value || confirmationBusy.value || panel?.hasOpenMenu() })) {
+    panelVisible: Boolean(panel), blocked: !connected.value || settingsOpen.value || remoteConnectionsOpen.value || createRequest.value || confirmationRequest.value || archiveRequest.value || viewer.value || quickLook.current.value || propertiesState.current.value || dropRequest.value || entryContextRequest.value || operationBusy.value || confirmationBusy.value || panel?.hasOpenMenu() })) {
     event.preventDefault()
     void quickLook.open(panel.quickLookContext(), settings.value.editor.editableFiles)
     return
   }
-  if (isAddressShortcut(event) && !event.target.closest?.('.xterm') && workspaceMode.value === 'files' && !settingsOpen.value && !remoteConnectionsOpen.value && !createRequest.value && !confirmationRequest.value && !archiveRequest.value && !viewer.value && !quickLook.current.value && !dropRequest.value && !entryContextRequest.value) {
+  if (isAddressShortcut(event) && !event.target.closest?.('.xterm') && workspaceMode.value === 'files' && !settingsOpen.value && !remoteConnectionsOpen.value && !createRequest.value && !confirmationRequest.value && !archiveRequest.value && !viewer.value && !quickLook.current.value && !propertiesState.current.value && !dropRequest.value && !entryContextRequest.value) {
     const panel = activePanel.value === 'left' ? leftPanel.value : rightPanel.value
     if (panel) { event.preventDefault(); void panel.editAddress() }
     return
@@ -1097,6 +1113,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  propertiesState.close()
   operationGeneration++
   confirmationGeneration++
   operationBusy.value = false
@@ -1250,6 +1267,7 @@ onBeforeUnmount(() => {
       @next="showNext"
       @retry="retryMedia"
     />
+    <PropertiesModal v-if="propertiesState.current.value" :state="propertiesState" @close="propertiesState.close()" />
     <QuickLookModal v-if="quickLookPreview" :key="quickLookPreview.id" :preview="quickLookPreview" @close="quickLook.close" />
     <ArchiveOperationModal :open="Boolean(archiveRequest)" :request="archiveRequest" :busy="archiveBusy" :cancelling="archiveCancelling" :progress="archiveProgress" :error="archiveError" @submit="submitArchive" @cancel="cancelArchive" />
     <FileOperationConfirmModal
@@ -1275,6 +1293,7 @@ onBeforeUnmount(() => {
       :key="`${entryContextRequest.node.path}:${entryContextRequest.x}:${entryContextRequest.y}`"
       :request="entryContextRequest"
       :open-action="entryContextOpenAction"
+      :properties-available="!isComputerPath(entryContextRequest.node.path) && contextEntries(entryContextRequest, true).length === 1"
       :native-actions="desktop.available && entryContextRequest.node.providerId === 'local'"
       :open-with-available="desktop.canOpenWith"
       :reveal-label="desktop.revealLabel"
@@ -1290,6 +1309,7 @@ onBeforeUnmount(() => {
       @duplicate="executeEntryClipboard('duplicate')"
       @mount-image="executeDiskImage('mount')"
       @unmount-image="executeDiskImage('unmount')"
+      @properties="openProperties({ node: entryContextRequest.node, filesystemId: entryContextRequest.node.providerId })"
       @open="executeEntryContextOpen"
       @system-open="executeDesktopAction('open')"
       @open-with="executeDesktopAction('openWith')"

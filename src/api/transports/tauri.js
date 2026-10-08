@@ -7,6 +7,10 @@ const requestCommands = Object.freeze({
   'archive:start': 'archive_start',
   'archive:cancel': 'archive_cancel',
   'filesystem:list': 'filesystem_list',
+  'filesystem:properties': 'filesystem_properties',
+  'filesystem:update-properties': 'filesystem_update_properties',
+  'filesystem:calculate-size': 'filesystem_calculate_size',
+  'filesystem:calculate-size-cancel': 'filesystem_calculate_size_cancel',
   'filesystem:search': 'filesystem_search',
   'filesystem:search-cancel': 'filesystem_search_cancel',
   'filesystem:watch': 'filesystem_watch',
@@ -67,7 +71,7 @@ const sendCommands = Object.freeze({
   'terminal:close': 'terminal_close',
 })
 
-const pushEvents = new Set(['terminal:output', 'terminal:exit', 'ssh:status', 'player:state', 'filesystem:changed', 'filesystem:search-results', 'archive:progress',
+const pushEvents = new Set(['terminal:output', 'terminal:exit', 'ssh:status', 'player:state', 'filesystem:changed', 'filesystem:search-results', 'filesystem:size-progress', 'archive:progress',
   'clipboard:staging', 'clipboard:consumed', 'native-drag:drop', 'native-drag:end', 'native-drag:error'])
 
 const normalizeInvokeError = (error) => ({

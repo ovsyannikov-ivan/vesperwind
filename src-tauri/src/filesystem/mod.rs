@@ -5,7 +5,9 @@ pub mod jobs;
 pub mod network;
 pub mod operations;
 pub mod paths;
+pub mod properties;
 pub mod search;
+pub mod size;
 pub mod text;
 pub mod watch;
 

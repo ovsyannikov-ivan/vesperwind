@@ -35,6 +35,7 @@ const props = defineProps({
     type: Object,
     required: true,
   },
+  compact: { type: Boolean, default: false },
   visible: {
     type: Boolean,
     default: false,
@@ -94,7 +95,8 @@ let findControlStateListener = null
 const sourceUrl = computed(() => props.tab.pdfBytes || props.tab.sourceUrl || '')
 const currentPage = computed(() => props.tab.currentPage || 1)
 const pageCount = computed(() => props.tab.pageCount || 0)
-const thumbnailsOpen = computed(() => props.tab.thumbnailsOpen !== false)
+const thumbnailsOpen = computed(() => !props.compact && props.tab.thumbnailsOpen !== false)
+const displayPages = computed(() => props.compact ? pages.value.filter((page) => page.number === currentPage.value) : pages.value)
 const zoomLabel = computed(() => `${Math.round(displayScale.value * 100)}%`)
 const ready = computed(
   () => loaded.value && !documentLoading.value && !errorMessage.value,
@@ -887,6 +889,7 @@ const updateCurrentPageFromScroll = () => {
 }
 
 const rememberScrollPosition = () => {
+  if (props.compact) return
   if (scrollFrame !== null) {
     cancelAnimationFrame(scrollFrame)
   }
@@ -1429,6 +1432,13 @@ onMounted(() => {
   }
 })
 
+watch(currentPage, async () => {
+  if (!props.compact || !ready.value) return
+  await nextTick()
+  applyScale()
+  queueMainPages([currentPage.value])
+})
+
 onBeforeUnmount(() => {
   mounted = false
   resizeObserver?.disconnect()
@@ -1452,11 +1462,12 @@ onBeforeUnmount(() => {
   <section
     ref="viewerElement"
     class="pdf-viewer"
+    :class="{ 'is-compact': compact }"
     :aria-label="`PDF viewer for ${tab.fileName}`"
     tabindex="0"
     @keydown="handleKeydown"
   >
-    <div class="pdf-toolbar" aria-label="PDF controls">
+    <div v-if="!compact" class="pdf-toolbar" aria-label="PDF controls">
       <button
         class="btn btn-sm toolbar-button toolbar-toggle pdf-toolbar-icon"
         :class="{ 'is-active': thumbnailsOpen }"
@@ -1714,7 +1725,7 @@ onBeforeUnmount(() => {
 
         <div v-else-if="loaded" class="pdf-pages">
           <article
-            v-for="page in pages"
+            v-for="page in displayPages"
             :key="`page-${page.number}`"
             :ref="(element) => setPageElement(element, page.number)"
             class="pdf-page-shell"
@@ -1753,6 +1764,11 @@ onBeforeUnmount(() => {
           </article>
         </div>
       </div>
+    </div>
+    <div v-if="compact" class="pdf-compact-controls d-flex align-items-center justify-content-center gap-3 p-2" aria-label="Page controls">
+      <button class="compact-icon-button" type="button" aria-label="Previous page" :disabled="!canGoPrevious" @click="scrollToPage(currentPage - 1)"><i class="mdi mdi-chevron-left" aria-hidden="true" /></button>
+      <span class="small" role="status" aria-live="polite">{{ currentPage }} / {{ pageCount || '—' }}</span>
+      <button class="compact-icon-button" type="button" aria-label="Next page" :disabled="!canGoNext" @click="scrollToPage(currentPage + 1)"><i class="mdi mdi-chevron-right" aria-hidden="true" /></button>
     </div>
   </section>
 </template>

@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { isFilesystemRootEntry } from '../../shared/localFilesystem.js'
 import { navigateDropdown } from '../utils/dropdownNavigation.js'
 import { archiveName } from '../../shared/archivePolicy.js'
+import { propertiesShortcutLabel } from '../utils/propertiesKeyboard.js'
 
 const props = defineProps({
   request: {
@@ -14,6 +15,7 @@ const props = defineProps({
     default: null,
     validator: (value) => value === null || ['open', 'edit', 'view'].includes(value),
   },
+  propertiesAvailable: { type: Boolean, default: true },
   nativeActions: { type: Boolean, default: false },
   archiveActions: { type: Boolean, default: false },
   openWithAvailable: { type: Boolean, default: false },
@@ -28,13 +30,13 @@ const props = defineProps({
   diskImage: { type: Object, default: null },
 })
 
-const emit = defineEmits(['open', 'system-open', 'open-with', 'reveal', 'rename', 'delete', 'cancel', 'archive-create', 'archive-extract', 'cut', 'copy', 'paste', 'duplicate', 'mount-image', 'unmount-image'])
+const emit = defineEmits(['properties', 'open', 'system-open', 'open-with', 'reveal', 'rename', 'delete', 'cancel', 'archive-create', 'archive-extract', 'cut', 'copy', 'paste', 'duplicate', 'mount-image', 'unmount-image'])
 const menuRef = ref(null)
 const menuStyle = computed(() => {
   const width = 240
   const nativeFile = props.nativeActions && !props.request.node.isDirectory
   const clipboardRows = props.clipboard ? (props.background ? 1 : 4) : 0
-  const rows = props.background ? clipboardRows : 2 + Number(Boolean(props.openAction)) + Number(props.archiveActions) + Number(props.archiveActions && archiveName(props.request.node.name) && !props.request.node.isDirectory) + 2 * Number(props.nativeActions) +
+  const rows = props.background ? clipboardRows : 2 + Number(props.propertiesAvailable) + Number(Boolean(props.openAction)) + Number(props.archiveActions) + Number(props.archiveActions && archiveName(props.request.node.name) && !props.request.node.isDirectory) + 2 * Number(props.nativeActions) +
     Number(nativeFile && props.openWithAvailable) + clipboardRows + Number(Boolean(props.diskImage))
   const height = 16 + rows * 33 + (props.openAction || props.nativeActions ? 9 : 0) +
     (props.clipboard && !props.background ? 18 : 0) + (props.diskImage ? 9 : 0) + (props.error ? 52 : 0)
@@ -135,6 +137,7 @@ onBeforeUnmount(() => {
         <i class="mdi mdi-folder-search-outline" aria-hidden="true" />
         {{ revealLabel }}
       </button>
+      <button v-if="propertiesAvailable" class="dropdown-item" type="button" role="menuitem" :disabled="busy" @click="$emit('properties')"><i class="mdi mdi-information-outline" aria-hidden="true" />Properties<span class="dropdown-item-shortcut" aria-hidden="true">{{ propertiesShortcutLabel() }}</span></button>
       <div v-if="openAction || nativeActions" class="dropdown-divider" />
       <template v-if="clipboard">
         <button class="dropdown-item" type="button" role="menuitem" :disabled="busy || !clipboard.canCut" @click="$emit('cut')">

@@ -362,6 +362,99 @@ impl SshManager {
         self.get(provider_id)?.write_binary(requested, bytes)
     }
 
+    pub fn properties(
+        self: &Arc<Self>,
+        provider: &str,
+        requested: &str,
+    ) -> Result<crate::filesystem::properties::Properties, NativeError> {
+        let connection = self.ensure(provider)?;
+        let path = connection.resolve(requested)?;
+        let stat = connection.sftp.lstat(Path::new(&path)).map_err(|error| {
+            let error = properties_sftp_error(error);
+            if error.code == "ESSH_DISCONNECTED" {
+                connection.connected.store(false, Ordering::Release);
+            }
+            error
+        })?;
+        let target = if stat.perm.is_some_and(|m| m & TYPE_MASK == SYMLINK_MODE) {
+            connection
+                .sftp
+                .readlink(Path::new(&path))
+                .ok()
+                .map(|p| p.to_string_lossy().into_owned())
+        } else {
+            None
+        };
+        Ok(crate::filesystem::properties::from_sftp(
+            &path, &stat, target,
+        ))
+    }
+    pub fn update_properties(
+        self: &Arc<Self>,
+        provider: &str,
+        requested: &str,
+        update: &crate::filesystem::properties::PermissionUpdate,
+    ) -> Result<crate::filesystem::properties::Properties, NativeError> {
+        let connection = self.ensure(provider)?;
+        let path = connection.resolve(requested)?;
+        let stat = connection.sftp.lstat(Path::new(&path)).map_err(|error| {
+            let error = properties_sftp_error(error);
+            if error.code == "ESSH_DISCONNECTED" {
+                connection.connected.store(false, Ordering::Release);
+            }
+            error
+        })?;
+        let attributes = crate::filesystem::properties::sftp_update(&stat, update)?;
+        connection
+            .sftp
+            .setstat(Path::new(&path), attributes)
+            .map_err(|e| {
+                let error = properties_sftp_error(e);
+                if error.code == "ESSH_DISCONNECTED" {
+                    connection.connected.store(false, Ordering::Release);
+                }
+                error.with_path(&path)
+            })?;
+        self.properties(provider, requested)
+    }
+    pub fn size_children(
+        self: &Arc<Self>,
+        provider: &str,
+        requested: &str,
+    ) -> Result<Vec<(String, FileStat)>, NativeError> {
+        let connection = self.ensure(provider)?;
+        let path = connection.resolve(requested)?;
+        let stat = connection.sftp.lstat(Path::new(&path)).map_err(|error| {
+            let error = properties_sftp_error(error);
+            if error.code == "ESSH_DISCONNECTED" {
+                connection.connected.store(false, Ordering::Release);
+            }
+            error
+        })?;
+        if !is_directory(&stat) {
+            return Err(NativeError::new(
+                "ENOTDIR",
+                "This entry is no longer a directory",
+            ));
+        }
+        connection
+            .sftp
+            .readdir(Path::new(&path))
+            .map_err(sftp_error)
+            .map(|entries| {
+                entries
+                    .into_iter()
+                    .filter_map(|(child, stat)| {
+                        let name = child.file_name()?.to_str()?;
+                        if name == "." || name == ".." {
+                            return None;
+                        }
+                        Some((remote_join(&path, name), stat))
+                    })
+                    .collect()
+            })
+    }
+
     pub fn content_metadata(
         self: &Arc<Self>,
         provider_id: &str,
@@ -1162,6 +1255,25 @@ fn remote_stat(
 
 fn is_directory(stat: &FileStat) -> bool {
     stat.perm.unwrap_or(0) & TYPE_MASK == DIRECTORY_MODE
+}
+fn properties_sftp_error(error: ssh2::Error) -> NativeError {
+    let (code, message) = match error.code() {
+        ssh2::ErrorCode::SFTP(2) => ("ENOENT", "The remote item no longer exists"),
+        ssh2::ErrorCode::SFTP(3) => ("EACCES", "Permission denied by the SFTP server"),
+        ssh2::ErrorCode::SFTP(8) => (
+            "ENOTSUPPORTED",
+            "These attributes are not supported by the SFTP server",
+        ),
+        ssh2::ErrorCode::SFTP(6 | 7) | ssh2::ErrorCode::Session(_) => (
+            "ESSH_DISCONNECTED",
+            "The SFTP connection was lost; reload properties to reconnect",
+        ),
+        _ => (
+            "ESFTP_ATTRIBUTES",
+            "The SFTP server could not inspect or change these attributes",
+        ),
+    };
+    NativeError::new(code, message).with_native_error(error.to_string())
 }
 fn sftp_error(error: ssh2::Error) -> NativeError {
     NativeError::new("ESFTP", "The SFTP operation failed").with_native_error(error.to_string())

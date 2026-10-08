@@ -1,15 +1,13 @@
 <script setup>
 import Modal from 'bootstrap/js/dist/modal'
-import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import FilePreview from './FilePreview.vue'
 import CustomMediaPlayer from './CustomMediaPlayer.vue'
 import { getFileIcon } from '../utils/fileIcons.js'
 import { getFileExtension } from '../../shared/mediaTypes.js'
 import { formatFileSize, formatModifiedAtTitle } from '../utils/fileMetadata.js'
 import { canCloseQuickLook } from '../utils/quickLookKeyboard.js'
 
-const PdfViewer = defineAsyncComponent(() => import('./PdfViewer.vue'))
-const WordPreview = defineAsyncComponent(() => import('../modules/document/WordPreview.vue'))
-const SpreadsheetPreview = defineAsyncComponent(() => import('../modules/spreadsheet/SpreadsheetPreview.vue'))
 const props = defineProps({ preview: { type: Object, required: true } })
 const emit = defineEmits(['close'])
 const element = ref(null)
@@ -73,15 +71,12 @@ onBeforeUnmount(() => {
                 </dl>
               </div>
             </template>
-            <pre v-else-if="preview.kind === 'text'" class="quick-look-text" tabindex="0">{{ preview.content }}</pre>
             <div v-else-if="preview.kind === 'audio'" class="quick-look-audio">
               <i class="mdi mdi-music-circle-outline quick-look-file-icon" aria-hidden="true" />
               <CustomMediaPlayer kind="audio" :src="preview.sourceUrl" :provider-id="preview.providerId" :path="preview.node.path" :autoplay="true" :history-enabled="false" @error="playbackError = 'This audio could not be played'" />
               <p v-if="playbackError" class="text-danger" role="alert">{{ playbackError }}</p>
             </div>
-            <PdfViewer v-else-if="['pdf', 'presentation'].includes(preview.kind)" ref="pdf" :tab="preview" :visible="true" @state-change="(_id, state) => Object.assign(preview, state)" />
-            <WordPreview v-else-if="preview.kind === 'word'" :bytes="preview.bytes" />
-            <SpreadsheetPreview v-else-if="preview.kind === 'spreadsheet'" :model="preview.model" />
+            <FilePreview v-else ref="pdf" :preview="preview" />
           </div>
         </div>
       </div>

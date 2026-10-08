@@ -299,7 +299,7 @@ const handleKeydown = (event) => {
     nextTick(beginRename)
     return
   }
-  if (event.key === 'Enter') {
+  if (event.key === 'Enter' && !event.altKey && !event.ctrlKey && !event.metaKey) {
     event.preventDefault()
     selectNode()
     if (props.node.isDirectory) toggle()
@@ -466,7 +466,7 @@ watch(
 )
 
 watch(entryChange, async (change) => {
-  if (change?.targetDirectory !== props.node.path || !props.node.isDirectory) return
+  if (change?.providerId !== props.providerId || change?.targetDirectory !== props.node.path || !props.node.isDirectory) return
   await refreshChildren()
 })
 watch(() => props.watchActive, (active) => {

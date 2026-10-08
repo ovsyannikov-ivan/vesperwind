@@ -376,6 +376,15 @@ pub(crate) mod native {
         Ok(entries)
     }
 
+    pub(crate) fn inspect_passive(
+        path: &Path,
+    ) -> Result<(Option<super::ContentAvailability>, Option<super::CloudSync>), NativeError> {
+        let data = find_data(path)?;
+        let roots = registered_roots().map_err(|e| error(path, e))?;
+        let membership = membership(path, &roots);
+        Ok(classify(membership, &facts(&data)))
+    }
+
     fn find_data(path: &Path) -> Result<WIN32_FIND_DATAW, NativeError> {
         let _exposure = PlaceholderExposure::enter().map_err(|e| error(path, e))?;
         let path_wide = wide(path);

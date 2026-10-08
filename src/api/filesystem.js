@@ -1,6 +1,7 @@
 import { backend } from './backend.js'
 import { startFilesystemSearch } from './filesystemSearch.js'
 import { content } from './content.js'
+import { calculateSize } from './filesystemSize.js'
 import { normalizeApiResponse } from './response.js'
 import { LOCAL_FILESYSTEM_PROVIDER } from './filesystemLocation.js'
 
@@ -130,6 +131,13 @@ const operate = async ({ action, source, target = null, name, options = {} }) =>
 }
 
 export const filesystem = Object.freeze({
+  properties: async (location) => normalizeApiResponse(await backend.request('filesystem:properties', {
+    filesystemId: providerIdOf(location), path: location.path,
+  }), 'EPROPERTIES', 'Unable to load properties'),
+  updateProperties: async (location, update) => normalizeApiResponse(await backend.request('filesystem:update-properties', {
+    filesystemId: providerIdOf(location), path: location.path, update,
+  }), 'EPROPERTIES_UPDATE', 'Unable to change permissions'),
+  calculateSize,
   resolveLocation: async (location) => normalizeApiResponse(await backend.request('filesystem:resolve-location', {
     filesystemId: providerIdOf(location), path: location?.path,
   }, { timeout: 120_000 }), 'EFILESYSTEM_LOCATION', 'Unable to open this folder'),

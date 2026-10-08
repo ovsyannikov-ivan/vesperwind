@@ -30,7 +30,8 @@ fn event(root: &Path, events: &mut Vec<Value>, phase: &str, details: Value) {
 }
 pub fn start(app: &AppHandle) {
     let args: Vec<_> = std::env::args().collect();
-    if args.get(1).map(String::as_str) != Some("--native-regression") {
+    let properties_only = args.get(1).map(String::as_str) == Some("--properties-regression");
+    if !properties_only && args.get(1).map(String::as_str) != Some("--native-regression") {
         return;
     }
     let Some(output) = args.get(2) else {
@@ -40,13 +41,159 @@ pub fn start(app: &AppHandle) {
     let output = PathBuf::from(output);
     let app = app.clone();
     std::thread::spawn(move || {
-        let result = run(&app, &output);
+        let result = if properties_only {
+            run_properties(&app, &output)
+        } else {
+            run(&app, &output)
+        };
         if let Err(error) = &result {
             eprintln!("Native regression failed: {error}");
             let _ = fs::write(output.join("failure.txt"), error.to_string());
         }
         app.exit(if result.is_ok() { 0 } else { 2 });
     });
+}
+fn run_properties(app: &AppHandle, output: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::filesystem::{properties, size};
+    fs::create_dir_all(output)?;
+    if output.join("events.json").exists() {
+        return Err("Use a new properties regression output directory".into());
+    }
+    let state = app.state::<AppState>();
+    let fixture = output.join("properties-fixture");
+    fs::create_dir(&fixture)?;
+    let file = fixture.join("report.txt");
+    fs::write(&file, b"Properties native fixture")?;
+    let folder = fixture.join("folder");
+    fs::create_dir(&folder)?;
+    let child = folder.join("child");
+    fs::write(&child, [0u8; 19])?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o640))?;
+        fs::set_permissions(&child, fs::Permissions::from_mode(0o640))?;
+        std::os::unix::fs::symlink(&fixture, fixture.join("cycle"))?;
+    }
+    let read = |path: &Path| {
+        properties::read(&state.filesystem, &path.to_string_lossy())
+            .map_err(|e| format!("{}: {}", e.code, e.message))
+    };
+    let before = read(&file)?;
+    assert!(before.created_at.is_some());
+    assert_eq!(before.size, Some(25));
+    let mut events = vec![];
+    event(
+        output,
+        &mut events,
+        "metadata",
+        serde_json::to_value(&before)?,
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        assert_eq!(
+            before.permissions.as_ref().unwrap().mode.unwrap() & 0o777,
+            0o640
+        );
+        let after = properties::update(
+            &state.filesystem,
+            &file.to_string_lossy(),
+            &properties::PermissionUpdate {
+                mode: Some(0o750),
+                uid: None,
+                gid: None,
+            },
+        )
+        .map_err(|e| e.message)?;
+        assert_eq!(
+            after.permissions.as_ref().unwrap().mode.unwrap() & 0o777,
+            0o750
+        );
+        event(output, &mut events, "chmod", serde_json::to_value(&after)?);
+        properties::update(
+            &state.filesystem,
+            &folder.to_string_lossy(),
+            &properties::PermissionUpdate {
+                mode: Some(0o750),
+                uid: None,
+                gid: None,
+            },
+        )
+        .map_err(|e| e.message)?;
+        assert_eq!(fs::metadata(&child)?.mode() & 0o777, 0o640);
+        let link = read(&fixture.join("cycle"))?;
+        assert_eq!(link.entry_type, "symlink");
+        assert!(!link.capabilities.change_mode);
+        event(output, &mut events, "symlink", serde_json::to_value(&link)?);
+        if unsafe { libc::geteuid() } != 0 {
+            let denied = properties::update(
+                &state.filesystem,
+                &file.to_string_lossy(),
+                &properties::PermissionUpdate {
+                    mode: None,
+                    uid: Some(0),
+                    gid: None,
+                },
+            )
+            .unwrap_err();
+            assert_eq!(denied.code, "EACCES");
+            event(
+                output,
+                &mut events,
+                "denied-owner",
+                serde_json::to_value(denied)?,
+            );
+        }
+    }
+    #[cfg(windows)]
+    {
+        assert!(before.permissions.is_none());
+        assert!(!before.capabilities.change_mode);
+    }
+    let cancelled = std::sync::atomic::AtomicBool::new(false);
+    let result = size::calculate(
+        &state.filesystem,
+        &state.ssh,
+        "local",
+        &fixture.to_string_lossy(),
+        &cancelled,
+        |_| {},
+    )
+    .map_err(|e| e.message)?;
+    assert_eq!(result.errors, 0);
+    assert!(!result.cancelled);
+    #[cfg(unix)]
+    assert_eq!(result.items, 4);
+    #[cfg(windows)]
+    assert_eq!(result.items, 3);
+    assert!(result.bytes >= 44);
+    event(
+        output,
+        &mut events,
+        "folder-size",
+        serde_json::to_value(result)?,
+    );
+    cancelled.store(true, std::sync::atomic::Ordering::Release);
+    assert!(
+        size::calculate(
+            &state.filesystem,
+            &state.ssh,
+            "local",
+            &fixture.to_string_lossy(),
+            &cancelled,
+            |_| {}
+        )
+        .map_err(|e| e.message)?
+        .cancelled
+    );
+    event(
+        output,
+        &mut events,
+        "finished",
+        json!({"ok":true,"platform":std::env::consts::OS}),
+    );
+    Ok(())
 }
 fn run(app: &AppHandle, output: &Path) -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(output)?;

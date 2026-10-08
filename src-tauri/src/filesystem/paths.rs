@@ -73,6 +73,24 @@ pub fn outside_root() -> NativeError {
     NativeError::new("EOUTSIDE_ROOT", "Path is outside the configured root")
 }
 
+/// Resolve ancestors, but never resolve the selected entry itself. Broken links
+/// remain inspectable and their targets cannot escape the browser root.
+pub fn resolve_metadata_path(
+    filesystem: &Filesystem,
+    requested: &str,
+) -> Result<PathBuf, NativeError> {
+    let logical = resolve_inside_root(filesystem, requested)?;
+    if logical == filesystem.root() || logical.parent().is_none() {
+        return Ok(logical);
+    }
+    let parent = verify_existing_inside_root(filesystem, logical.parent().unwrap())?;
+    Ok(parent.join(
+        logical
+            .file_name()
+            .ok_or_else(|| NativeError::new("EINVAL", "Invalid entry path"))?,
+    ))
+}
+
 #[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::{resolve_inside_root, verify_existing_inside_root};
