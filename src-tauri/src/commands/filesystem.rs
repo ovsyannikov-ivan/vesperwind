@@ -146,22 +146,32 @@ pub fn filesystem_root(state: State<'_, AppState>, payload: FilesystemRootPayloa
 }
 
 #[tauri::command]
-pub fn filesystem_list(state: State<'_, AppState>, payload: FilesystemPathPayload) -> Value {
+pub async fn filesystem_list(
+    state: State<'_, AppState>,
+    payload: FilesystemPathPayload,
+) -> Result<Value, String> {
+    let filesystem = Arc::clone(&state.filesystem);
+    let ssh = Arc::clone(&state.ssh);
     let path = payload.path.unwrap_or_default();
-    let result = (|| {
+    // Foundation metadata and large directory enumeration run off the UI thread.
+    let result = tauri::async_runtime::spawn_blocking(move || {
         if let Some(provider) = payload
             .filesystem_id
             .as_deref()
             .filter(|value| *value != "local")
         {
-            let entries = state.ssh.list(provider, &path)?;
+            let entries = ssh.list(provider, &path)?;
             return Ok::<_, NativeError>(json!({ "ok": true, "path": path, "entries": entries }));
         }
         filesystem::Filesystem::require_local(payload.filesystem_id.as_deref())?;
-        let entries = state.filesystem.list_directory(&path)?;
+        let entries = filesystem.list_directory(&path)?;
         Ok::<_, NativeError>(json!({ "ok": true, "path": path, "entries": entries }))
-    })();
-    result.unwrap_or_else(failure)
+    })
+    .await;
+    Ok(match result {
+        Ok(result) => result.unwrap_or_else(failure),
+        Err(error) => failure(NativeError::new("EFILESYSTEM", error.to_string())),
+    })
 }
 
 #[derive(Debug, Deserialize)]

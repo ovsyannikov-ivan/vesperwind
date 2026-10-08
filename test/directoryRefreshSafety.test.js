@@ -4,6 +4,8 @@ import fs from 'node:fs/promises'
 import { createDirectoryListing } from '../src/utils/directoryListing.js'
 import { createDirectoryWatchRegistry } from '../src/api/directoryWatch.js'
 import { reconcileDirectorySelection } from '../src/utils/reconcileDirectorySelection.js'
+import { getContentAvailabilityBadge } from '../src/utils/contentAvailability.js'
+import { createContentPreparer } from '../src/api/content.js'
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r }); return { promise, resolve } }
 const entries = ['a.mp3', 'b.txt'].map(name => ({ name, path: `/home/${name}`, providerId: 'local', isDirectory: false }))
 const success = (value = entries) => ({ ok: true, entries: value })
@@ -15,6 +17,51 @@ const fixture = (options = {}) => {
     list: async () => success(), onLoaded: x => applied.push(x), ...options })
   return { ...listing, state, location, applied }
 }
+
+test('watch refresh replaces cloud and materializing entries and removes the ready badge', async () => {
+  let event
+  const registry = createDirectoryWatchRegistry({
+    request: async () => ({ ok: true }),
+    subscribe: (_name, callback) => { event = callback; return () => {} },
+  }, 1)
+  let availability = { state: 'cloud' }
+  const h = fixture({ list: async () => success([{ ...entries[0], contentAvailability: availability }]) })
+  await h.load()
+  const original = h.state.children[0]
+  assert.equal(getContentAvailabilityBadge(original).icon, 'mdi-cloud-download-outline')
+  const stop = registry.subscribe('local', '/home', () => h.load({ force: true }))
+  for (const next of [{ state: 'materializing', progress: 0.42 }, undefined]) {
+    availability = next
+    const previous = h.state.children[0]
+    event({ providerId: 'local', directoryPath: '/home', kind: 'changed' })
+    for (let i = 0; i < 100 && h.state.children[0] === previous; i++) await new Promise(resolve => setTimeout(resolve, 2))
+    assert.notEqual(h.state.children[0], previous)
+    assert.equal(getContentAvailabilityBadge(h.state.children[0])?.icon ?? null,
+      next ? 'mdi-cloud-sync-outline' : null)
+  }
+  // A stale object still says cloud, but the rendered/current listing uses its replacement.
+  assert.equal(original.contentAvailability.state, 'cloud')
+  stop(); h.dispose()
+})
+
+test('completed materialization invalidates a stale badge even without a final OS event', async () => {
+  const registry = createDirectoryWatchRegistry({ request: async () => ({ ok: true }), subscribe: () => () => {} }, 1)
+  let availability = { state: 'materializing' }
+  const h = fixture({ list: async () => success([{ ...entries[0], contentAvailability: availability }]) })
+  await h.load()
+  const stop = registry.subscribe('local', '/home', () => h.load({ force: true }))
+  const prepare = createContentPreparer({ poll: async () => {}, onMaterialized: registry.refreshFile,
+    request: async (event) => {
+      if (event === 'content:prepare') return { ok: true, preparation: { state: 'MATERIALIZING', operationId: 'download' } }
+      availability = undefined
+      return { ok: true, preparation: { state: 'READY' } }
+    },
+  })
+  assert.equal((await prepare(entries[0])).ok, true)
+  for (let i = 0; i < 100 && h.state.children[0].contentAvailability; i++) await new Promise(resolve => setTimeout(resolve, 2))
+  assert.equal(getContentAvailabilityBadge(h.state.children[0]), null)
+  stop(); h.dispose()
+})
 
 test('superseded empty response cannot replace a newer successful listing or selection', async () => {
   const old = deferred(); let calls = 0

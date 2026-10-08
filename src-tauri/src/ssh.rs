@@ -832,6 +832,8 @@ impl RemoteConnection {
                         .to_rfc3339()
                 }),
                 metadata_error: None,
+                #[cfg(target_os = "macos")]
+                content_availability: None,
             });
         }
         result.sort_by(|a, b| {
@@ -975,6 +977,8 @@ fn directory_entry(path: &str) -> FileEntry {
         size: None,
         modified_at: None,
         metadata_error: None,
+        #[cfg(target_os = "macos")]
+        content_availability: None,
     }
 }
 

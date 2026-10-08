@@ -1,7 +1,7 @@
 import { traceMedia } from './mediaDiagnostics.js'
 import { backend } from './backend.js'
 import { isComputerPath } from '../../shared/localFilesystem.js'
-import { normalizeFilesystemPath } from '../utils/filesystemPath.js'
+import { getFilesystemParentPath, normalizeFilesystemPath } from '../utils/filesystemPath.js'
 
 // One backend subscription per visible local directory, regardless of the number
 // of panels and editor trees displaying it.
@@ -13,6 +13,16 @@ export const createDirectoryWatchRegistry = (transport, delay = 100) => {
   let disconnected = false
 
   const keyOf = (providerId, path) => `${providerId}\0${normalizeFilesystemPath(path)}`
+  const scheduleRefresh = (record, event) => {
+    clearTimeout(record.timer)
+    record.timer = setTimeout(() => {
+      record.timer = null
+      for (const callback of [...record.consumers]) {
+        try { Promise.resolve(callback(event)).catch((error) => console.warn('Directory refresh failed', error)) }
+        catch (error) { console.warn('Directory refresh failed', error) }
+      }
+    }, delay)
+  }
   const queue = (record, action) => {
     const key = keyOf(record.providerId, record.path)
     const previous = operations.get(key) || Promise.resolve()
@@ -31,14 +41,7 @@ export const createDirectoryWatchRegistry = (transport, delay = 100) => {
       const record = directories.get(keyOf(event?.providerId, event?.directoryPath))
       if (!record) return
       if (event.error) console.error('Filesystem watcher stopped', event)
-      clearTimeout(record.timer)
-      record.timer = setTimeout(() => {
-        record.timer = null
-        for (const callback of [...record.consumers]) {
-          try { Promise.resolve(callback(event)).catch((error) => console.warn('Directory refresh failed', error)) }
-          catch (error) { console.warn('Directory refresh failed', error) }
-        }
-      }, delay)
+      scheduleRefresh(record, event)
     })
     unsubscribeConnection = transport.subscribeToConnection?.((connected) => {
       if (!connected) disconnected = true
@@ -97,7 +100,14 @@ export const createDirectoryWatchRegistry = (transport, delay = 100) => {
     }
   }
 
-  return { subscribe, count: () => directories.size }
+  const refreshFile = ({ providerId = 'local', path } = {}) => {
+    if (providerId !== 'local' || !path) return
+    const directoryPath = getFilesystemParentPath(path)
+    const record = directories.get(keyOf(providerId, directoryPath))
+    if (record) scheduleRefresh(record, { providerId, directoryPath, kind: 'content-ready' })
+  }
+
+  return { subscribe, refreshFile, count: () => directories.size }
 }
 
 export const directoryWatch = createDirectoryWatchRegistry(backend)

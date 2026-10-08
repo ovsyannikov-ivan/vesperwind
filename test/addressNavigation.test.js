@@ -42,6 +42,19 @@ test('the panel path field has confirm and cancel buttons inside it', async () =
   assert.match(form, /type="button"[\s\S]*?@click="addressNavigation\.cancel"[\s\S]*?mdi-close/u)
 })
 
+test('long breadcrumbs cannot shrink the provider badge; longer remote labels retain their width cap', async () => {
+  const { compiledStyles } = await import('./support/styles.js')
+  const css = compiledStyles('src/styles/main.scss')
+  const providerBadge = css.match(/\.panel-provider-label\s*\{[^}]*\}/u)?.[0]
+  assert.ok(providerBadge)
+  assert.match(providerBadge, /flex: 0 0 auto;/u)
+  assert.match(providerBadge, /max-width: 130px;/u)
+  assert.match(providerBadge, /text-overflow: ellipsis;/u)
+  const { readFile } = await import('node:fs/promises')
+  const panel = await readFile(new URL('../src/components/FilePanel.vue', import.meta.url), 'utf8')
+  assert.match(panel, /class="badge text-bg-secondary panel-provider-label" :title="providerLabel"/u)
+})
+
 test('every text field and select draws its focus inside the border', async () => {
   const { compiledStyles } = await import('./support/styles.js')
   const css = compiledStyles('src/styles/main.scss')

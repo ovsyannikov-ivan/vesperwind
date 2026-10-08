@@ -17,6 +17,9 @@ between applications.
   and file transfers between local and remote panels.
 - **Search & filtering:** recursive name/path search, per-panel filters and sorting,
   and automatic refresh for local folders.
+- **iCloud on macOS:** a small cloud badge identifies files whose content needs
+  downloading. Browsing a folder never downloads its files; opening or reading
+  a file can prepare its content automatically.
 - **Quick Look:** press Space on a selected file for a temporary read-only preview
   of media, text, PDF, PPTX, DOCX/DOC/RTF or XLS/XLSX without opening an editor tab.
 - **Text & code:** multi-tab Monaco editor with syntax highlighting, minimap,

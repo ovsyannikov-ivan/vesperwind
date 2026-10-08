@@ -154,4 +154,47 @@ mod tests {
         drop(watcher);
         fs::remove_dir_all(directory).unwrap();
     }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn native_watcher_reports_attribute_changes_without_content_writes() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory =
+            std::env::temp_dir().join(format!("vesperwind-watch-attrs-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&directory).unwrap();
+        let directory = fs::canonicalize(directory).unwrap();
+        let file = directory.join("attributes.txt");
+        fs::write(&file, b"unchanged content").unwrap();
+        let (sender, receiver) = mpsc::channel();
+        let mut watcher = notify::recommended_watcher(move |event| {
+            let _ = sender.send(event);
+        })
+        .unwrap();
+        watcher
+            .watch(&directory, RecursiveMode::NonRecursive)
+            .unwrap();
+        let mode = fs::metadata(&file).unwrap().permissions().mode();
+        fs::set_permissions(&file, fs::Permissions::from_mode(mode ^ 0o100)).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut observed = false;
+        while let Ok(Ok(event)) =
+            receiver.recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+        {
+            if event.paths.contains(&file)
+                && matches!(
+                    event.kind,
+                    notify::EventKind::Modify(notify::event::ModifyKind::Metadata(_))
+                )
+            {
+                observed = true;
+                break;
+            }
+        }
+        drop(watcher);
+        fs::remove_dir_all(directory).unwrap();
+        assert!(
+            observed,
+            "FSEvents must report metadata-only changes for listing refresh"
+        );
+    }
 }

@@ -41,6 +41,9 @@ pub struct FileEntry {
     pub size: Option<u64>,
     pub modified_at: Option<String>,
     pub metadata_error: Option<MetadataError>,
+    #[cfg(target_os = "macos")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_availability: Option<availability::ContentAvailability>,
 }
 
 #[derive(Debug, Serialize)]
@@ -161,6 +164,8 @@ impl Filesystem {
             size: None,
             modified_at: metadata.modified().ok().map(format_time),
             metadata_error: None,
+            #[cfg(target_os = "macos")]
+            content_availability: None,
         })
     }
 
@@ -214,6 +219,8 @@ fn directory_location(name: &str, path: &str, kind: &'static str) -> FileEntry {
         size: None,
         modified_at: None,
         metadata_error: None,
+        #[cfg(target_os = "macos")]
+        content_availability: None,
     }
 }
 
@@ -253,6 +260,29 @@ fn entry_from_path(
     let name = file_name.to_string_lossy().into_owned();
     let link_metadata = fs::symlink_metadata(&physical_path);
     let is_finder_alias = alias::is_finder_alias(&physical_path).unwrap_or(false);
+    #[cfg(target_os = "macos")]
+    if let Some(metadata) = link_metadata
+        .as_ref()
+        .ok()
+        .filter(|metadata| is_finder_alias && availability::is_dataless(metadata))
+    {
+        // Resolving a dataless alias would read its bookmark content. Retain the
+        // alias itself until an explicit open materializes it; listing is passive.
+        return FileEntry {
+            name,
+            path: display_path.to_string_lossy().into_owned(),
+            entry_type: "file",
+            is_directory: false,
+            is_symbolic_link: true,
+            size: Some(metadata.len()),
+            modified_at: metadata.modified().ok().map(format_time),
+            metadata_error: None,
+            content_availability: availability::inspect_content_availability(
+                &physical_path,
+                metadata,
+            ),
+        };
+    }
     let resolved = paths::verify_existing_inside_root(filesystem, &physical_path);
 
     match (link_metadata, resolved) {
@@ -268,6 +298,12 @@ fn entry_from_path(
                     size: (!is_directory).then_some(metadata.len()),
                     modified_at: metadata.modified().ok().map(format_time),
                     metadata_error: None,
+                    #[cfg(target_os = "macos")]
+                    content_availability: if metadata.is_file() {
+                        availability::inspect_content_availability(&real, &metadata)
+                    } else {
+                        None
+                    },
                 }
             }
             Err(error) => metadata_error_entry(
@@ -295,6 +331,8 @@ fn metadata_error_entry(name: String, path: PathBuf, error: NativeError) -> File
         size: None,
         modified_at: None,
         metadata_error: Some(MetadataError { code: error.code }),
+        #[cfg(target_os = "macos")]
+        content_availability: None,
     }
 }
 
@@ -319,6 +357,51 @@ pub fn filesystem_error(error: &std::io::Error, path: &str, fallback: &str) -> N
 mod desktop_tests {
     use super::operations::{perform, OperationRequest};
     use super::*;
+
+    #[test]
+    fn ordinary_local_entry_omits_availability_from_wire_format() {
+        let directory =
+            std::env::temp_dir().join(format!("vesperwind-entry-wire-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&directory).unwrap();
+        fs::write(directory.join("local.txt"), b"local bytes").unwrap();
+        let filesystem = Filesystem::from_root(&directory, directory.clone()).unwrap();
+        let entries = filesystem
+            .list_directory(&directory.to_string_lossy())
+            .unwrap();
+        let json = serde_json::to_value(&entries[0]).unwrap();
+        assert!(json.get("contentAvailability").is_none());
+        assert_eq!(json["name"], "local.txt");
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "opt-in listing latency measurement, not a CI timing assertion"]
+    fn measure_large_local_listing() {
+        let directory =
+            std::env::temp_dir().join(format!("vesperwind-list-latency-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&directory).unwrap();
+        for index in 0..3000 {
+            fs::write(directory.join(format!("file-{index:04}.txt")), b"local").unwrap();
+        }
+        let filesystem = Filesystem::desktop(dirs::home_dir().unwrap()).unwrap();
+        for iteration in 0..3 {
+            let started = std::time::Instant::now();
+            let entries = filesystem
+                .list_directory(&directory.to_string_lossy())
+                .unwrap();
+            eprintln!(
+                "listing_latency iteration={iteration} entries={} elapsed_ms={}",
+                entries.len(),
+                started.elapsed().as_millis()
+            );
+            assert_eq!(entries.len(), 3000);
+            assert!(entries
+                .iter()
+                .all(|entry| entry.content_availability.is_none()));
+        }
+        fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn desktop_can_list_read_and_create_outside_initial_folder() {

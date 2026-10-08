@@ -21,6 +21,32 @@
     if (value.stage === 'player.open') opens.push(value)
     void post('trace', { label, ...value }).catch(() => {})
   }
+  // Opt-in, read-only instrumentation for real iCloud badge acceptance. It is
+  // injected only into the debug regression WebView, never production listings.
+  const availabilityDirectory = window.__MEDIA_PROBE_CONFIG__.availabilityDirectory
+  if (label === 'main' && availabilityDirectory) {
+    let previous = ''
+    let queued = false
+    const recordAvailability = () => {
+      queued = false
+      const rows = [...document.querySelectorAll('.tree-row[data-file-path]')]
+        .filter(row => row.dataset.filePath.startsWith(`${availabilityDirectory}/`))
+        .map(row => {
+          const badge = row.querySelector('.tree-content-badge')
+          return { path: row.dataset.filePath, badge: badge?.className || null,
+            label: badge?.getAttribute('aria-label') || null, height: row.getBoundingClientRect().height }
+        })
+      const signature = JSON.stringify(rows)
+      if (rows.length && signature !== previous) {
+        previous = signature
+        void post('trace', { label, stage: 'directory.availability', rows }).catch(() => {})
+      }
+    }
+    new MutationObserver(() => {
+      if (!queued) { queued = true; requestAnimationFrame(recordAvailability) }
+    }).observe(document, { subtree: true, childList: true, attributes: true,
+      attributeFilter: ['class', 'aria-label'] })
+  }
   const invoke = (command, payload = {}) => window.__TAURI_INTERNALS__.invoke(command, { payload })
   const wait = async (check, timeout = 45000) => {
     const until = performance.now() + timeout

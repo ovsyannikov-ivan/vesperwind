@@ -616,7 +616,7 @@ watch(entryChange, (change) => {
 			<div class="panel-title">
 				<i class="mdi mdi-folder-multiple-outline" aria-hidden="true" />
 				<strong>{{ side === "left" ? "Left" : "Right" }}</strong>
-				<span class="badge text-bg-secondary panel-provider-label">{{ providerLabel }}</span>
+				<span class="badge text-bg-secondary panel-provider-label" :title="providerLabel">{{ providerLabel }}</span>
 				<nav v-if="breadcrumbs.length && !address.editing" ref="breadcrumbsRef" class="panel-breadcrumbs" :aria-label="`${side} panel path`">
 					<template v-for="(crumb, index) in breadcrumbs" :key="crumb.path">
 						<i v-if="index > 0" class="mdi mdi-chevron-right breadcrumb-separator" aria-hidden="true" />

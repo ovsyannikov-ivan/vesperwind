@@ -121,6 +121,7 @@ body {
 }
 
 .panel-provider-label {
+	flex: 0 0 auto;
 	max-width: 130px;
 	overflow: hidden;
 	text-overflow: ellipsis;

@@ -264,6 +264,15 @@
 	color: var(--text-muted);
 }
 
+.tree-content-badge {
+	flex: 0 0 auto;
+	margin-inline: 5px;
+	font-size: var(--file-tree-icon-size);
+	line-height: 1;
+	color: inherit;
+	opacity: 0.75;
+}
+
 .tree-size,
 .tree-date {
 	min-width: 0;

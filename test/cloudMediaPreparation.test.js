@@ -68,8 +68,8 @@ test('closing Quick Look during download invalidates the player and leaves anoth
 })
 
 test('cancellation during polling rejects a late READY response and releases the operation', async () => {
-  const status = deferred(), controller = new AbortController(), calls = [], states = []
-  const prepare = createContentPreparer({ poll: async () => {}, request: (event) => {
+  const status = deferred(), controller = new AbortController(), calls = [], states = [], materialized = []
+  const prepare = createContentPreparer({ poll: async () => {}, onMaterialized: location => materialized.push(location), request: (event) => {
     calls.push(event)
     if (event === 'content:prepare') return Promise.resolve({ ok: true, preparation: { state: 'MATERIALIZING', operationId: 'polling' } })
     if (event === 'content:status') return status.promise
@@ -80,6 +80,20 @@ test('cancellation during polling rejects a late READY response and releases the
   assert.equal((await result).error.code, 'ECONTENT_CANCELLED')
   assert.deepEqual(states, ['MATERIALIZING'])
   assert.deepEqual(calls, ['content:prepare', 'content:status', 'content:cancel'])
+  assert.deepEqual(materialized, [])
+})
+
+test('ordinary ready files, failed downloads and SFTP do not invalidate local availability', async () => {
+  for (const scenario of ['ready', 'failed', 'sftp']) {
+    const materialized = []
+    const prepare = createContentPreparer({ poll: async () => {}, onMaterialized: location => materialized.push(location),
+      request: async event => event === 'content:prepare' && scenario === 'failed'
+        ? { ok: true, preparation: { state: 'MATERIALIZING', operationId: 'failed-download' } }
+        : scenario === 'failed' ? { ok: false, error: { code: 'ECLOUD_OFFLINE', message: 'Offline' } } : ready(),
+    })
+    await prepare({ ...file(), providerId: scenario === 'sftp' ? 'sftp:server' : 'local' })
+    assert.deepEqual(materialized, [], scenario)
+  }
 })
 test('Quick Look retains downloading progress without publishing a player source', async () => {
   const download = deferred(); let options

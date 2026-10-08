@@ -1,6 +1,7 @@
 import { backend } from './backend.js'
 import { normalizeApiResponse } from './response.js'
 import { LOCAL_FILESYSTEM_PROVIDER } from './filesystemLocation.js'
+import { directoryWatch } from './directoryWatch.js'
 
 const POLL_INTERVAL_MS = 600
 
@@ -29,7 +30,8 @@ const normalize = (response) =>
     'Unable to prepare this file',
   )
 
-export const createContentPreparer = ({ request = backend.request, poll = waitForPoll } = {}) => async (fileRef, { signal, onStatus } = {}) => {
+export const createContentPreparer = ({ request = backend.request, poll = waitForPoll,
+  onMaterialized = (location) => directoryWatch.refreshFile(location) } = {}) => async (fileRef, { signal, onStatus } = {}) => {
   if (signal?.aborted) return { ok: false, error: { code: 'ECONTENT_CANCELLED', message: 'File preparation was cancelled' } }
   if (fileRef?.providerId && fileRef.providerId !== LOCAL_FILESYSTEM_PROVIDER) {
     const response = { ok: true, preparation: { state: 'READY', operationId: null, progress: 1, userMessage: 'Remote file is ready', elapsedMs: 0 } }
@@ -41,6 +43,7 @@ export const createContentPreparer = ({ request = backend.request, poll = waitFo
     path: fileRef?.path,
   }
   let operationId = null
+  let materializing = false
 
   try {
     let response = normalize(await request('content:prepare', payload))
@@ -48,6 +51,7 @@ export const createContentPreparer = ({ request = backend.request, poll = waitFo
     if (signal?.aborted) throw new DOMException('Content preparation was cancelled', 'AbortError')
 
     while (response.ok && response.preparation?.state === 'MATERIALIZING') {
+      materializing = true
       operationId = response.preparation.operationId
       onStatus?.(response.preparation)
       await poll(signal)
@@ -57,7 +61,14 @@ export const createContentPreparer = ({ request = backend.request, poll = waitFo
       if (signal?.aborted) throw new DOMException('Content preparation was cancelled', 'AbortError')
     }
 
-    if (response.ok) onStatus?.(response.preparation)
+    if (response.ok) {
+      if (materializing && response.preparation?.state === 'READY') {
+        // NSURL download state can settle after the last FSEvents notification.
+        // Refresh current entries once at completion; never poll directory rows.
+        onMaterialized({ providerId: payload.filesystemId, path: payload.path })
+      }
+      onStatus?.(response.preparation)
+    }
     return response
   } catch (error) {
     if (error?.name === 'AbortError') {
