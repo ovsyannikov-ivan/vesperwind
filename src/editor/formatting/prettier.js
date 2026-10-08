@@ -24,7 +24,7 @@ export const formatText = async ({ text, fileName, settings, cursorOffset = -1 }
   const parser = getFormattingParser(fileName)
   if (!parser) return { text, cursorOffset, supported: false }
   const prettier = await import('prettier/standalone')
-  const { formatOnSave: _unused, ...options } = normalizeFormatting(settings)
+  const { enabled: _enabled, formatOnSave: _unused, ...options } = normalizeFormatting(settings)
   const loaded = await Promise.all(required[parser].map(loadPlugin))
   const result = await prettier.formatWithCursor(text, { ...options, parser, plugins: loaded, cursorOffset })
   return { text: result.formatted, cursorOffset: result.cursorOffset, supported: true }

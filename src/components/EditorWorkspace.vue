@@ -631,7 +631,7 @@ onBeforeUnmount(() => {
         >{{ indentationLabel }}</button>
         <span class="editor-statusbar-item">{{ activeEditorPosition.eol }}</span>
         <span class="editor-statusbar-item" title="Text files are read and saved as UTF-8">UTF-8</span>
-        <button v-if="getFormattingParser(activeTextTab.fileName)" class="compact-button" type="button"
+        <button v-if="settings.editor.formatting.enabled !== false && getFormattingParser(activeTextTab.fileName)" class="compact-button" type="button"
           :disabled="activeTextTab.saving || activeTextTab.formatting"
           :title="`Format Document (Option/Alt+Shift+F). Format on save: ${settings.editor.formatting.formatOnSave ? 'On' : 'Off'}`"
           @click="monacoEditor?.formatDocument()">Prettier</button>

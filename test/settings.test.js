@@ -65,7 +65,7 @@ test('falls back to the system theme for unknown values', async () => {
 })
 
 test('can restore default settings', async () => {
-  await saveSettings({ editor: { theme: 'one-dark-pro', formatting: { formatOnSave: true } } })
+  await saveSettings({ editor: { theme: 'one-dark-pro', formatting: { enabled: false, formatOnSave: true } } })
   const settings = await resetSettings()
 
   assert.equal(settings.appearance.theme, 'system')
@@ -73,4 +73,14 @@ test('can restore default settings', async () => {
   assert.deepEqual(settings.filesystem.hiddenNameSuffixes, ['.localized'])
   assert.equal(settings.editor.theme, 'auto')
   assert.equal(settings.editor.formatting.formatOnSave, false)
+  assert.equal(settings.editor.formatting.enabled, true)
+})
+
+test('persists disabled Prettier and retains its options across settings loads', async () => {
+  const formatting = { enabled: false, formatOnSave: true, useTabs: true, tabWidth: 8 }
+  const saved = await saveSettings({ editor: { formatting } })
+  const loaded = await loadSettings()
+  assert.deepEqual(loaded.editor.formatting, saved.editor.formatting)
+  assert.deepEqual(JSON.parse(await fs.readFile(fixturePath, 'utf8')).editor.formatting, saved.editor.formatting)
+  for (const [key, value] of Object.entries(formatting)) assert.equal(loaded.editor.formatting[key], value)
 })

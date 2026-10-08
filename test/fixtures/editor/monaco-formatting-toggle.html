@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><title>Prettier availability regression checks</title>
+<style>#host{height:300px;display:flex}body{font:14px system-ui;margin:20px}#results{white-space:pre-wrap}</style></head>
+<body><h1>Prettier availability regression checks</h1><pre id="results">Running…</pre><div id="app"></div>
+<script type="module">
+import * as monaco from 'monaco-editor'
+import { createApp, ref, h, nextTick } from 'vue'
+import MonacoEditor from '../../../src/components/MonacoEditor.vue'
+import SettingsModal from '../../../src/components/SettingsModal.vue'
+import { settings } from '../../../src/composables/settingsState.js'
+import { StandaloneServices } from 'monaco-editor/editor/standalone/browser/standaloneServices.js'
+import { ILanguageFeaturesService } from 'monaco-editor/editor/common/services/languageFeatures.js'
+
+settings.value.editor.formatting.enabled = false
+const tab = ref({ id: 'toggle', type: 'text', filesystemId: 'local', filePath: '/qa/toggle.js',
+  fileName: 'toggle.js', language: 'javascript', content: 'const x={a:1}', savedContent: 'const x={a:1}',
+  loading: false, saving: false, formatting: false })
+const component = ref(null)
+const app = createApp({ setup: () => () => h('div', [
+  h('div', { id: 'host' }, [h(MonacoEditor, { ref: component, tabs: [tab.value], activeTab: tab.value,
+    onChange: (_id, content) => { tab.value.content = content } })]),
+  h(SettingsModal),
+]) })
+app.mount('#app')
+await nextTick()
+const editor = monaco.editor.getEditors().find(item => item.getDomNode()?.closest('#host'))
+const model = editor.getModel()
+const features = StandaloneServices.get(ILanguageFeaturesService)
+const providers = () => features.documentFormattingEditProvider.ordered(model).filter(item => item.displayName === 'Prettier')
+const assert = (condition, message) => { if (!condition) throw Error(message) }
+const results = []
+const test = async (name, fn) => {
+  try { await fn(); results.push(`PASS ${name}`) } catch (error) { results.push(`FAIL ${name}: ${error.stack}`) }
+  document.querySelector('#results').textContent = results.join('\n')
+}
+await test('disabled mount: no Prettier provider, action or manual formatting', async () => {
+  const version = model.getVersionId()
+  assert(providers().length === 0, 'provider registered while disabled')
+  assert(!editor.getAction('vesperwind.formatDocument').isSupported(), 'action is available')
+  await component.value.formatDocument()
+  assert(model.getVersionId() === version && !model.canUndo(), 'disabled manual format changed model/history')
+})
+await test('live enable/disable preserves the model, selection, manual indentation and undo/redo', async () => {
+  model.updateOptions({ tabSize: 8, insertSpaces: false })
+  editor.setSelection(new monaco.Selection(1, 1, 1, 8))
+  settings.value.editor.formatting.enabled = true
+  await nextTick()
+  assert(providers().length === 1 && editor.getAction('vesperwind.formatDocument').isSupported(), 'enable did not restore formatting')
+  const oldProvider = providers()[0]
+  assert((await oldProvider.provideDocumentFormattingEdits(model, {}, new monaco.CancellationTokenSource().token)).length === 1,
+    'reenabled provider did not produce edits')
+  await component.value.formatDocument()
+  assert(tab.value.content === 'const x = { a: 1 };\n', 'manual format failed')
+  assert(editor.getModel() === model && model.getOptions().tabSize === 8 && !model.getOptions().insertSpaces, 'model/indentation changed')
+  const selection = editor.getSelection().toString()
+  settings.value.editor.formatting.enabled = false
+  await nextTick()
+  assert(providers().length === 0 && !editor.getAction('vesperwind.formatDocument').isSupported(), 'disable did not remove formatting')
+  assert(editor.getSelection().toString() === selection, 'toggle moved selection')
+  assert((await oldProvider.provideDocumentFormattingEdits(model, {}, new monaco.CancellationTokenSource().token)).length === 0, 'stale provider formatted')
+  await model.undo()
+  assert(tab.value.content === 'const x={a:1}', 'Undo after disabling lost original text')
+  settings.value.editor.formatting.enabled = true
+  await nextTick()
+  await model.redo()
+  assert(tab.value.content === 'const x = { a: 1 };\n', 'Redo after enabling failed')
+  for (let i = 0; i < 3; i++) {
+    settings.value.editor.formatting.enabled = false
+    settings.value.editor.formatting.enabled = true
+  }
+  assert(providers().length === 1, 'repeated toggles duplicated providers')
+})
+await test('Settings disables dependent controls while retaining draft values', async () => {
+  const change = (id, value) => {
+    const control = document.getElementById(id)
+    if (control.type === 'checkbox') control.checked = value
+    else control.value = value
+    control.dispatchEvent(new Event(control.type === 'checkbox' ? 'change' : 'input', { bubbles: true }))
+  }
+  change('formatting-formatOnSave', true)
+  change('formatting-useTabs', true)
+  change('formatting-tab-width', '6')
+  change('formatting-enabled', false)
+  await nextTick()
+  const controls = document.querySelectorAll('fieldset input, fieldset select')
+  assert(controls.length === 10 && [...controls].every(item => item.matches(':disabled')), 'dependent controls remain enabled')
+  assert(!document.getElementById('formatting-enabled').matches(':disabled'), 'enable toggle disabled itself')
+  assert(!document.getElementById('editor-theme').matches(':disabled'), 'theme was disabled')
+  change('formatting-enabled', true)
+  await nextTick()
+  assert([...controls].every(item => !item.matches(':disabled')), 'controls did not recover')
+  assert(document.getElementById('formatting-formatOnSave').checked && document.getElementById('formatting-useTabs').checked,
+    'checkbox choices were reset')
+  assert(document.getElementById('formatting-tab-width').value === '6', 'tab width was reset')
+})
+app.unmount()
+</script></body></html>

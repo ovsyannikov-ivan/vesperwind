@@ -15,11 +15,22 @@ test('editor settings defaults, validation and migration preserve customized edi
   assert.equal(normalizeSettings({ editor: { theme: '../../arbitrary' } }).editor.theme, 'auto')
   assert.deepEqual(normalizeSettings({ version: 6, editor: { editableFiles: ['.js'] } }).editor.editableFiles, ['.js'])
   for (const [key, values] of Object.entries({ printWidth: [39, 301, '100', 41.5], tabWidth: [0, 9, '2', 2.5],
-    trailingComma: ['bad', 1], arrowParens: ['bad', false], endOfLine: ['bad', null], semi: ['false', 0] })) {
+    trailingComma: ['bad', 1], arrowParens: ['bad', false], endOfLine: ['bad', null], semi: ['false', 0],
+    enabled: ['false', 0, null] })) {
     for (const value of values) assert.equal(normalizeFormatting({ [key]: value })[key], DEFAULT_FORMATTING[key])
   }
   assert.equal(normalizeFormatting({ semi: false }).semi, false)
   assert.equal(normalizeSettings({ version: 1 }).version, 7)
+})
+
+test('Prettier is enabled for legacy settings; disabling preserves dependent options', () => {
+  for (const value of [{}, { version: 6 }, { version: 7, editor: { formatting: { formatOnSave: true } } }]) {
+    assert.equal(normalizeSettings(value).editor.formatting.enabled, true)
+  }
+  const options = { ...DEFAULT_FORMATTING, enabled: false, formatOnSave: true, useTabs: true, tabWidth: 8,
+    printWidth: 80, semi: false, singleQuote: true, trailingComma: 'none', arrowParens: 'avoid', endOfLine: 'crlf' }
+  assert.deepEqual(normalizeSettings({ editor: { formatting: options } }).editor.formatting, options)
+  assert.deepEqual(normalizeFormatting({ ...options, enabled: true }), { ...options, enabled: true })
 })
 
 const samples = [

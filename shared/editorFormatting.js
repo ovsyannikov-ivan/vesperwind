@@ -1,5 +1,5 @@
 export const DEFAULT_FORMATTING = Object.freeze({
-  formatOnSave: false, printWidth: 100, tabWidth: 2, useTabs: false,
+  enabled: true, formatOnSave: false, printWidth: 100, tabWidth: 2, useTabs: false,
   semi: true, singleQuote: false, bracketSpacing: true,
   trailingComma: 'all', arrowParens: 'always', endOfLine: 'auto',
 })

@@ -8,7 +8,7 @@ export const registerSaveFormatter = (format) => {
 }
 export const prepareTextSave = async (tab, destination, settings) => {
   const fileName = destination?.name || tab.fileName
-  if (tab.type !== 'text' || !settings.formatOnSave || !getFormattingParser(fileName)) return null
+  if (tab.type !== 'text' || settings.enabled === false || !settings.formatOnSave || !getFormattingParser(fileName)) return null
   if (!adapter) throw Object.assign(new Error('Formatting failed: text editor is not ready'), { code: 'EFORMAT' })
   return adapter(tab, fileName, settings)
 }

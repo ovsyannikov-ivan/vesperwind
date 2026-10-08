@@ -45,6 +45,54 @@ test('every save captures formatted content after model synchronization and beco
     }
   } finally { unregister() }
 })
+
+test('disabled Prettier bypasses the formatter for Save, Save As and Save and Close, including invalid syntax', async () => {
+  const unregister = registerSaveFormatter(() => { assert.fail('disabled formatter was invoked') })
+  try {
+    for (const mode of ['save', 'save-as', 'save-and-close']) {
+      const f = fixture(), tab = await open(f)
+      Object.assign(f.settings.value.editor.formatting, { enabled: false, useTabs: true, tabWidth: 8 })
+      f.workspace.updateContent(tab.id, 'const = {')
+      const destination = mode === 'save-as'
+        ? { providerId: 'sftp:test', directoryPath: '/remote', path: '/remote/copy.js', name: 'copy.js' } : null
+      assert.equal((await f.workspace.saveTab(tab.id, destination)).ok, true)
+      assert.equal(f.writes[0].content, 'const = {')
+      assert.equal(tab.savedContent, tab.content)
+      assert.equal(tab.dirty, false)
+      assert.equal(tab.saveError, null)
+      assert.equal(f.settings.value.editor.formatting.formatOnSave, true)
+      assert.equal(f.settings.value.editor.formatting.useTabs, true)
+      assert.equal(f.settings.value.editor.formatting.tabWidth, 8)
+      if (mode === 'save-and-close') { f.workspace.closeTab(tab.id); assert.equal(f.workspace.tabs.value.length, 0) }
+    }
+  } finally { unregister() }
+})
+
+test('reenabling Prettier restores format-on-save immediately with the retained options', async () => {
+  let calls = 0
+  const unregister = registerSaveFormatter(async (tab, fileName, settings) => {
+    calls++
+    const result = await formatText({ text: tab.content, fileName, settings })
+    return { content: result.text, serialized: result.text }
+  })
+  try {
+    const f = fixture(), tab = await open(f)
+    Object.assign(f.settings.value.editor.formatting, { enabled: false, semi: false })
+    assert.equal((await f.workspace.saveTab(tab.id)).ok, true)
+    assert.equal(calls, 0)
+    f.settings.value.editor.formatting.enabled = true
+    f.workspace.updateContent(tab.id, 'const x={a:3}')
+    assert.equal((await f.workspace.saveTab(tab.id)).ok, true)
+    assert.equal(calls, 1)
+    assert.equal(f.writes.at(-1).content, 'const x = { a: 3 }\n')
+  } finally { unregister() }
+})
+
+test('disabled Prettier saves without a mounted Monaco adapter; missing enabled keeps legacy behavior', async () => {
+  const tab = { type: 'text', fileName: 'legacy.js' }
+  assert.equal(await prepareTextSave(tab, null, { enabled: false, formatOnSave: true }), null)
+  await assert.rejects(prepareTextSave(tab, null, { formatOnSave: true }), { code: 'EFORMAT' })
+})
 test('formatting errors cancel Save As before destination creation, preserve dirty input and keep the tab', async () => {
   const unregister = registerSaveFormatter(async () => { throw Object.assign(new Error('Formatting failed: syntax error'), { code: 'EFORMAT' }) })
   try {

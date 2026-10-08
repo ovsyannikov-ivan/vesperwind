@@ -42,6 +42,8 @@ const modelSubscriptions = new Map()
 const viewStates = new Map()
 const { settings } = useSettings()
 const disposables = []
+const formattingProviders = []
+let formattingGeneration = 0
 let unregisterFormatter
 let themeSequence = 0
 let formatterContext
@@ -53,6 +55,10 @@ let cursorSubscription = null
 let optionsSubscription = null
 
 const currentTheme = () => document.documentElement.dataset.bsTheme === 'light' ? 'vs' : 'vs-dark'
+const isFormattingEnabled = () => settings.value.editor.formatting.enabled !== false
+const updateFormattingContext = () => {
+  formatterContext?.set(Boolean(isFormattingEnabled() && props.activeTab && getFormattingParser(props.activeTab.fileName)))
+}
 
 const scheduleModelSync = () => {
   clearTimeout(syncTimer)
@@ -137,7 +143,7 @@ const syncActiveTab = async () => {
     model.setValue(tab.content)
   }
 
-  formatterContext?.set(Boolean(tab && getFormattingParser(tab.fileName)))
+  updateFormattingContext()
   emitHistoryState()
   emitStatus()
 
@@ -199,6 +205,7 @@ const emitStatus = () => {
 }
 
 const requestFormatting = async (tab, fileName, options, cancellation) => {
+  const generation = formattingGeneration
   const model = getOrCreateModel(tab)
   if (!model) throw Object.assign(new Error('Formatting failed: document is unavailable'), { code: 'EFORMAT' })
   const version = model.getVersionId()
@@ -206,6 +213,9 @@ const requestFormatting = async (tab, fileName, options, cancellation) => {
   const cursorOffset = active ? model.getOffsetAt(editor.getPosition()) : -1
   const result = await formatInWorker({ text: model.getValue(), fileName,
     settings: { ...options }, cursorOffset })
+  if (!isFormattingEnabled() || generation !== formattingGeneration) {
+    throw Object.assign(new Error('Formatting cancelled: Prettier setting changed'), { code: 'EFORMAT_DISABLED' })
+  }
   if (cancellation?.isCancellationRequested || model.isDisposed() ||
       version !== model.getVersionId() || !props.tabs.some((item) => item.id === tab.id)) {
     throw Object.assign(new Error('Formatting cancelled: document changed or closed'), { code: 'EFORMAT_CANCELLED' })
@@ -214,6 +224,7 @@ const requestFormatting = async (tab, fileName, options, cancellation) => {
 }
 
 const formatTabForSave = async (tab, fileName, options) => {
+  if (!isFormattingEnabled() || options.enabled === false) return null
   const { model, result } = await requestFormatting(tab, fileName, options)
   const content = applyFormattedText(model, result, editor, monaco)
   // Monaco represents bare CR internally as LF; retain the disk serialization.
@@ -225,11 +236,41 @@ const formatTabForSave = async (tab, fileName, options) => {
 
 const formatDocument = async () => {
   const tab = props.activeTab
-  if (!tab || tab.saving || tab.formatting || !getFormattingParser(tab.fileName)) return
+  if (!isFormattingEnabled() || !tab || tab.saving || tab.formatting || !getFormattingParser(tab.fileName)) return
   tab.formatting = true; tab.saveError = null
   try { await formatTabForSave(tab, tab.fileName, settings.value.editor.formatting) }
-  catch (error) { tab.saveError = { code: error.code || 'EFORMAT', message: error.message } }
+  catch (error) {
+    if (error.code !== 'EFORMAT_DISABLED') tab.saveError = { code: error.code || 'EFORMAT', message: error.message }
+  }
   finally { tab.formatting = false; editor?.focus() }
+}
+
+const syncFormattingProviders = () => {
+  formattingGeneration++
+  for (const provider of formattingProviders.splice(0)) provider.dispose()
+  updateFormattingContext()
+  if (!editor || !isFormattingEnabled()) return
+  for (const language of FORMATTING_LANGUAGES) {
+    formattingProviders.push(monaco.languages.registerDocumentFormattingEditProvider(language, {
+      displayName: 'Prettier',
+      async provideDocumentFormattingEdits(model, _options, cancellation) {
+        const tab = props.tabs.find((item) => models.get(item.id) === model)
+        if (!isFormattingEnabled() || !tab || tab.saving || tab.formatting || !getFormattingParser(tab.fileName)) return []
+        tab.formatting = true; tab.saveError = null
+        try {
+          const { result } = await requestFormatting(tab, tab.fileName, settings.value.editor.formatting, cancellation)
+          const text = result.text.replace(/\r\n|\r|\n/g, model.getEOL())
+          tab.formattingEol = result.text.includes('\r') && !result.text.includes('\n') ? 'cr' : null
+          const edit = replacementEdit(model, text)
+          return edit ? [edit] : []
+        } catch (error) {
+          if (error.code !== 'EFORMAT_DISABLED') tab.saveError = { code: error.code || 'EFORMAT', message: error.message }
+          return []
+        }
+        finally { tab.formatting = false }
+      },
+    }))
+  }
 }
 
 const registerFormatters = () => {
@@ -238,24 +279,7 @@ const registerFormatters = () => {
     keybindings: [monaco.KeyMod.Alt | monaco.KeyMod.Shift | monaco.KeyCode.KeyF],
     precondition: 'vesperwindPrettier && !editorReadonly', contextMenuGroupId: '1_modification',
     contextMenuOrder: 1.3, run: formatDocument }))
-  for (const language of FORMATTING_LANGUAGES) {
-    disposables.push(monaco.languages.registerDocumentFormattingEditProvider(language, {
-      displayName: 'Prettier',
-      async provideDocumentFormattingEdits(model, _options, cancellation) {
-        const tab = props.tabs.find((item) => models.get(item.id) === model)
-        if (!tab || tab.saving || tab.formatting || !getFormattingParser(tab.fileName)) return []
-        tab.formatting = true; tab.saveError = null
-        try {
-          const { result } = await requestFormatting(tab, tab.fileName, settings.value.editor.formatting, cancellation)
-          const text = result.text.replace(/\r\n|\r|\n/g, model.getEOL())
-          tab.formattingEol = result.text.includes('\r') && !result.text.includes('\n') ? 'cr' : null
-          const edit = replacementEdit(model, text)
-          return edit ? [edit] : []
-        } catch (error) { tab.saveError = { code: error.code || 'EFORMAT', message: error.message }; return [] }
-        finally { tab.formatting = false }
-      },
-    }))
-  }
+  syncFormattingProviders()
   unregisterFormatter = registerSaveFormatter(formatTabForSave)
 }
 
@@ -399,10 +423,13 @@ watch(
 )
 
 watch(() => settings.value.editor.theme, handleThemeChange)
+watch(isFormattingEnabled, syncFormattingProviders, { flush: 'sync' })
 
 onBeforeUnmount(() => {
   themeSequence++
   unregisterFormatter?.()
+  formattingGeneration++
+  for (const provider of formattingProviders.splice(0)) provider.dispose()
   for (const item of disposables) item.dispose()
   window.removeEventListener('vesperwind:theme-changed', handleThemeChange)
   window.removeEventListener('vesperwind:native-edit-history', handleNativeHistory)

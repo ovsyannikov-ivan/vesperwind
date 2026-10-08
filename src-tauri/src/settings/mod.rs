@@ -281,7 +281,7 @@ fn normalize_settings(value: &Value) -> Value {
 }
 
 fn default_formatting() -> Value {
-    json!({ "formatOnSave": false, "printWidth": 100, "tabWidth": 2, "useTabs": false,
+    json!({ "enabled": true, "formatOnSave": false, "printWidth": 100, "tabWidth": 2, "useTabs": false,
         "semi": true, "singleQuote": false, "bracketSpacing": true, "trailingComma": "all",
         "arrowParens": "always", "endOfLine": "auto" })
 }
@@ -303,6 +303,7 @@ fn normalize_editor_theme(value: Option<&Value>) -> String {
 fn normalize_formatting(value: Option<&Value>) -> Value {
     let mut result = default_formatting();
     for key in [
+        "enabled",
         "formatOnSave",
         "useTabs",
         "semi",
@@ -434,7 +435,7 @@ fn settings_io_error(error: std::io::Error) -> NativeError {
 
 #[cfg(test)]
 mod tests {
-    use super::{default_settings, normalize_settings, SettingsStore};
+    use super::{default_settings, normalize_formatting, normalize_settings, SettingsStore};
     use serde_json::json;
 
     #[test]
@@ -482,6 +483,7 @@ mod tests {
             }
         }}));
         assert_eq!(result["editor"]["theme"], "one-dark-pro");
+        assert_eq!(result["editor"]["formatting"]["enabled"], true);
         assert_eq!(result["editor"]["editableFiles"], json!([".js"]));
         for key in [
             "printWidth",
@@ -521,6 +523,28 @@ mod tests {
     }
 
     #[test]
+    fn prettier_enable_flag_defaults_to_true_and_retains_options_when_disabled() {
+        for input in [json!({}), json!({ "version": 6 }), json!({ "version": 7 })] {
+            assert_eq!(
+                normalize_settings(&input)["editor"]["formatting"]["enabled"],
+                true
+            );
+        }
+        for invalid in [json!(null), json!("false"), json!(0)] {
+            assert_eq!(
+                normalize_formatting(Some(&json!({ "enabled": invalid })))["enabled"],
+                true
+            );
+        }
+        let options =
+            json!({ "enabled": false, "formatOnSave": true, "useTabs": true, "tabWidth": 8 });
+        let result = normalize_formatting(Some(&options));
+        for key in ["enabled", "formatOnSave", "useTabs", "tabWidth"] {
+            assert_eq!(result[key], options[key]);
+        }
+    }
+
+    #[test]
     fn editor_settings_persist_across_store_instances_and_reset_to_defaults() {
         let root =
             std::env::temp_dir().join(format!("vesper-editor-settings-{}", uuid::Uuid::new_v4()));
@@ -529,7 +553,7 @@ mod tests {
             path: path.clone(),
             cached: std::sync::Mutex::new(None),
         };
-        store.save(&json!({ "editor": { "theme": "github-light", "formatting": { "formatOnSave": true } }})).unwrap();
+        store.save(&json!({ "editor": { "theme": "github-light", "formatting": { "enabled": false, "formatOnSave": true, "useTabs": true, "tabWidth": 8 } }})).unwrap();
         let reopened = SettingsStore {
             path,
             cached: std::sync::Mutex::new(None),
@@ -537,6 +561,9 @@ mod tests {
         let loaded = reopened.load().unwrap();
         assert_eq!(loaded["editor"]["theme"], "github-light");
         assert_eq!(loaded["editor"]["formatting"]["formatOnSave"], true);
+        assert_eq!(loaded["editor"]["formatting"]["enabled"], false);
+        assert_eq!(loaded["editor"]["formatting"]["useTabs"], true);
+        assert_eq!(loaded["editor"]["formatting"]["tabWidth"], 8);
         assert_eq!(reopened.reset().unwrap(), default_settings());
         std::fs::remove_dir_all(root).unwrap();
     }
