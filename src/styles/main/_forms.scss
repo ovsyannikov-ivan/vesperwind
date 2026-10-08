@@ -1,5 +1,18 @@
 // Form controls.
 
+.form-check-input {
+	&:checked,
+	&[type="checkbox"]:indeterminate {
+		background-color: rgb(var(--bs-primary-rgb));
+		border-color: rgb(var(--bs-primary-rgb));
+	}
+
+	&:focus {
+		border-color: rgb(var(--bs-primary-rgb));
+		box-shadow: 0 0 0 0.15rem rgba(var(--bs-primary-rgb), 0.25);
+	}
+}
+
 // Bootstrap draws focus as a 4px box-shadow *outside* the control. Dense
 // headers, menus and scroll containers clip it (overflow: hidden, sticky
 // neighbours), so every text field and select shows focus inside its border.

@@ -5,7 +5,6 @@ import { useTextFiles } from './useTextFiles.js'
 import { media } from '../api/media.js'
 import { getDocumentHandler } from '../editor/documentHandlers.js'
 import { filesystem } from '../api/filesystem.js'
-import { loadPresentation } from '../modules/presentation/presentationFile.js'
 
 const tabs = ref([])
 const activeTabId = ref(null)
@@ -65,16 +64,23 @@ export const useEditorWorkspace = () => {
     preparationControllers.set(tab.id, controller)
 
     try {
-      const response = tab.type === 'presentation' ? await loadPresentation(tab, { signal: controller.signal }) : await media.prepare({
-        providerId: tab.filesystemId,
-        path: tab.filePath,
-      }, {
-        signal: controller.signal,
-        onStatus: (status) => {
-          tab.statusMessage = status?.userMessage || 'Preparing file…'
-          tab.preparationProgress = status?.progress ?? null
-        },
-      })
+      let response
+      if (tab.type === 'presentation') {
+        const { loadPresentation } = await import('../modules/presentation/presentationFile.js')
+        if (controller.signal.aborted) return tab
+        response = await loadPresentation(tab, { signal: controller.signal })
+      } else {
+        response = await media.prepare({
+          providerId: tab.filesystemId,
+          path: tab.filePath,
+        }, {
+          signal: controller.signal,
+          onStatus: (status) => {
+            tab.statusMessage = status?.userMessage || 'Preparing file…'
+            tab.preparationProgress = status?.progress ?? null
+          },
+        })
+      }
 
       if (controller.signal.aborted) {
         return tab

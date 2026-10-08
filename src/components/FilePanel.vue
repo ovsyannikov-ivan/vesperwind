@@ -724,12 +724,12 @@ watch(entryChange, (change) => {
 								<div class="tree-filter-title">Extensions</div>
 								<div class="tree-filter-extensions">
 									<label v-for="extension in extensionChoices" :key="extension" class="dropdown-item tree-filter-choice">
-										<input type="checkbox" :checked="directoryView.extensions.includes(extension)" @change="toggleExtension(extension)" />
+										<input class="form-check-input" type="checkbox" :checked="directoryView.extensions.includes(extension)" @change="toggleExtension(extension)" />
 										{{ extension || "Files without extension" }}
 									</label>
 									<span v-if="!extensionChoices.length" class="text-muted">No files in this folder</span>
 								</div>
-								<label class="dropdown-item tree-filter-choice"><input v-model="directoryView.keepFolders" type="checkbox" /> Keep folders visible</label>
+								<label class="dropdown-item tree-filter-choice"><input v-model="directoryView.keepFolders" class="form-check-input" type="checkbox" /> Keep folders visible</label>
 								<div class="tree-filter-actions">
 									<button class="btn btn-sm toolbar-button toolbar-command" type="button" @click="directoryView.name = ''">Clear name</button
 									><button class="btn btn-sm toolbar-button toolbar-command" type="button" @click="clearFilters">Clear all filters</button>
