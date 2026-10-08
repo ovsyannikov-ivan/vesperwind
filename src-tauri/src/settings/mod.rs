@@ -51,8 +51,10 @@ const DEFAULT_EDITABLE_FILES: &[&str] = &[
     ".vue",
     ".json",
     ".html",
+    ".htm",
     ".css",
     ".scss",
+    ".less",
     ".md",
     ".markdown",
     ".txt",
@@ -348,6 +350,20 @@ fn normalize_editable_files(value: &Value) -> Vec<String> {
             }
         }
     }
+    let previous_defaults: Vec<_> = DEFAULT_EDITABLE_FILES
+        .iter()
+        .filter(|item| ![".htm", ".less"].contains(item))
+        .collect();
+    if files.len() == previous_defaults.len()
+        && previous_defaults
+            .iter()
+            .all(|item| files.iter().any(|file| file.eq_ignore_ascii_case(item)))
+    {
+        return DEFAULT_EDITABLE_FILES
+            .iter()
+            .map(|item| (*item).to_string())
+            .collect();
+    }
     files
 }
 
@@ -420,6 +436,24 @@ fn settings_io_error(error: std::io::Error) -> NativeError {
 mod tests {
     use super::{default_settings, normalize_settings, SettingsStore};
     use serde_json::json;
+
+    #[test]
+    fn upgrades_only_untouched_editable_defaults_for_html_alias_and_less() {
+        let previous: Vec<_> = super::DEFAULT_EDITABLE_FILES
+            .iter()
+            .filter(|item| ![".htm", ".less"].contains(item))
+            .collect();
+        let result =
+            normalize_settings(&json!({"version": 7, "editor": {"editableFiles": previous}}));
+        assert_eq!(
+            result["editor"]["editableFiles"],
+            json!(super::DEFAULT_EDITABLE_FILES)
+        );
+        let custom = normalize_settings(
+            &json!({"version": 7, "editor": {"editableFiles": [".js", ".html"]}}),
+        );
+        assert_eq!(custom["editor"]["editableFiles"], json!([".js", ".html"]));
+    }
 
     #[test]
     fn normalizes_settings_like_the_web_backend() {

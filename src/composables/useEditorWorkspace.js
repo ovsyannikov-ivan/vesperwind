@@ -187,6 +187,11 @@ export const useEditorWorkspace = () => {
       return { ok: false, error: { code: 'EINVALID_EXTENSION', message: 'Word documents must be saved as .docx' } }
     }
 
+    if (destination && tabs.value.some(candidate => candidate.id !== tab.id &&
+      candidate.filesystemId === destination.providerId && candidate.filePath === destination.path)) {
+      return { ok: false, error: { code: 'EFILE_OPEN', message: 'The destination is already open in another tab. Close it before saving here.' } }
+    }
+
     let contentBeingSaved
     tab.saving = true
     tab.saveError = null

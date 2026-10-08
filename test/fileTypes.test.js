@@ -31,3 +31,9 @@ test('derives context-menu actions from the shared opening strategy', () => {
   assert.equal(getEntryOpenAction({ name: 'manual.pdf' }, editableFiles), 'view')
   assert.equal(getEntryOpenAction({ name: 'archive.zip' }, editableFiles), null)
 })
+
+test('configured TypeScript gets strict text inspection before the video fallback', () => {
+  assert.equal(getFileOpenType('source.ts', ['.ts']), 'text')
+  assert.equal(getEntryOpenAction({ name: 'source.ts' }, ['.ts']), 'edit')
+  assert.equal(getFileOpenType('video.ts', []), 'video')
+})

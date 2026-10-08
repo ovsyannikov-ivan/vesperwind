@@ -13,6 +13,10 @@ export const getFileOpenType = (fileName, editableFiles = []) => {
   const documentHandler = getDocumentHandlerForExtension(getFileExtension(fileName))
   if (documentHandler) return documentHandler.id
 
+  // .ts is both TypeScript and MPEG transport stream. The text handler makes
+  // the strict content check; FileManager falls back to video only for binary.
+  if (getFileExtension(fileName) === 'ts' && isEditableFile(fileName, editableFiles)) return 'text'
+
   const mediaType = getMediaKind(fileName)
 
   if (mediaType && canPreviewMedia(fileName)) {

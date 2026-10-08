@@ -84,8 +84,6 @@ const selectCreate = (kind) => {
 				<img class="brand-icon" src="/icons/app_icon.png" width="24" height="24" alt="" aria-hidden="true" />
 				<span>Vesperwind</span>
 			</div>
-
-			<div class="toolbar-divider" />
 		</template>
 
 		<div class="btn-group btn-group-sm" role="group" aria-label="Workspace mode">
@@ -118,8 +116,6 @@ const selectCreate = (kind) => {
 			<i class="mdi mdi-server-network" aria-hidden="true" />
 			Remote
 		</button>
-
-		<div class="toolbar-divider" />
 
 		<div v-if="workspaceMode === 'files'" class="btn-group btn-group-sm" role="group" aria-label="Panel visibility">
 			<button
@@ -164,8 +160,6 @@ const selectCreate = (kind) => {
 			</button>
 		</div>
 
-		<div v-if="workspaceMode === 'files'" class="toolbar-divider" />
-
 		<div v-if="workspaceMode === 'files'" class="btn-group btn-group-sm" role="group" aria-label="Archive operations">
 			<button class="btn toolbar-button toolbar-command" type="button" :disabled="!commandAvailability.archiveCreate" title="Create ZIP from selected items" @click="$emit('archive-create')">
 				<i class="mdi mdi-folder-zip-outline" aria-hidden="true" /> ZIP
@@ -203,11 +197,6 @@ const selectCreate = (kind) => {
 			</button>
 		</div>
 
-		<button class="btn btn-sm toolbar-button ms-1" type="button" title="Open settings" @click="$emit('open-settings')">
-			<i class="mdi mdi-cog-outline" aria-hidden="true" />
-			Settings
-		</button>
-
 		<div class="toolbar-spacer" />
 
 		<div class="active-panel-indicator">
@@ -219,5 +208,9 @@ const selectCreate = (kind) => {
 			<span class="connection-dot" />
 			{{ connected ? "Local" : "Offline" }}
 		</div>
+
+		<button class="btn btn-sm compact-icon-button toolbar-button" type="button" aria-label="Settings" title="Open settings" @click="$emit('open-settings')">
+			<i class="mdi mdi-cog-outline" aria-hidden="true" />
+		</button>
 	</header>
 </template>

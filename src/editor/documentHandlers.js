@@ -1,12 +1,14 @@
 import { spreadsheetHandler } from '../modules/spreadsheet/index.js'
 import { wordHandler } from '../modules/document/index.js'
+import { getFileExtension } from '../../shared/mediaTypes.js'
 
 const textHandler = {
   id: 'text', extensions: [], icon: 'mdi-file-code-outline',
   createTab: (common) => ({ ...common, content: '', savedContent: '', dirty: false,
     language: common.language, loading: true, saving: false, error: null, saveError: null }),
   load: async (tab, { readTextFile, signal, onStatus }) => {
-    const response = await readTextFile(tab.filePath, tab.filesystemId, { signal, onStatus })
+    const response = await readTextFile(tab.filePath, tab.filesystemId, { signal, onStatus,
+      ...(getFileExtension(tab.fileName) === 'ts' ? { strictText: true } : {}) })
     if (response.ok) {
       tab.content = response.content
       tab.savedContent = response.content

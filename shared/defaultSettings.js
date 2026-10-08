@@ -22,8 +22,10 @@ export const DEFAULT_EDITABLE_FILES = [
   '.vue',
   '.json',
   '.html',
+  '.htm',
   '.css',
   '.scss',
+  '.less',
   '.md',
   '.markdown',
   '.txt',
@@ -183,6 +185,19 @@ export const createDefaultSettings = () => ({
   connections: [],
 })
 
+const normalizeConfiguredEditableFiles = (value) => {
+  const files = normalizeEditableFiles(
+    Number.isFinite(value?.version) && value.version < 6
+      ? Array.isArray(value?.editor?.editableFiles)
+        ? [...value.editor.editableFiles, ...EDITOR_FORMATS_V6] : undefined
+      : value?.editor?.editableFiles,
+  )
+  const previousDefaults = DEFAULT_EDITABLE_FILES.filter(item => !['.htm', '.less'].includes(item))
+  if (files.length === previousDefaults.length && previousDefaults.every(item =>
+    files.some(file => file.toLowerCase() === item.toLowerCase()))) return [...DEFAULT_EDITABLE_FILES]
+  return files
+}
+
 export const normalizeSettings = (value) => ({
   version: SETTINGS_VERSION,
   appearance: {
@@ -197,13 +212,7 @@ export const normalizeSettings = (value) => ({
   editor: {
     theme: normalizeEditorTheme(value?.editor?.theme),
     formatting: normalizeFormatting(value?.editor?.formatting),
-    editableFiles: normalizeEditableFiles(
-      Number.isFinite(value?.version) && value.version < 6
-        ? Array.isArray(value?.editor?.editableFiles)
-          ? [...value.editor.editableFiles, ...EDITOR_FORMATS_V6]
-          : undefined
-        : value?.editor?.editableFiles,
-    ),
+    editableFiles: normalizeConfiguredEditableFiles(value),
   },
   connections: normalizeConnectionProfiles(value?.connections),
 })

@@ -11,9 +11,14 @@ import { getFormattingParser, FORMATTING_LANGUAGES } from '../editor/formatting/
 import { formatInWorker } from '../editor/formatting/client.js'
 import { applyFormattedText, replacementEdit } from '../editor/formatting/modelEdits.js'
 import { registerSaveFormatter } from '../editor/formatting/saveFormatting.js'
+import { configureLanguageServices, INTELLIGENT_EDITOR_OPTIONS, syncLanguageModels } from '../editor/languageServices.js'
+import { editorModelUri } from '../editor/modelUri.js'
+import { moveModelHistory } from '../editor/modelHistory.js'
+import { installEditorNavigation } from '../editor/navigation.js'
 
 registerEditorLanguages(monaco)
 registerEnrichedLanguages(monaco)
+configureLanguageServices(monaco)
 
 const props = defineProps({
   activeTab: {
@@ -30,9 +35,11 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['change', 'history-state', 'status-change'])
+const emit = defineEmits(['change', 'history-state', 'status-change', 'activate-tab'])
 const container = ref(null)
 const models = new Map()
+const modelSubscriptions = new Map()
+const viewStates = new Map()
 const { settings } = useSettings()
 const disposables = []
 let unregisterFormatter
@@ -40,32 +47,70 @@ let themeSequence = 0
 let formatterContext
 let editor = null
 let resizeObserver = null
-let contentSubscription = null
+let syncTimer
+let scriptIdentity = ''
 let cursorSubscription = null
 let optionsSubscription = null
 
 const currentTheme = () => document.documentElement.dataset.bsTheme === 'light' ? 'vs' : 'vs-dark'
 
-const modelUri = (tab) =>
-  monaco.Uri.from({
-    scheme: 'vesperwind',
-    authority: tab.filesystemId,
-    path: `/editor/${encodeURIComponent(tab.id)}/${encodeURIComponent(tab.fileName)}`,
-  })
+const scheduleModelSync = () => {
+  clearTimeout(syncTimer)
+  syncTimer = setTimeout(() => {
+    const identity = [...models.values()].filter(model => ['javascript', 'typescript'].includes(model.getLanguageId()))
+      .map(model => `${model.getLanguageId()}:${model.uri.toString()}`).sort().join('\n')
+    const changed = identity !== scriptIdentity
+    scriptIdentity = identity
+    void syncLanguageModels(monaco, models.values(), changed)
+  }, 50)
+}
+
+const observeModel = (tab, model) => {
+  modelSubscriptions.get(tab.id)?.dispose()
+  modelSubscriptions.set(tab.id, model.onDidChangeContent(() => {
+    // Bulk symbol rename also edits inactive models. Never attribute their text
+    // to whichever tab happens to be active.
+    emit('change', tab.id, model.getValue())
+    if (editor?.getModel() === model) { emitHistoryState(); emitStatus() }
+  }))
+}
 
 const getOrCreateModel = (tab) => {
   if (!tab || tab.loading || tab.error) {
     return null
   }
 
-  if (!models.has(tab.id)) {
-    models.set(
-      tab.id,
-      monaco.editor.createModel(tab.content, tab.language, modelUri(tab)),
-    )
+  const uri = editorModelUri(monaco, tab)
+  let model = models.get(tab.id)
+  if (model && model.uri.toString() !== uri.toString()) {
+    // File rename and Save As change semantic identity, not the editor tab ID.
+    // Keep buffers, indentation, history and the active viewport during rebind.
+    const active = editor?.getModel() === model
+    const view = active ? editor.saveViewState() : viewStates.get(tab.id)
+    const occupied = monaco.editor.getModel(uri)
+    if (occupied && occupied !== model) return model
+    const replacement = monaco.editor.createModel(model.getValue(), tab.language, uri)
+    replacement.updateOptions(model.getOptions())
+    try { moveModelHistory(model, replacement) }
+    catch (error) {
+      replacement.dispose()
+      console.warn('Editor model rename deferred:', error)
+      return model
+    }
+    modelSubscriptions.get(tab.id)?.dispose()
+    models.set(tab.id, replacement)
+    if (active) { editor.setModel(replacement); if (view) editor.restoreViewState(view) }
+    model.dispose()
+    model = replacement
+    observeModel(tab, model)
+    scheduleModelSync()
   }
-
-  const model = models.get(tab.id)
+  if (!model) {
+    model = monaco.editor.createModel(tab.content, tab.language, uri)
+    models.set(tab.id, model)
+    observeModel(tab, model)
+    scheduleModelSync()
+  }
   if (model.getLanguageId() !== tab.language) {
     monaco.editor.setModelLanguage(model, tab.language)
   }
@@ -79,7 +124,13 @@ const syncActiveTab = async () => {
 
   const tab = props.activeTab
   const model = getOrCreateModel(tab)
-  editor.setModel(model)
+  if (editor.getModel() !== model) {
+    const old = [...models].find(([, candidate]) => candidate === editor.getModel())
+    if (old) viewStates.set(old[0], editor.saveViewState())
+    editor.setModel(model)
+    const view = tab && viewStates.get(tab.id)
+    if (view) editor.restoreViewState(view)
+  }
   editor.updateOptions({ readOnly: Boolean(tab?.loading || tab?.saving || tab?.formatting) })
 
   if (model && model.getValue() !== tab.content) {
@@ -97,15 +148,20 @@ const syncActiveTab = async () => {
   }
 }
 
-const disposeClosedModels = () => {
+const syncOpenModels = () => {
   const openIds = new Set(props.tabs.map((tab) => tab.id))
 
   for (const [id, model] of models) {
     if (!openIds.has(id)) {
+      modelSubscriptions.get(id)?.dispose()
+      modelSubscriptions.delete(id)
+      viewStates.delete(id)
       model.dispose()
       models.delete(id)
     }
   }
+  for (const tab of props.tabs) getOrCreateModel(tab)
+  scheduleModelSync()
 }
 
 const handleThemeChange = async () => {
@@ -128,6 +184,7 @@ const emitStatus = () => {
   const model = editor?.getModel()
   const position = editor?.getPosition()
   const options = model?.getOptions()
+  const markers = model ? monaco.editor.getModelMarkers({ resource: model.uri }) : []
 
   emit('status-change', {
     tabId: model ? props.activeTab?.id : null,
@@ -136,6 +193,8 @@ const emitStatus = () => {
     tabSize: options?.tabSize || 2,
     insertSpaces: options?.insertSpaces ?? true,
     eol: model?.getEOL() === '\r\n' ? 'CRLF' : 'LF',
+    errors: markers.filter(marker => marker.severity === monaco.MarkerSeverity.Error).length,
+    warnings: markers.filter(marker => marker.severity === monaco.MarkerSeverity.Warning).length,
   })
 }
 
@@ -289,6 +348,7 @@ defineExpose({
 
 onMounted(() => {
   editor = monaco.editor.create(container.value, {
+    ...INTELLIGENT_EDITOR_OPTIONS,
     automaticLayout: false,
     fontFamily: "'SFMono-Regular', Consolas, 'Liberation Mono', monospace",
     fontSize: 13,
@@ -302,18 +362,19 @@ onMounted(() => {
   })
   registerFormatters()
   handleThemeChange()
-  contentSubscription = editor.onDidChangeModelContent(() => {
-    if (props.activeTab && editor.getModel()) {
-      emit('change', props.activeTab.id, editor.getValue())
-      emitHistoryState()
-    }
-  })
+  disposables.push(installEditorNavigation(monaco, editor,
+    uri => uri && props.tabs.find(tab => models.get(tab.id)?.uri.toString() === uri.toString()),
+    async id => { emit('activate-tab', id); await nextTick(); await syncActiveTab() }))
+  disposables.push(monaco.editor.onDidChangeMarkers(resources => {
+    if (resources.some(uri => uri.toString() === editor?.getModel()?.uri.toString())) emitStatus()
+  }))
   cursorSubscription = editor.onDidChangeCursorPosition(emitStatus)
   optionsSubscription = editor.onDidChangeModelOptions(emitStatus)
   resizeObserver = new ResizeObserver(() => editor?.layout())
   resizeObserver.observe(container.value)
   window.addEventListener('vesperwind:theme-changed', handleThemeChange)
   window.addEventListener('vesperwind:native-edit-history', handleNativeHistory)
+  syncOpenModels()
   syncActiveTab()
 })
 
@@ -324,6 +385,8 @@ watch(
     props.activeTab?.saving,
     props.activeTab?.formatting,
     props.activeTab?.fileName,
+    props.activeTab?.filePath,
+    props.activeTab?.filesystemId,
     props.activeTab?.language,
     props.visible,
   ],
@@ -331,8 +394,8 @@ watch(
 )
 
 watch(
-  () => props.tabs.map((tab) => tab.id),
-  disposeClosedModels,
+  () => props.tabs.map(tab => [tab.id, tab.loading, tab.error, tab.filesystemId, tab.filePath, tab.language]),
+  syncOpenModels,
 )
 
 watch(() => settings.value.editor.theme, handleThemeChange)
@@ -344,7 +407,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('vesperwind:theme-changed', handleThemeChange)
   window.removeEventListener('vesperwind:native-edit-history', handleNativeHistory)
   resizeObserver?.disconnect()
-  contentSubscription?.dispose()
+  clearTimeout(syncTimer)
+  for (const subscription of modelSubscriptions.values()) subscription.dispose()
   cursorSubscription?.dispose()
   optionsSubscription?.dispose()
   editor?.dispose()

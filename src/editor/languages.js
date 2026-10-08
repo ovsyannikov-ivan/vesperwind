@@ -1,3 +1,5 @@
+import { CUSTOM_LANGUAGE_CONFIGURATIONS } from './languageConfigurations.js'
+
 const customLanguageDefinitions = [
   {
     id: 'vue',
@@ -205,6 +207,7 @@ export const registerEditorLanguages = (monaco) => {
       definition.id,
       definition.tokenizer,
     )
+    monaco.languages.setLanguageConfiguration(definition.id, CUSTOM_LANGUAGE_CONFIGURATIONS[definition.id])
   }
 
   registered = true

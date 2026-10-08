@@ -592,6 +592,7 @@ onBeforeUnmount(() => {
         @change="updateContent"
         @history-state="updateHistoryState"
         @status-change="updateEditorPosition"
+        @activate-tab="activateTab"
       />
       <component
         :is="getDocumentHandler(tab.type).component"
@@ -613,6 +614,10 @@ onBeforeUnmount(() => {
         @prepare-retry="retryPdfTab"
       />
       <div v-if="activeTabReady" class="editor-statusbar" aria-label="Editor status">
+        <span class="editor-statusbar-item" :title="`${activeEditorPosition.errors || 0} errors, ${activeEditorPosition.warnings || 0} warnings in this document`" aria-label="Document diagnostics">
+          <i class="mdi mdi-close-circle-outline" aria-hidden="true" /> {{ activeEditorPosition.errors || 0 }}
+          <i class="mdi mdi-alert-outline ms-1" aria-hidden="true" /> {{ activeEditorPosition.warnings || 0 }}
+        </span>
         <span class="editor-statusbar-item">Line {{ activeEditorPosition.line }}, Col {{ activeEditorPosition.column }}</span>
         <button
           ref="indentationButton"

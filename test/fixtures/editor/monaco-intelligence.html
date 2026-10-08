@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><title>Vesperwind Monaco intelligence checks</title>
+<style>body{font:14px system-ui;margin:20px}#host{height:420px;display:flex;border:1px solid #888}#results{white-space:pre-wrap}button,select{margin:4px;padding:5px}#tabs{display:flex;gap:8px;padding:6px}#status{padding:6px}</style></head>
+<body><h1>Vesperwind Monaco intelligence checks</h1><pre id="results">Loading…</pre><div id="app"></div>
+<script type="module">
+import * as monaco from 'monaco-editor'
+import { createApp, ref, computed, reactive, h, nextTick } from 'vue'
+import MonacoEditor from '../../../src/components/MonacoEditor.vue'
+import { settings } from '../../../src/composables/settingsState.js'
+import { getEditorLanguage } from '../../../src/utils/editorLanguages.js'
+import { editorModelUri } from '../../../src/editor/modelUri.js'
+import { syncLanguageModels } from '../../../src/editor/languageServices.js'
+import { StandaloneServices } from 'monaco-editor/editor/standalone/browser/standaloneServices.js'
+import { ILanguageFeaturesService } from 'monaco-editor/editor/common/services/languageFeatures.js'
+import { IBulkEditService } from 'monaco-editor/editor/browser/services/bulkEditService.js'
+
+const tabs=ref([]), active=ref(null), editorComponent=ref(null), status=ref({})
+const current=computed(()=>tabs.value.find(tab=>tab.id===active.value)||null)
+const app=createApp({setup:()=>()=>h('div',[
+  h('div',{id:'tabs'},tabs.value.map(tab=>h('button',{onClick:()=>active.value=tab.id},`${tab.fileName}${tab.dirty?' •':''}`))),
+  h('div',{id:'host'},[h(MonacoEditor,{ref:editorComponent,tabs:tabs.value,activeTab:current.value,visible:true,
+    onChange:(id,text)=>{const tab=tabs.value.find(tab=>tab.id===id);if(tab){tab.content=text;tab.dirty=text!==tab.savedContent}},
+    onActivateTab:id=>active.value=id,onStatusChange:value=>status.value=value})]),
+  h('div',{id:'status'},JSON.stringify(status.value)),
+  h('button',{onClick:()=>editorComponent.value.formatDocument()},'Prettier'),
+  h('select',{value:settings.value.editor.theme,onChange:event=>settings.value.editor.theme=event.target.value},
+    ['vesperwind-dark-2026','one-dark-pro','dracula','nord','github-light'].map(id=>h('option',{value:id},id))),
+])})
+app.mount('#app')
+const assert=(condition,message)=>{if(!condition)throw Error(message)}
+const until=async(fn,message)=>{const start=Date.now();while(Date.now()-start<12000){if(await fn())return;await new Promise(resolve=>setTimeout(resolve,50))}throw Error(message)}
+const editor=()=>monaco.editor.getEditors().find(editor=>editor.getDomNode()?.closest('#host'))
+let sequence=0
+const open=async(name,text,provider='local')=>{const tab=reactive({id:`qa-${++sequence}`,type:'text',filesystemId:provider,
+  filePath:`/qa/Проект с пробелом/src/${name}`,fileName:name,language:getEditorLanguage(name),
+  content:text,savedContent:text,dirty:false,loading:false,saving:false,formatting:false});tabs.value.push(tab);active.value=tab.id;await nextTick();return tab}
+const model=tab=>monaco.editor.getModel(editorModelUri(monaco,tab))
+const worker=async(tab)=>{document.querySelector('#results').textContent='Synchronizing open models';await syncLanguageModels(monaco,monaco.editor.getModels());document.querySelector('#results').textContent='Obtaining typed worker API';return (await (tab.language==='javascript'?monaco.typescript.getJavaScriptWorker():monaco.typescript.getTypeScriptWorker()))(...tabs.value.filter(tab=>['javascript','typescript'].includes(tab.language)).map(tab=>model(tab).uri))}
+const edit=(tab,text)=>{const value=model(tab);value.pushStackElement();value.pushEditOperations([], [{range:value.getFullModelRange(),text}],()=>[]);value.pushStackElement()}
+const results=[]
+const test=async(name,fn)=>{document.querySelector('#results').textContent=`Running: ${name}`;try{await Promise.race([fn(),new Promise((_,reject)=>setTimeout(()=>reject(Error('Integration check timed out')),25000))]);results.push(`PASS ${name}`)}catch(error){results.push(`FAIL ${name}: ${error.stack}`)}}
+
+await test('real JS worker: object members, DOM, hover, signature help and live diagnostics',async()=>{
+  const tab=await open('test.js',"const user={name:'Ivan',age:42};\nuser.")
+  document.querySelector('#results').textContent='Running JS: obtaining worker';
+  const api=await worker(tab), uri=model(tab).uri.toString();
+  document.querySelector('#results').textContent='Running JS: semantic completion'
+  const members=(await api.getCompletionsAtPosition(uri,tab.content.length)).entries.map(item=>item.name)
+  assert(members.includes('name')&&members.includes('age'),'semantic object members missing')
+  assert((await api.getQuickInfoAtPosition(uri,7)).displayParts.some(part=>part.text==='string'),'inferred hover missing')
+  edit(tab,"const element=document.querySelector('div');\nelement.")
+  assert((await api.getCompletionsAtPosition(uri,tab.content.length)).entries.some(item=>item.name==='classList'),'DOM completion missing')
+  edit(tab,'setTimeout(')
+  assert((await api.getSignatureHelpItems(uri,tab.content.length)).items.length,'signature help missing')
+  edit(tab,'const value = {')
+  await until(()=>monaco.editor.getModelMarkers({resource:model(tab).uri}).some(marker=>marker.severity===8),'missing syntax squiggle')
+  edit(tab,'const value = {}')
+  await until(()=>!monaco.editor.getModelMarkers({resource:model(tab).uri}).some(marker=>marker.severity===8),'stale syntax squiggle')
+})
+await test('cross-open-file definition activates tab; built-in rename edits inactive dirty buffer; references and peek exist',async()=>{
+  const utils=await open('utils.ts','export const answer = {value:42}')
+  const main=await open('main.ts',"import { answer } from './utils';\nanswer.value")
+  const api=await worker(main)
+  const offset=main.content.lastIndexOf('answer')+1
+  assert((await api.getDefinitionAtPosition(model(main).uri.toString(),offset)).some(item=>item.fileName===model(utils).uri.toString()),'import not resolved')
+  editor().setPosition(model(main).getPositionAt(offset));editor().focus()
+  editor().trigger('qa', 'editor.action.revealDefinition', null)
+  await until(()=>active.value===utils.id,'definition did not activate target tab')
+  const services=StandaloneServices.get(ILanguageFeaturesService)
+  const provider=services.renameProvider.ordered(model(utils))[0]
+  const rename=await provider.provideRenameEdits(model(utils),{lineNumber:1,column:15},'result',monaco.CancellationTokenSource?new monaco.CancellationTokenSource().token:undefined)
+  assert(rename.edits.length>=2,'cross-file rename missing')
+  await StandaloneServices.get(IBulkEditService).apply(rename)
+  assert(utils.content.includes('result')&&main.content.includes('result'),'inactive tab content was not synchronized')
+  assert(utils.dirty&&main.dirty,'rename did not mark every edited tab dirty')
+  assert(editor().getContribution('editor.contrib.referencesController'),'peek contribution missing')
+  assert((await api.getReferencesAtPosition(model(utils).uri.toString(),utils.content.indexOf('result')+1)).length>=2,'references missing')
+  tabs.value=tabs.value.filter(tab=>tab!==utils);active.value=main.id;await nextTick()
+  await until(()=>monaco.editor.getModelMarkers({resource:model(main).uri}).some(marker=>String(marker.code)==='2307'),'closing dependency did not refresh diagnostics')
+})
+await test('rename and Save As rebind immutable URIs while preserving cursor, EOL, Undo and Redo',async()=>{
+  const tab=await open('history.ts','const x=1\r\n')
+  edit(tab,'const x=2\r\n');edit(tab,'const x=3\r\n');await model(tab).undo()
+  editor().setPosition({lineNumber:1,column:7});model(tab).updateOptions({tabSize:8,insertSpaces:false})
+  const old=model(tab);tab.filePath=tab.filePath.replace('history.ts','renamed.ts');tab.fileName='renamed.ts';await nextTick()
+  assert(old.isDisposed(),'old URI model stayed alive')
+  assert(model(tab).getValue()==='const x=2\r\n','rename changed content')
+  assert(editor().getPosition().column===7&&model(tab).getOptions().tabSize===8,'rename lost cursor/indentation')
+  assert(model(tab).canUndo()&&model(tab).canRedo(),'rename lost undo or redo')
+  await model(tab).redo();assert(tab.content==='const x=3\r\n','redo after rename failed')
+  await model(tab).undo();assert(tab.content==='const x=2\r\n','undo after rename failed')
+  tab.filesystemId='sftp:qa';tab.filePath='/home/user/copy.ts';tab.fileName='copy.ts';await nextTick()
+  await model(tab).undo();assert(tab.content==='const x=1\r\n','undo after Save As failed')
+  await model(tab).redo();assert(tab.content==='const x=2\r\n','redo after Save As failed')
+  const reopened=await open('history.ts','const independent = 1')
+  assert(model(reopened)!==model(tab),'reopened old path collided')
+  const cached=await open('cached-target.ts','const cached=0')
+  edit(cached,'const cached=1')
+  tabs.value=tabs.value.filter(item=>item!==cached);active.value=tab.id;await nextTick()
+  const fresh=await open('fresh-empty.ts','const cached=1')
+  assert(!model(fresh).canUndo(),'fresh model unexpectedly has history')
+  fresh.filePath=cached.filePath;fresh.fileName=cached.fileName;await nextTick()
+  assert(!model(fresh).canUndo(),'cached destination history leaked into a renamed pristine buffer')
+})
+await test('TypeScript semantic diagnostics, actual HTML/CSS providers and JSON markers',async()=>{
+  const ts=await open('types.ts',"const age: number = 'hello'")
+  await until(()=>monaco.editor.getModelMarkers({resource:model(ts).uri}).some(marker=>String(marker.code)==='2322'),'TS semantic marker missing')
+  const features=StandaloneServices.get(ILanguageFeaturesService)
+  for(const [name,text,label,column]of[['index.html','<div cla','class',9],['style.css','.foo { disp }','display',12],['style.scss','.foo { disp }','display',12],['style.less','.foo { disp }','display',12]]){
+    const tab=await open(name,text);if(name.endsWith('.less')){tab.language='less';await nextTick()}
+    await until(()=>features.completionProvider.ordered(model(tab)).length,'completion provider missing')
+    await until(async()=>{
+      for(const provider of features.completionProvider.ordered(model(tab))){
+        const output=await provider.provideCompletionItems(model(tab),{lineNumber:1,column},{triggerKind:0},new monaco.CancellationTokenSource().token)
+        if(output?.suggestions.some(item=>(item.label.label||item.label)===label))return true
+      }
+      return false
+    },`${name}: ${label} missing`)
+  }
+  const json=await open('data.json','{"foo":1,"bar":}')
+  await until(()=>monaco.editor.getModelMarkers({resource:model(json).uri}).some(marker=>marker.severity===8),'invalid JSON marker missing')
+  edit(json,'{"foo":1,"bar":2}')
+  await until(()=>!monaco.editor.getModelMarkers({resource:model(json).uri}).some(marker=>marker.severity===8),'valid JSON marker stale')
+})
+await test('Prettier keeps the model, refreshes diagnostics and undoes in one step',async()=>{
+  const tab=await open('format.js','const x={a:1}\n'),original=model(tab)
+  await editorComponent.value.formatDocument()
+  assert(model(tab)===original&&tab.content.includes('a: 1'),'Prettier did not keep/format model')
+  await original.undo();assert(tab.content==='const x={a:1}\n','Prettier Undo failed')
+  assert((await (await worker(tab)).getCompletionsAtPosition(original.uri.toString(),tab.content.indexOf('{'))),'worker stopped after formatting')
+})
+await test('closed models are disposed; SFTP intelligence stays in memory',async()=>{
+  const tab=await open('remote.ts','export const remote={name:"Ivan"};\nremote.','sftp:qa-connection')
+  const value=model(tab),api=await worker(tab)
+  assert((await api.getCompletionsAtPosition(value.uri.toString(),tab.content.length)).entries.some(item=>item.name==='name'),'remote completion missing')
+  tabs.value=tabs.value.filter(item=>item!==tab);active.value=tabs.value.at(-1).id;await nextTick()
+  assert(value.isDisposed(),'closed model not disposed')
+})
+await test('actual editor auto-closes pairs, skips typed closers, matches brackets and indents on Enter',async()=>{
+  const tab=await open('mechanics.js','')
+  for(const [opening,closing]of[['(',')'],['[',']'],['{','}'],['"','"'],["'","'"],['`','`']]){
+    model(tab).setValue('');editor().setPosition({lineNumber:1,column:1});editor().focus()
+    editor().trigger('keyboard','type',{text:opening})
+    assert(model(tab).getValue()===opening+closing,`${opening} did not auto-close`)
+    editor().trigger('keyboard','type',{text:closing})
+    assert(model(tab).getValue()===opening+closing,`${closing} duplicated its closer`)
+  }
+  model(tab).setValue('if (true) {');editor().setPosition({lineNumber:1,column:12})
+  editor().trigger('keyboard','type',{text:'\n'})
+  assert(model(tab).getLineContent(2).startsWith('  '),'Enter did not indent')
+  model(tab).setValue('const x = { values: [ { value: 1 } ] };')
+  assert(model(tab).bracketPairs.matchBracket(new monaco.Position(1,11))?.length===2,'bracket match missing')
+  const vue=await open('component.vue','<template>\n</template>')
+  editor().setPosition({lineNumber:1,column:11});editor().trigger('keyboard','type',{text:'\n'})
+  assert(model(vue).getLineContent(2).startsWith('  '),'Vue template did not indent')
+})
+document.querySelector('#results').textContent=results.join('\n')
+const playground=await open('playground.js',"const user = { name: 'Ivan', age: 42 };\n\nuser.\n")
+editor().setPosition({lineNumber:3,column:6});editor().focus()
+</script></body></html>

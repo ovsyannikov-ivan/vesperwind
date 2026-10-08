@@ -2,8 +2,17 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   createDefaultSettings,
+  DEFAULT_EDITABLE_FILES,
   normalizeSettings,
 } from '../shared/defaultSettings.js'
+
+test('HTML aliases and LESS are editable defaults; only untouched previous defaults are upgraded', () => {
+  const previous = DEFAULT_EDITABLE_FILES.filter(item => !['.htm', '.less'].includes(item))
+  const upgraded = normalizeSettings({ version: 7, editor: { editableFiles: previous } })
+  assert.deepEqual(upgraded.editor.editableFiles, DEFAULT_EDITABLE_FILES)
+  const custom = normalizeSettings({ version: 7, editor: { editableFiles: ['.js', '.html'] } })
+  assert.deepEqual(custom.editor.editableFiles, ['.js', '.html'])
+})
 
 test('uses the system color mode by default', () => {
   const settings = createDefaultSettings()

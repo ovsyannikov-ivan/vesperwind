@@ -4,6 +4,7 @@ import { settleFileOperation } from '../composables/fileOperationLifecycle.js'
 import { isComputerPath } from '../../shared/localFilesystem.js'
 import { connection } from '../api/connection.js'
 import { useEditorWorkspace } from '../composables/useEditorWorkspace.js'
+import { openTextDocument } from '../editor/openTextDocument.js'
 import { useFileOperations } from '../composables/useFileOperations.js'
 import { useLayout } from '../composables/useLayout.js'
 import { useMediaViewer } from '../composables/useMediaViewer.js'
@@ -76,7 +77,7 @@ const EditorWorkspace = defineAsyncComponent(() => import('./EditorWorkspace.vue
 const { layout, toggleLeft, toggleRight, toggleTerminal, setLeftRatio, setTerminalHeight, setAudioPlaylistHeight } =
   useLayout()
 const { settings, loadSettings } = useSettings()
-const { tabs: editorTabs, openFile: openEditorFile } = useEditorWorkspace()
+const { tabs: editorTabs, openFile: openEditorFile, closeTab: closeEditorTab } = useEditorWorkspace()
 const {
   copyEntry,
   moveEntry,
@@ -524,7 +525,15 @@ const openFile = (context) => {
   }
 
   workspaceMode.value = 'editor'
-  openEditorFile({ ...context, type })
+  if (type === 'text') {
+    void openTextDocument({ ...context, type }, {
+      openText: openEditorFile, isOpen: tab => editorTabs.value.some(candidate => candidate.id === tab.id),
+      closeText: closeEditorTab, openVideo: openCoordinatedMedia,
+      onVideo: () => { workspaceMode.value = editorTabs.value.length ? 'editor' : 'files' },
+    })
+  } else {
+    openEditorFile({ ...context, type })
+  }
 }
 
 const showFiles = () => {

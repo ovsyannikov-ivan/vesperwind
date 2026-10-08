@@ -94,3 +94,15 @@ test('bare CR serialization is retained after manual formatting with format-on-s
   assert.equal(tab.content, tab.savedContent)
   assert.equal(tab.dirty, false)
 })
+
+test('Save As cannot replace another open tab buffer or create a colliding Monaco URI', async () => {
+  const f = fixture(false), source = await open(f, 'source.js')
+  const target = await open(f, 'target.js')
+  const response = await f.workspace.saveTab(source.id, { providerId: 'local', path: '/safe/target.js',
+    directoryPath: '/safe', name: 'target.js' })
+  assert.equal(response.ok, false)
+  assert.equal(response.error.code, 'EFILE_OPEN')
+  assert.equal(f.writes.length, 0)
+  assert.equal(f.creations.length, 0)
+  assert.equal(target.dirty, true)
+})
