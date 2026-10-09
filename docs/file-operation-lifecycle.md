@@ -6,9 +6,11 @@ slightly earlier than the frontend deadline. Timeout returns `ETIMEDOUT`, abort
 returns `ECANCELLED`, and late native responses are ignored. Socket.IO keeps its
 existing timed acknowledgement behavior.
 
-Local and SFTP delete have a **30-second** UI deadline. Other SFTP operations
-have **120 seconds**; other local operations have **600 seconds**. A native
-watchdog owns the operation independently of the invoking WebView.
+Local and remote delete have a **30-second** UI deadline. Other remote
+operations have **120 seconds**, except native copy and move with a remote
+side, which are bounded by inactivity (see *Remote transfers*); other local
+operations have **600 seconds**. A native watchdog owns the operation
+independently of the invoking WebView.
 
 Every native filesystem operation runs in a child of the same executable with
 `--filesystem-helper`, before constructing Tauri. Requests/results use bounded
@@ -19,8 +21,8 @@ it into a persistent deletion service. The native regression exercises this
 with a controlled idle helper and never starts a destructive operation. SFTP helpers obtain private connection snapshots through stdin
 and open independent sessions with explicit socket/session timeouts. Credentials
 are not written to files or logged. A failed helper cannot hold the application's
-filesystem/session locks. On timeout/cancellation the parent kills the helper,
-returns promptly and delegates reaping to a separate thread, so an uninterruptible
+filesystem/session locks. On timeout/cancellation the parent asks the helper to stop,
+kills it after a short grace period, returns and delegates reaping to a separate thread, so an uninterruptible
 OS syscall cannot keep the UI awaiting it. The OS ultimately controls syscall
 termination; the operation is not claimed to be transactional.
 
@@ -67,3 +69,23 @@ and delete semantics live in `filesystem/remote_ops.rs` and use a small
 `RemoteEndpoint` trait; a cross-provider move removes the source only after the
 whole copy succeeded, otherwise `EPARTIAL_MOVE` reports the completed copy.
 Media streaming is still SFTP-only and rejects other schemes explicitly.
+
+## Remote transfers
+
+Registered schemes are `sftp`, `ftp` and `ftps`. FTP/FTPS snapshots travel in
+an additional `ftp` field of the helper frame, omitted when empty, so SFTP
+frames are unchanged. Remote copy streams in 256 KiB chunks through
+`TransferRead`/`TransferWrite`: `jobs::checkpoint()` runs before every read and
+write, and success requires `finish()` on both sides (FTP final replies, SFTP
+handle close). A failed copy removes the destination file it created.
+
+After its request frame the helper's stdin carries only an optional stop
+byte; EOF still terminates the helper at once. Its stdout carries
+`{"progress":{"bytes":N}}` lines (at most every 250 ms) before the final result
+line; each line is bounded to 2 MiB.
+
+Copy and move with a remote side in the native app use a 24-hour deadline and
+an inactivity limit: without progress for two minutes the operation stops
+with `ETIMEDOUT`. Cancellation, deadlines and inactivity first send the stop
+byte, so the helper can remove a partial destination, and kill it after a
+3-second grace period. Other operations keep the deadlines above.
