@@ -5,6 +5,34 @@ import { createSocketRequester } from '../src/api/transports/socket.js'
 import { settleFileOperation } from '../src/composables/fileOperationLifecycle.js'
 const tick = () => new Promise((r) => setTimeout(r, 5))
 
+test('permission preparation outlives IO timeout, preserves the real response, and is cancellable', async () => {
+  let reply; const calls = []
+  const request = createTauriRequester((command, args) => {
+    calls.push({ command, args })
+    if (command === 'permissions_cancel') return Promise.resolve({ ok: true })
+    return new Promise(resolve => { reply = resolve })
+  })
+  let settled = false
+  const waiting = request('permissions:prepare-folder', { path: '/Users/fixture/Documents' }, { timeout: 10 }).then(value => { settled = true; return value })
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.equal(settled, false, 'waiting for a system decision must not become an IO timeout')
+  reply({ ok: true }); assert.equal((await waiting).ok, true)
+  const controller = new AbortController()
+  const cancelled = request('permissions:request', { kind: 'network' }, { signal: controller.signal })
+  await tick(); const late = reply; controller.abort()
+  assert.equal((await cancelled).error.code, 'ECANCELLED')
+  assert.equal(calls.at(-1).command, 'permissions_cancel')
+  assert.equal(calls.at(-1).args.payload.requestId, calls.at(-2).args.payload.requestId)
+  late({ ok: true }); await tick()
+  const denied = request('permissions:prepare-folder', { path: '/Users/fixture/Documents' })
+  await tick(); reply({ ok: false, error: { code: 'EPERMISSION_DENIED', message: 'Access was denied' } })
+  assert.equal((await denied).error.code, 'EPERMISSION_DENIED')
+  const immediate = new AbortController(); const count = calls.length
+  const neverStarted = request('permissions:request', { kind: 'network' }, { signal: immediate.signal })
+  immediate.abort(); await neverStarted; await tick()
+  assert.equal(calls.length, count, 'an immediate cancellation must not start or orphan a native permission request')
+})
+
 test('Tauri honors timeout, cancels the matching native job, ignores late output, and accepts the next request', async () => {
   const calls = []; let late
   const request = createTauriRequester((command, args) => {

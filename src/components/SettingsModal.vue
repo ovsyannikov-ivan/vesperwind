@@ -6,6 +6,10 @@ import { useTheme } from "../composables/useTheme.js";
 import { editorThemes } from "../editor/themes/registry.js";
 import { DEFAULT_FORMATTING } from "../../shared/editorFormatting.js";
 import { parseEditableFilesText } from "../utils/editableFiles.js";
+import { usePermissionSetup } from "../composables/usePermissionSetup.js";
+const permissionSetup = usePermissionSetup();
+let reopenPermissions = false;
+const openPermissionSetup = () => { reopenPermissions = true; close(); };
 
 const props = defineProps({
 	open: {
@@ -74,6 +78,7 @@ const handleHide = (event) => {
 };
 
 const handleHidden = () => {
+  if (reopenPermissions) { reopenPermissions = false; permissionSetup.show(); }
 	if (props.open) {
 		setThemePreference(settings.value.appearance.theme);
 		emit("close");
@@ -226,6 +231,11 @@ onBeforeUnmount(() => {
 										<div class="form-text">Locale-specific formats use the browser’s Intl date formatter.</div>
 
 										<hr class="my-4" />
+
+										<div v-if="permissionSetup.supported.value" class="mb-3">
+											<h2 class="h6 mb-1">macOS access</h2>
+											<button class="btn btn-sm btn-neutral" type="button" @click="openPermissionSetup">Set up access</button>
+										</div>
 
 										<h2 class="h6 mb-1">File visibility</h2>
 										<p class="text-body-secondary mb-4">Control which entries are hidden in both file panels.</p>

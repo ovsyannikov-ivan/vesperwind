@@ -20,7 +20,7 @@ test('editor settings defaults, validation and migration preserve customized edi
     for (const value of values) assert.equal(normalizeFormatting({ [key]: value })[key], DEFAULT_FORMATTING[key])
   }
   assert.equal(normalizeFormatting({ semi: false }).semi, false)
-  assert.equal(normalizeSettings({ version: 1 }).version, 7)
+  assert.equal(normalizeSettings({ version: 1 }).version, 8)
 })
 
 test('Prettier is enabled for legacy settings; disabling preserves dependent options', () => {

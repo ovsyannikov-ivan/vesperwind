@@ -1,7 +1,7 @@
 import { EDITOR_THEMES as editorThemes } from './editorThemeCatalog.js'
 import { DEFAULT_FORMATTING, normalizeFormatting } from './editorFormatting.js'
 
-export const SETTINGS_VERSION = 7
+export const SETTINGS_VERSION = 8
 const editorThemeIds = new Set(editorThemes.map(({ id }) => id))
 export const normalizeEditorTheme = (id) => editorThemeIds.has(id) ? id : 'auto'
 
@@ -137,7 +137,7 @@ const normalizeConnectionProfile = (value) => {
   const host = String(value.host || '').trim().slice(0, 255)
   const username = String(value.username || '').trim().slice(0, 128)
   const port = Number.parseInt(value.port, 10)
-  const authType = value.authType === 'password' ? 'password' : 'privateKey'
+  const authType = ['auto', 'agent', 'password', 'privateKey'].includes(value.authType) ? value.authType : 'privateKey'
   if (!/^[A-Za-z0-9._-]+$/.test(id) || !name || !host || !username || port < 1 || port > 65535) {
     return null
   }
@@ -148,7 +148,11 @@ const normalizeConnectionProfile = (value) => {
     port,
     username,
     authType,
-    privateKeyPath: authType === 'privateKey'
+    protocol: 'sftp',
+    savePassword: ['auto', 'password'].includes(authType) && value.savePassword === true,
+    saveKeyPassphrase: ['auto', 'privateKey'].includes(authType) && value.saveKeyPassphrase === true,
+    sshConfigHost: String(value.sshConfigHost || '').trim().slice(0, 255),
+    privateKeyPath: ['auto', 'privateKey'].includes(authType)
       ? String(value.privateKeyPath || '').trim().slice(0, 4096)
       : '',
     initialPath: String(value.initialPath || '').trim().slice(0, 4096),
@@ -183,6 +187,7 @@ export const createDefaultSettings = () => ({
     editableFiles: [...DEFAULT_EDITABLE_FILES],
   },
   connections: [],
+  permissions: { setupCompleted: false },
 })
 
 const normalizeConfiguredEditableFiles = (value) => {
@@ -215,4 +220,5 @@ export const normalizeSettings = (value) => ({
     editableFiles: normalizeConfiguredEditableFiles(value),
   },
   connections: normalizeConnectionProfiles(value?.connections),
+  permissions: { setupCompleted: value?.permissions?.setupCompleted === true },
 })

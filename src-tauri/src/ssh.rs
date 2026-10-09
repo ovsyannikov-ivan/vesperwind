@@ -1,3 +1,9 @@
+pub use crate::connections::ConnectionProfile;
+use crate::{
+    credential_store::CredentialStore,
+    ssh_auth::{AuthContext, AuthRequired, AuthSecrets},
+    ssh_config::{self, ResolvedProfile},
+};
 use crate::{
     error::NativeError,
     filesystem::{
@@ -29,20 +35,6 @@ const SYMLINK_MODE: u32 = 0o120000;
 const TYPE_MASK: u32 = 0o170000;
 const MAX_TEXT_BYTES: u64 = 10 * 1024 * 1024;
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConnectionProfile {
-    pub id: String,
-    pub name: String,
-    pub host: String,
-    pub port: u16,
-    pub username: String,
-    pub auth_type: String,
-    pub private_key_path: Option<String>,
-    pub initial_path: Option<String>,
-    pub trusted_fingerprint: Option<String>,
-}
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HostKeyInfo {
@@ -56,6 +48,7 @@ pub struct HostKeyInfo {
 pub struct ConnectError {
     pub error: NativeError,
     pub host_key: Option<HostKeyInfo>,
+    pub auth: Option<AuthRequired>,
 }
 
 #[derive(Debug, Serialize)]
@@ -67,11 +60,13 @@ pub struct ConnectResult {
     pub root: FileEntry,
     pub initial: FileEntry,
     pub home_path: String,
+    pub credential_warning: Option<NativeError>,
 }
 
 struct RemoteConnection {
     profile: ConnectionProfile,
-    secret: String,
+    auth: AuthContext,
+    resolved: ResolvedProfile,
     session: Session,
     sftp: Sftp,
     root: String,
@@ -88,6 +83,9 @@ enum TerminalCommand {
 }
 
 pub struct SshManager {
+    pub credentials: Arc<CredentialStore>,
+    pub profile_updates: Mutex<()>,
+    settings: Option<Arc<crate::settings::SettingsStore>>,
     connections: Mutex<HashMap<String, Arc<RemoteConnection>>>,
     terminals: Mutex<HashMap<String, mpsc::Sender<TerminalCommand>>>,
 }
@@ -95,8 +93,8 @@ pub struct SshManager {
 // Sent only over the helper's private stdin pipe; never logged or persisted.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct OperationConnection {
-    profile: ConnectionProfile,
-    secret: String,
+    resolved: ResolvedProfile,
+    secrets: AuthSecrets,
     root: String,
     initial: String,
     home: String,
@@ -104,7 +102,16 @@ pub(crate) struct OperationConnection {
 
 impl SshManager {
     pub fn new() -> Arc<Self> {
+        Self::build(None)
+    }
+    pub fn with_settings(settings: Arc<crate::settings::SettingsStore>) -> Arc<Self> {
+        Self::build(Some(settings))
+    }
+    fn build(settings: Option<Arc<crate::settings::SettingsStore>>) -> Arc<Self> {
         Arc::new(Self {
+            credentials: CredentialStore::native(),
+            profile_updates: Mutex::new(()),
+            settings,
             connections: Mutex::new(HashMap::new()),
             terminals: Mutex::new(HashMap::new()),
         })
@@ -116,11 +123,69 @@ impl SshManager {
         profile: ConnectionProfile,
         secret: String,
     ) -> Result<ConnectResult, ConnectError> {
+        let secrets = AuthSecrets::legacy(&profile.auth_type, secret);
+        self.connect_with_auth(app, profile, secrets)
+    }
+
+    pub fn connect_with_auth(
+        self: &Arc<Self>,
+        app: AppHandle,
+        profile: ConnectionProfile,
+        secrets: AuthSecrets,
+    ) -> Result<ConnectResult, ConnectError> {
+        let _profile_guard = self
+            .profile_updates
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         validate_profile(&profile).map_err(|error| ConnectError {
             error,
             host_key: None,
+            auth: None,
         })?;
-        let session = connect_session(&profile, &secret)?;
+        if (profile.save_password || profile.save_key_passphrase) && self.settings.is_some() {
+            let stored = self
+                .settings
+                .as_ref()
+                .unwrap()
+                .load()
+                .map_err(|error| ConnectError {
+                    error,
+                    host_key: None,
+                    auth: None,
+                })?;
+            let bound = stored["connections"]
+                .as_array()
+                .and_then(|items| items.iter().find(|item| item["id"] == profile.id))
+                .and_then(|value| serde_json::from_value::<ConnectionProfile>(value.clone()).ok())
+                .is_some_and(|p| {
+                    p.host == profile.host
+                        && p.port == profile.port
+                        && p.username == profile.username
+                        && p.protocol == profile.protocol
+                        && p.ssh_config_host == profile.ssh_config_host
+                        && p.auth_type == profile.auth_type
+                        && p.private_key_path == profile.private_key_path
+                        && p.save_password == profile.save_password
+                        && p.save_key_passphrase == profile.save_key_passphrase
+                });
+            if !bound {
+                return Err(ConnectError {
+                    error: NativeError::new(
+                        "EINVAL",
+                        "Save this connection profile before using stored credentials",
+                    ),
+                    host_key: None,
+                    auth: None,
+                });
+            }
+        }
+        let resolved = ssh_config::resolve_profile(&profile).map_err(|error| ConnectError {
+            error,
+            host_key: None,
+            auth: None,
+        })?;
+        let mut auth = AuthContext::new(self.credentials.clone(), secrets);
+        let session = connect_session(&resolved, &auth)?;
         session.set_keepalive(true, 30);
         let sftp = session
             .sftp()
@@ -133,6 +198,7 @@ impl SshManager {
         let initial = initial_remote_path(&profile).map_err(|error| ConnectError {
             error,
             host_key: None,
+            auth: None,
         })?;
         let stat = sftp
             .stat(Path::new(&initial))
@@ -141,11 +207,14 @@ impl SshManager {
             return Err(ConnectError {
                 error: NativeError::new("ENOTDIR", "Initial remote path is not a folder"),
                 host_key: None,
+                auth: None,
             });
         }
+        let credential_warning = auth.persist_after_connect(&profile);
         let connection = Arc::new(RemoteConnection {
             profile: profile.clone(),
-            secret,
+            auth,
+            resolved,
             session,
             sftp,
             root: "/".to_string(),
@@ -200,6 +269,7 @@ impl SshManager {
             root: root_entry,
             initial: initial_entry,
             home_path: home,
+            credential_warning,
         })
     }
 
@@ -266,15 +336,19 @@ impl SshManager {
             .ok_or_else(|| {
                 NativeError::new("ESSH_DISCONNECTED", "The remote connection is disconnected")
             })?;
-        self.connect(
+        self.connect_with_auth(
             stale.app.clone().ok_or_else(|| {
                 NativeError::new("ESSH_DISCONNECTED", "Helper connection cannot reconnect")
             })?,
             stale.profile.clone(),
-            stale.secret.clone(),
+            (*stale.auth.transient).clone(),
         )
         .map_err(|error| error.error)?;
         self.get(provider_id)
+    }
+    #[cfg(debug_assertions)]
+    pub fn regression_reconnect(self: &Arc<Self>, provider_id: &str) -> Result<(), NativeError> {
+        self.reconnect(provider_id).map(|_| ())
     }
     fn ensure(self: &Arc<Self>, provider_id: &str) -> Result<Arc<RemoteConnection>, NativeError> {
         self.get(provider_id)
@@ -545,6 +619,10 @@ impl SshManager {
         &self,
         request: &OperationRequest,
     ) -> Result<Vec<OperationConnection>, NativeError> {
+        let _guard = self
+            .profile_updates
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let mut ids = vec![];
         let mut result = vec![];
         for provider in [&request.filesystem_id, &request.target_filesystem_id]
@@ -557,8 +635,8 @@ impl SshManager {
             ids.push(provider.clone());
             let connection = self.get(provider)?;
             result.push(OperationConnection {
-                profile: connection.profile.clone(),
-                secret: connection.secret.clone(),
+                resolved: connection.resolved.clone(),
+                secrets: connection.auth.for_helper(&connection.resolved)?,
                 root: connection.root.clone(),
                 initial: connection.initial.clone(),
                 home: connection.home.clone(),
@@ -573,13 +651,15 @@ impl SshManager {
         let manager = Self::new();
         for input in inputs {
             crate::filesystem::jobs::checkpoint()?;
-            let session = connect_session(&input.profile, &input.secret).map_err(|e| e.error)?;
+            let auth = AuthContext::new(manager.credentials.clone(), input.secrets);
+            let session = connect_session(&input.resolved, &auth).map_err(|e| e.error)?;
             let sftp = session.sftp().map_err(sftp_error)?;
             manager.connections.lock().unwrap().insert(
-                input.profile.id.clone(),
+                input.resolved.profile.id.clone(),
                 Arc::new(RemoteConnection {
-                    profile: input.profile,
-                    secret: input.secret,
+                    profile: input.resolved.profile.clone(),
+                    resolved: input.resolved,
+                    auth,
                     session,
                     sftp,
                     root: input.root,
@@ -787,8 +867,18 @@ impl SshManager {
         rows: u32,
     ) -> Result<(String, String), NativeError> {
         let connection = self.ensure(&format!("sftp:{connection_id}"))?;
-        let session =
-            connect_session(&connection.profile, &connection.secret).map_err(|e| e.error)?;
+        let _guard = self
+            .profile_updates
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if !Arc::ptr_eq(&connection, &self.get(&format!("sftp:{connection_id}"))?) {
+            return Err(NativeError::new(
+                "ESSH_DISCONNECTED",
+                "The connection profile changed. Reconnect before opening a terminal.",
+            ));
+        }
+        let resolved = ssh_config::resolve_profile(&connection.profile)?;
+        let session = connect_session(&resolved, &connection.auth).map_err(|e| e.error)?;
         let mut channel = session.channel_session().map_err(ssh_error)?;
         channel
             .request_pty("xterm-256color", None, Some((cols, rows, 0, 0)))
@@ -1079,11 +1169,16 @@ fn directory_entry(path: &str) -> FileEntry {
     }
 }
 
-fn connect_session(profile: &ConnectionProfile, secret: &str) -> Result<Session, ConnectError> {
+fn connect_session(
+    resolved: &ResolvedProfile,
+    context: &AuthContext,
+) -> Result<Session, ConnectError> {
+    let profile = &resolved.profile;
     let tcp =
         TcpStream::connect((profile.host.as_str(), profile.port)).map_err(|e| ConnectError {
             error: NativeError::from_io(&e, "Unable to connect to the SSH server"),
             host_key: None,
+            auth: None,
         })?;
     tcp.set_read_timeout(Some(Duration::from_secs(20))).ok();
     tcp.set_write_timeout(Some(Duration::from_secs(20))).ok();
@@ -1099,6 +1194,7 @@ fn connect_session(profile: &ConnectionProfile, secret: &str) -> Result<Session,
             ConnectError {
                 error: NativeError::new("EHOSTKEY", "The server did not provide a host key"),
                 host_key: None,
+                auth: None,
             }
         })?)
     );
@@ -1122,6 +1218,7 @@ fn connect_session(profile: &ConnectionProfile, secret: &str) -> Result<Session,
                     "Confirm this SSH host key before connecting",
                 ),
                 host_key: Some(info),
+                auth: None,
             })
         }
         Some(expected) if expected != observed => {
@@ -1131,24 +1228,20 @@ fn connect_session(profile: &ConnectionProfile, secret: &str) -> Result<Session,
                     "REMOTE HOST IDENTIFICATION HAS CHANGED",
                 ),
                 host_key: Some(info),
+                auth: None,
             })
         }
         _ => {}
     }
-    let auth = if profile.auth_type == "password" {
-        session.userauth_password(&profile.username, secret)
-    } else {
-        session.userauth_pubkey_file(
-            &profile.username,
-            None,
-            Path::new(profile.private_key_path.as_deref().unwrap_or("")),
-            (!secret.is_empty()).then_some(secret),
-        )
-    };
-    auth.map_err(|e| ConnectError {
-        error: NativeError::new("EAUTHENTICATION", "SSH authentication failed")
-            .with_native_error(e.to_string()),
+    crate::ssh_auth::authenticate(
+        &mut crate::ssh_auth::SshAuthSession::new(&session, &profile.username),
+        resolved,
+        context,
+    )
+    .map_err(|failure| ConnectError {
+        error: failure.error,
         host_key: None,
+        auth: Some(failure.auth),
     })?;
     Ok(session)
 }
@@ -1162,7 +1255,8 @@ fn validate_profile(p: &ConnectionProfile) -> Result<(), NativeError> {
         || p.host.trim().is_empty()
         || p.username.trim().is_empty()
         || p.port == 0
-        || !["password", "privateKey"].contains(&p.auth_type.as_str())
+        || p.protocol != "sftp"
+        || !["auto", "agent", "password", "privateKey"].contains(&p.auth_type.as_str())
     {
         return Err(NativeError::new("EINVAL", "Invalid SSH connection profile"));
     }
@@ -1285,6 +1379,7 @@ fn connect_native(error: ssh2::Error, message: &str) -> ConnectError {
     ConnectError {
         error: NativeError::new("ESSH", message).with_native_error(error.to_string()),
         host_key: None,
+        auth: None,
     }
 }
 fn operation_result(
@@ -1504,6 +1599,10 @@ mod tests {
             port: 2222,
             username: "demo".into(),
             auth_type: "privateKey".into(),
+            protocol: "sftp".into(),
+            save_password: false,
+            save_key_passphrase: false,
+            ssh_config_host: String::new(),
             private_key_path: Some("/keys/id_ed25519".into()),
             initial_path: Some("/home/demo".into()),
             trusted_fingerprint: None,

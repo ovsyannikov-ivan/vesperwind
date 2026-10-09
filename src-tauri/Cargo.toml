@@ -24,7 +24,10 @@ portable-pty = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
-ssh2 = { version = "0.9", features = ["vendored-openssl"] }
+ssh2 = { version = "0.9", features = ["vendored-openssl", "openssl-on-win32"] }
+ssh2-config = { version = "=0.8.1", features = ["nolog"] }
+keyring-core = "=1.0.0"
+zeroize = { version = "1", features = ["serde"] }
 tauri = { version = "2", features = ["unstable", "macos-private-api"] }
 tauri-plugin-window-state = "=2.4.1"
 url = "2"
@@ -34,15 +37,17 @@ uuid = { version = "1", features = ["v4"] }
 libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { version = "=1.0.2", default-features = false, features = ["keychain"] }
 block2 = "0.6"
 objc2 = "0.6"
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["CGColorSpace"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["block2", "NSAnimation", "NSAnimationContext", "NSApplication", "NSColor", "NSDragging", "NSDraggingItem", "NSDraggingSession", "NSEvent", "NSFilePromiseProvider", "NSGraphics", "NSGraphicsContext", "NSImage", "NSOpenGL", "NSOpenGLView", "NSPasteboard", "NSPasteboardItem", "NSResponder", "NSScreen", "NSView", "NSWindow", "NSWorkspace", "objc2-core-foundation", "objc2-core-graphics", "objc2-quartz-core"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["block2", "NSArray", "NSData", "NSDictionary", "NSEnumerator", "NSError", "NSFileCoordinator", "NSFileManager", "NSGeometry", "NSObjCRuntime", "NSOperation", "NSProgress", "NSPropertyList", "NSString", "NSURL", "NSValue"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["block2", "NSArray", "NSData", "NSDictionary", "NSEnumerator", "NSError", "NSFileCoordinator", "NSFileManager", "NSGeometry", "NSObjCRuntime", "NSOperation", "NSProcessInfo", "NSProgress", "NSPropertyList", "NSString", "NSURL", "NSValue"] }
 objc2-quartz-core = { version = "0.3", default-features = false, features = ["CALayer", "CAMetalLayer", "CAEDRMetadata", "CATransaction", "objc2-metal", "objc2-core-foundation", "objc2-core-graphics"] }
 objc2-web-kit = { version = "0.3", default-features = false, features = ["WKWebView"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
+windows-native-keyring-store = { version = "=1.1.0", default-features = false }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_NetworkManagement_WNet", "Win32_Graphics_Gdi", "Win32_Graphics_OpenGL", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Threading", "Win32_System_Ioctl", "Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"] }
 webview2-com = "0.38"
 windows = { version = "0.61", features = ["Storage", "Storage_Provider", "Win32_Devices_Display", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Gdi", "Win32_Security", "Win32_Storage_CloudFilters", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_WinRT", "Win32_System_Com", "Win32_System_Com_Marshal", "Win32_System_Com_StructuredStorage", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
@@ -54,3 +59,6 @@ lto = true
 opt-level = "s"
 panic = "abort"
 strip = true
+
+[patch.crates-io]
+ssh2-config = { path = "../vendor/ssh2-config" }

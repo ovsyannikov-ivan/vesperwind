@@ -28,6 +28,10 @@ const requestCommands = Object.freeze({
   'content:status': 'content_status',
   'content:cancel': 'content_cancel',
   'runtime:info': 'runtime_info',
+  'permissions:capabilities': 'permissions_capabilities',
+  'permissions:request': 'permissions_request',
+  'permissions:prepare-folder': 'permissions_prepare_folder',
+  'permissions:cancel': 'permissions_cancel',
   'media:source': 'media_source',
   'video:thumbnail': 'video_thumbnail',
   'media:history': 'media_history',
@@ -57,6 +61,11 @@ const requestCommands = Object.freeze({
   'ssh:connect': 'ssh_connect',
   'ssh:disconnect': 'ssh_disconnect',
   'ssh:status': 'ssh_status',
+  'ssh:config-hosts': 'ssh_config_hosts',
+  'ssh:config-resolve': 'ssh_config_resolve',
+  'connections:capabilities': 'connections_capabilities',
+  'connections:credential-status': 'connections_credential_status',
+  'connections:forget-credential': 'connections_forget_credential',
   'clipboard:write': 'clipboard_write',
   'clipboard:read': 'clipboard_read',
   'clipboard:consume': 'clipboard_consume',
@@ -94,10 +103,14 @@ export const createTauriRequester = (invokeNative) => (eventName, payload = {}, 
   }))
   const timeout = Number.isFinite(options.timeout) && options.timeout > 0 ? options.timeout : 15_000
   const cancellable = eventName === 'filesystem:operate' || eventName === 'document:convert'
+  const permissionRequest = eventName === 'permissions:request' || eventName === 'permissions:prepare-folder'
+  const permissionId = permissionRequest ? crypto.randomUUID() : null
   const operationId = cancellable ? crypto.randomUUID() : null
-  const args = cancellable ? { ...payload, operationId, timeoutMs: Math.max(1, timeout - 250) } : payload
+  const args = permissionRequest ? { ...payload, requestId: permissionId }
+    : cancellable ? { ...payload, operationId, timeoutMs: Math.max(1, timeout - 250) } : payload
   return new Promise((resolve) => {
     let settled = false
+    let invoked = false
     let timer
     const finish = (response) => {
       if (settled) return
@@ -112,13 +125,20 @@ export const createTauriRequester = (invokeNative) => (eventName, payload = {}, 
       // deadline, so cancellation remains effective if this WebView disappears.
       if (cancellable) void invokeNative(eventName === 'filesystem:operate'
         ? 'filesystem_operation_cancel' : 'document_cancel', { payload: { operationId } }).catch(() => {})
+      if (permissionRequest && invoked) void invokeNative('permissions_cancel', { payload: { requestId: permissionId } }).catch(() => {})
       finish({ ok: false, error: { code, message, path: payload.sourcePath } })
     }
     const abort = () => stop('ECANCELLED', 'The operation was cancelled')
-    timer = setTimeout(() => stop('ETIMEDOUT', 'The operation did not complete within the allowed time. Vesperwind is ready for another operation.'), timeout)
+    // macOS may wait for a person indefinitely. Ordinary IO deadlines start only
+    // after this separate, cancellable permission-preparation request completes.
+    if (!permissionRequest) timer = setTimeout(() => stop('ETIMEDOUT', 'The operation did not complete within the allowed time. Vesperwind is ready for another operation.'), timeout)
     options.signal?.addEventListener('abort', abort, { once: true })
     if (options.signal?.aborted) { abort(); return }
-    Promise.resolve().then(() => invokeNative(command, { payload: args }))
+    Promise.resolve().then(() => {
+      if (settled) return
+      invoked = true
+      return invokeNative(command, { payload: args })
+    })
       .then(finish, (error) => finish(normalizeInvokeError(error)))
   })
 }

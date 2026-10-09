@@ -1,5 +1,7 @@
 mod commands;
+mod connections;
 mod content;
+mod credential_store;
 mod error;
 mod filesystem;
 mod media;
@@ -9,10 +11,15 @@ mod mpv;
 #[cfg(debug_assertions)]
 mod native_regression;
 mod office;
+mod permissions;
 mod provider_content;
+#[cfg(debug_assertions)]
+mod remote_auth_regression;
 mod settings;
 mod shell_integration;
 mod ssh;
+mod ssh_auth;
+mod ssh_config;
 mod terminal;
 #[cfg(test)]
 mod test_support;
@@ -73,7 +80,7 @@ pub fn run() {
         )
     }));
     let terminal = TerminalManager::new();
-    let ssh = SshManager::new();
+    let ssh = SshManager::with_settings(settings.clone());
     let content = ContentManager::new();
     let media_http = media::http::MediaHttpServer::start(Arc::clone(&filesystem), Arc::clone(&ssh))
         .expect("Unable to start the local media server");
@@ -110,6 +117,14 @@ pub fn run() {
                 Some(tauri::utils::config::BackgroundThrottlingPolicy::Disabled);
         }
     }
+    #[cfg(debug_assertions)]
+    if let Some(root) = remote_auth_regression::fixture_root() {
+        context.config_mut().identifier = "com.vesperwind.remote-auth-acceptance".into();
+        for window in &mut context.config_mut().app.windows {
+            window.incognito = true;
+            window.data_directory = Some(root.join("webview"));
+        }
+    }
     if startup_theme == Some(tauri::Theme::Light) {
         if let Some(window) = context
             .config_mut()
@@ -122,16 +137,23 @@ pub fn run() {
         }
     }
 
-    let builder = tauri::Builder::default().plugin(
-        tauri_plugin_window_state::Builder::default()
-            .with_state_flags(
-                tauri_plugin_window_state::StateFlags::SIZE
-                    | tauri_plugin_window_state::StateFlags::POSITION
-                    | tauri_plugin_window_state::StateFlags::MAXIMIZED,
-            )
-            .with_filter(|label| label == "main")
-            .build(),
-    );
+    let window_state = tauri_plugin_window_state::Builder::default()
+        .with_state_flags(
+            tauri_plugin_window_state::StateFlags::SIZE
+                | tauri_plugin_window_state::StateFlags::POSITION
+                | tauri_plugin_window_state::StateFlags::MAXIMIZED,
+        )
+        .with_filter(|label| label == "main")
+        .build();
+    let builder = tauri::Builder::default();
+    #[cfg(debug_assertions)]
+    let builder = if remote_auth_regression::fixture_root().is_some() {
+        builder
+    } else {
+        builder.plugin(window_state)
+    };
+    #[cfg(not(debug_assertions))]
+    let builder = builder.plugin(window_state);
     #[cfg(debug_assertions)]
     let builder = builder.on_page_load(media_ui_regression::page_loaded);
     // Windows uses the application's toolbar. Attaching a native menu also
@@ -225,6 +247,10 @@ pub fn run() {
             let history_path = app.path().app_data_dir()?.join("media-history.sqlite3");
             #[cfg(debug_assertions)]
             let history_path = media_ui_regression::history_path().unwrap_or(history_path);
+            #[cfg(debug_assertions)]
+            let history_path = remote_auth_regression::fixture_root()
+                .map(|root| root.join("media-history.sqlite3"))
+                .unwrap_or(history_path);
             app.state::<AppState>()
                 .player
                 .history
@@ -247,7 +273,10 @@ pub fn run() {
             }
             #[cfg(debug_assertions)]
             {
-                if std::env::args().nth(1).as_deref() == Some("--native-regression") {
+                if matches!(
+                    std::env::args().nth(1).as_deref(),
+                    Some("--native-regression" | "--remote-auth-regression")
+                ) {
                     window.hide()?;
                 }
                 if media_ui_regression::config().is_some() {
@@ -256,6 +285,7 @@ pub fn run() {
                 }
                 media_ui_regression::setup(app.handle());
                 native_regression::start(app.handle());
+                remote_auth_regression::start(app.handle());
             }
             Ok(())
         })
@@ -297,6 +327,10 @@ pub fn run() {
                 commands::content::content_status,
                 commands::content::content_cancel,
                 commands::runtime::runtime_info,
+                commands::permissions::permissions_capabilities,
+                commands::permissions::permissions_request,
+                commands::permissions::permissions_prepare_folder,
+                commands::permissions::permissions_cancel,
                 commands::media::media_source,
                 commands::media::video_thumbnail,
                 commands::media::media_history,
@@ -329,6 +363,11 @@ pub fn run() {
                 commands::ssh::ssh_connect,
                 commands::ssh::ssh_disconnect,
                 commands::ssh::ssh_status,
+                commands::ssh::ssh_config_hosts,
+                commands::ssh::ssh_config_resolve,
+                commands::ssh::connections_capabilities,
+                commands::ssh::connections_credential_status,
+                commands::ssh::connections_forget_credential,
                 commands::shell::clipboard_write,
                 commands::shell::clipboard_read,
                 commands::shell::clipboard_consume,

@@ -194,9 +194,10 @@ test('metadata size counts link entries without traversal, retains partial resul
 test('local browser metadata inspects a broken link without following its target', async () => {
   const root = await fs.mkdtemp(path.join(process.cwd(), '.properties-test-'))
   try {
-    const link = path.join(root, 'link'); await fs.symlink('/missing/target', link)
+    const link = path.join(root, 'link'), target = path.join(root, 'missing', 'target')
+    await fs.symlink(target, link, process.platform === 'win32' ? 'junction' : 'file')
     const p = await readLocalProperties(link)
-    assert.equal(p.type, 'symlink'); assert.equal(p.target, '/missing/target'); assert.equal(p.capabilities.preview, false)
+    assert.equal(p.type, 'symlink'); assert.equal(p.target, target); assert.equal(p.capabilities.preview, false)
   } finally { await fs.rm(root, { recursive: true, force: true }) }
 })
 test('UI contract keeps two columns, generic metadata, capabilities and single-page PDF/PPTX controls', async () => {

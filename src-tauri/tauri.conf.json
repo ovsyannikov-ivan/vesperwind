@@ -32,6 +32,7 @@
     ]
   },
   "bundle": {
+    "macOS": { "infoPlist": "Info.plist" },
     "externalBin": [
       "binaries/vesperwind-archive"
     ],

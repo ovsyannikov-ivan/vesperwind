@@ -8,7 +8,7 @@ use std::{
 };
 use uuid::Uuid;
 
-const SETTINGS_VERSION: u64 = 7;
+const SETTINGS_VERSION: u64 = 8;
 const EDITOR_FORMATS_V6: &[&str] = &[
     ".jsx",
     ".tsx",
@@ -238,10 +238,11 @@ fn default_settings() -> Value {
         "filesystem": { "hiddenNameSuffixes": [".localized"] },
         "editor": { "theme": "auto", "formatting": default_formatting(), "editableFiles": DEFAULT_EDITABLE_FILES },
         "connections": [],
+        "permissions": {"setupCompleted":false},
     })
 }
 
-fn normalize_settings(value: &Value) -> Value {
+pub(crate) fn normalize_settings(value: &Value) -> Value {
     let theme = match value.pointer("/appearance/theme").and_then(Value::as_str) {
         Some("dark") => "dark",
         Some("light") => "light",
@@ -277,6 +278,7 @@ fn normalize_settings(value: &Value) -> Value {
             "editableFiles": normalize_editable_files(value)
         },
         "connections": normalize_connections(value.get("connections")),
+        "permissions": {"setupCompleted":value.pointer("/permissions/setupCompleted").and_then(Value::as_bool).unwrap_or(false)},
     })
 }
 
@@ -377,12 +379,16 @@ fn normalize_connections(value: Option<&Value>) -> Vec<Value> {
         let username = item.get("username")?.as_str()?.trim();
         let port = item.get("port")?.as_u64()?;
         if id.is_empty() || id.len() > 80 || !id.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c)) || name.is_empty() || host.is_empty() || username.is_empty() || !(1..=65535).contains(&port) || !seen.insert(id.to_string()) { return None; }
-        let auth_type = if item.get("authType").and_then(Value::as_str) == Some("password") { "password" } else { "privateKey" };
+        let auth_type = item.get("authType").and_then(Value::as_str).filter(|v| ["auto", "agent", "password", "privateKey"].contains(v)).unwrap_or("privateKey");
         let trusted = item.get("trustedFingerprint").and_then(Value::as_str).filter(|value| value.starts_with("SHA256:")).unwrap_or("");
         Some(json!({
             "id": id, "name": name, "host": host, "port": port, "username": username,
             "authType": auth_type,
-            "privateKeyPath": if auth_type == "privateKey" { item.get("privateKeyPath").and_then(Value::as_str).unwrap_or("").trim() } else { "" },
+            "protocol": "sftp",
+            "savePassword": (["auto", "password"].contains(&auth_type) && item.get("savePassword").and_then(Value::as_bool).unwrap_or(false)),
+            "saveKeyPassphrase": (["auto", "privateKey"].contains(&auth_type) && item.get("saveKeyPassphrase").and_then(Value::as_bool).unwrap_or(false)),
+            "sshConfigHost": item.get("sshConfigHost").and_then(Value::as_str).unwrap_or("").trim(),
+            "privateKeyPath": if ["auto", "privateKey"].contains(&auth_type) { item.get("privateKeyPath").and_then(Value::as_str).unwrap_or("").trim() } else { "" },
             "initialPath": item.get("initialPath").and_then(Value::as_str).unwrap_or("").trim(),
             "trustedFingerprint": trusted,
         }))
@@ -437,6 +443,32 @@ fn settings_io_error(error: std::io::Error) -> NativeError {
 mod tests {
     use super::{default_settings, normalize_formatting, normalize_settings, SettingsStore};
     use serde_json::json;
+
+    #[test]
+    fn remote_profiles_migrate_explicit_modes_and_persist_only_metadata() {
+        for mode in ["auto", "agent", "password", "privateKey"] {
+            let normalized = normalize_settings(&json!({"version":7,"connections":[{
+                "id":"stable-id","name":"Fixture","host":"fixture.invalid","port":22,"username":"fixture",
+                "authType":mode,"savePassword":true,"saveKeyPassphrase":true,"sshConfigHost":"alias","privateKeyPath":"~/key",
+                "secret":"fixture-secret","password":"fixture-password","passphrase":"fixture-passphrase","keyContents":"fixture-key"
+            }]}));
+            let profile = &normalized["connections"][0];
+            assert_eq!(profile["authType"], mode);
+            assert_eq!(profile["protocol"], "sftp");
+            assert_eq!(
+                profile["savePassword"],
+                ["auto", "password"].contains(&mode)
+            );
+            assert_eq!(
+                profile["saveKeyPassphrase"],
+                ["auto", "privateKey"].contains(&mode)
+            );
+            assert_eq!(profile["sshConfigHost"], "alias");
+            for field in ["secret", "password", "passphrase", "keyContents"] {
+                assert!(profile.get(field).is_none());
+            }
+        }
+    }
 
     #[test]
     fn upgrades_only_untouched_editable_defaults_for_html_alias_and_less() {

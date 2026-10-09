@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
+import os from 'node:os'
 import posix from 'node:path/posix'
 import { pipeline } from 'node:stream/promises'
 import ssh2 from 'ssh2'
@@ -32,7 +33,7 @@ export const validateConnectionProfile = (profile) => {
   if (!String(profile.host || '').trim() || /[\0\r\n]/.test(profile.host)) throw remoteError('EINVAL', 'Invalid SSH host')
   if (!String(profile.username || '').trim() || /[\0\r\n]/.test(profile.username)) throw remoteError('EINVAL', 'Invalid SSH username')
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw remoteError('EINVAL', 'SSH port must be between 1 and 65535')
-  if (!['password', 'privateKey'].includes(profile.authType)) throw remoteError('EINVAL', 'Unsupported authentication type')
+  if (!['auto', 'agent', 'password', 'privateKey'].includes(profile.authType)) throw remoteError('EINVAL', 'Unsupported authentication type')
   if (profile.authType === 'privateKey' && !String(profile.privateKeyPath || '').trim()) throw remoteError('EINVAL', 'Private key path is required')
   if (profile.initialPath && (!String(profile.initialPath).startsWith('/') || String(profile.initialPath).includes('\\'))) {
     throw remoteError('EINVAL', 'Remote paths must be absolute POSIX paths')
@@ -45,7 +46,47 @@ const serializeSshError = (error) => ({
   message: error?.message || 'The SSH operation failed',
   ...(error?.hostKey ? { hostKey: error.hostKey } : {}),
   ...(error?.partialResult ? { partialResult: error.partialResult } : {}),
+  ...(error?.auth ? { auth: error.auth } : {}),
 })
+
+export const sessionAuthOptions = async (profile, input = '') => {
+  const secrets = typeof input === 'string'
+    ? { password: profile.authType === 'privateKey' ? '' : input, keyPassphrase: profile.authType === 'privateKey' ? input : '' }
+    : { password: input?.password || '', keyPassphrase: input?.keyPassphrase || '' }
+  if (profile.sshConfigHost) throw remoteError('ESSH_CONFIG_UNSUPPORTED', 'SSH config profiles require the native app in this runtime')
+  const username = profile.username, attempts = [], methods = []
+  let encrypted = false, interaction = false, promptRounds = 0
+  const agent = process.env.SSH_AUTH_SOCK || (process.platform === 'win32' ? '\\\\.\\pipe\\openssh-ssh-agent' : null)
+  if (['auto', 'agent'].includes(profile.authType) && agent) methods.push({ type: 'agent', username, agent })
+  if (profile.authType === 'agent' && !agent) throw remoteError('EAUTHENTICATION_REQUIRED', 'SSH Agent is unavailable', { auth: { needs: 'agent', attempted: [] } })
+  if (['auto', 'privateKey'].includes(profile.authType)) {
+    const paths = profile.authType === 'privateKey' ? [profile.privateKeyPath]
+      : [profile.privateKeyPath, ...['id_ed25519', 'id_ecdsa', 'id_rsa'].map(name => path.join(os.homedir(), '.ssh', name))]
+    for (const raw of [...new Set(paths.filter(Boolean))]) {
+      const expanded = raw.startsWith('~/') ? path.join(os.homedir(), raw.slice(2)) : raw
+      let key
+      try { key = await fsp.readFile(expanded) } catch (error) { if (profile.authType === 'privateKey') throw remoteError(error.code || 'EKEY', 'Unable to read the selected private key'); continue }
+      const parsed = ssh2.utils.parseKey(key, secrets.keyPassphrase || undefined)
+      if (parsed instanceof Error) { encrypted ||= /passphrase|encrypt/i.test(parsed.message); continue }
+      methods.push({ type: 'publickey', username, key: parsed })
+    }
+  }
+  if (['auto', 'password'].includes(profile.authType) && secrets.password) {
+    methods.push({ type: 'password', username, password: secrets.password })
+    methods.push({ type: 'keyboard-interactive', username, prompt: (_name, _instructions, _lang, prompts, finish) => {
+      promptRounds++
+      if (promptRounds === 1 && prompts.length === 1 && !prompts[0].echo && /password/i.test(prompts[0].prompt) && !/otp|token|verification|one-time/i.test(prompts[0].prompt)) finish([secrets.password])
+      else { interaction = true; finish(prompts.map(() => '')) }
+    } })
+  }
+  const failure = () => ({ needs: interaction ? 'interaction' : profile.authType === 'agent' ? 'agent' : encrypted ? 'keyPassphrase' : profile.authType === 'privateKey' ? 'privateKey' : 'password', attempted: attempts })
+  return { authHandler: () => {
+    const method = methods.shift()
+    if (!method) return false
+    attempts.push(method.type === 'publickey' ? 'privateKey' : method.type)
+    return method
+  }, failure }
+}
 
 class RemoteConnection {
   constructor(profile, secret, socket, onClosed) {
@@ -66,8 +107,16 @@ class RemoteConnection {
     const client = new Client()
     let verificationError = null
     let settled = false
+    const auth = await sessionAuthOptions(this.profile, this.secret)
     const ready = new Promise((resolve, reject) => {
-      client.once('ready', () => { settled = true; resolve() })
+      client.once('ready', () => {
+        if (auth.failure().needs === 'interaction') {
+          reject(remoteError('EAUTHENTICATION_REQUIRED', 'This server requires unsupported keyboard-interactive/MFA authentication', { auth: auth.failure() }))
+          return
+        }
+        settled = true
+        resolve()
+      })
       client.once('error', (error) => { if (!settled) reject(verificationError || error) })
     })
     const options = {
@@ -93,13 +142,16 @@ class RemoteConnection {
         return true
       },
     }
-    if (this.profile.authType === 'password') options.password = this.secret
-    else {
-      options.privateKey = await fsp.readFile(this.profile.privateKeyPath)
-      if (this.secret) options.passphrase = this.secret
-    }
+    options.authHandler = auth.authHandler
     client.connect(options)
-    await ready.catch((error) => { client.end(); throw error })
+    await ready.catch((error) => {
+      client.end()
+      if (!verificationError && /authentication/i.test(error.message || '')) {
+        const details = auth.failure()
+        throw remoteError('EAUTHENTICATION_REQUIRED', details.needs === 'keyPassphrase' ? 'A key passphrase is required' : details.needs === 'agent' ? 'No usable identities were found in SSH Agent' : details.needs === 'interaction' ? 'This server requires unsupported keyboard-interactive/MFA authentication' : 'SSH authentication required', { auth: details })
+      }
+      throw error
+    })
     this.client = client
     this.sftp = await call(client, 'sftp')
     this.homePath = await call(this.sftp, 'realpath', '.')
@@ -386,14 +438,21 @@ export class SshConnectionManager {
 export const registerSshHandlers = (socket, { connections } = {}) => {
   const manager = new SshConnectionManager(socket, connections)
   socket.on('ssh:connect', async (payload, acknowledge) => {
-    try { acknowledge?.({ ok: true, ...(await manager.connect(payload?.profile, payload?.secret)) }) }
-    catch (error) { acknowledge?.({ ok: false, error: serializeSshError(error), hostKey: error?.hostKey }) }
+    try { acknowledge?.({ ok: true, ...(await manager.connect(payload?.profile, payload?.secrets || payload?.secret)) }) }
+    catch (error) { acknowledge?.({ ok: false, error: serializeSshError(error), hostKey: error?.hostKey, auth: error?.auth }) }
   })
   socket.on('ssh:disconnect', (payload, acknowledge) => { manager.disconnect(payload?.connectionId); acknowledge?.({ ok: true }) })
   socket.on('ssh:status', (payload, acknowledge) => {
     const connection = manager.connections.get(payload?.connectionId)
     acknowledge?.({ ok: true, status: connection?.status || 'disconnected' })
   })
+  socket.on('connections:capabilities', (_payload, acknowledge) => acknowledge?.({ ok: true, capabilities: { credentialStore: false, sshConfig: false, auto: true, agent: true } }))
+  for (const event of ['connections:credential-status', 'connections:forget-credential']) {
+    socket.on(event, (_payload, acknowledge) => acknowledge?.({ ok: false, error: { code: 'ECREDENTIAL_UNAVAILABLE', message: 'Secure credential storage is available in the native app' } }))
+  }
+  for (const event of ['ssh:config-hosts', 'ssh:config-resolve']) {
+    socket.on(event, (_payload, acknowledge) => acknowledge?.({ ok: false, error: { code: 'ESSH_CONFIG_UNSUPPORTED', message: 'SSH config discovery is available in the native app' } }))
+  }
   socket.on('disconnect', () => manager.shutdown())
   return manager
 }

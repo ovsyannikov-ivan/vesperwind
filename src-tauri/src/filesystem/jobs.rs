@@ -132,8 +132,10 @@ pub fn execute(
         desktop: filesystem.is_desktop(),
         remote,
     };
-    let encoded = serde_json::to_vec(&input)
-        .map_err(|_| NativeError::new("EINVAL", "Unable to encode the operation"))?;
+    let encoded = zeroize::Zeroizing::new(
+        serde_json::to_vec(&input)
+            .map_err(|_| NativeError::new("EINVAL", "Unable to encode the operation"))?,
+    );
     if encoded.len() > 2 * 1024 * 1024 {
         return Err(
             NativeError::new("EINVAL", "The operation request is too large").with_path(&affected),
@@ -259,7 +261,7 @@ pub fn run_filesystem_helper() -> bool {
         if length == 0 || length > 2 * 1024 * 1024 {
             return Err(NativeError::new("EINVAL", "Invalid operation frame"));
         }
-        let mut bytes = vec![0; length];
+        let mut bytes = zeroize::Zeroizing::new(vec![0; length]);
         stdin
             .read_exact(&mut bytes)
             .map_err(|e| NativeError::from_io(&e, "Unable to read operation"))?;

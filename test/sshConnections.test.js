@@ -1,12 +1,69 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { createHash } from 'node:crypto'
+import ssh2 from 'ssh2'
 import { connectionIdFromProvider, providerIdForConnection } from '../src/api/connections.js'
-import { remoteInitialPath, SshConnectionManager, validateConnectionProfile } from '../server/ssh.js'
+import { remoteInitialPath, sessionAuthOptions, SshConnectionManager, validateConnectionProfile, registerSshHandlers } from '../server/ssh.js'
 
 test('routes SFTP providers by connection ID', () => {
   assert.equal(providerIdForConnection('demo'), 'sftp:demo')
   assert.equal(connectionIdFromProvider('sftp:demo'), 'demo')
   assert.equal(connectionIdFromProvider('local'), null)
+})
+
+test('browser/SEA reports secure credential storage and SSH config as unavailable without exposing secrets', () => {
+  const handlers = new Map()
+  registerSshHandlers({ on: (event, fn) => handlers.set(event, fn), emit() {} })
+  let response
+  handlers.get('connections:capabilities')({}, value => { response = value })
+  assert.equal(response.capabilities.credentialStore, false)
+  assert.equal(response.capabilities.sshConfig, false)
+  handlers.get('connections:credential-status')({ profileId: 'test' }, value => { response = value })
+  assert.equal(response.error.code, 'ECREDENTIAL_UNAVAILABLE')
+  assert.equal('secret' in response, false)
+})
+
+test('explicit Password auth never tries keys/agent; a multi-prompt challenge is not given the password', async () => {
+  const auth = await sessionAuthOptions({ authType: 'password', username: 'fixture' }, { password: 'fixture' })
+  assert.equal(auth.authHandler().type, 'password')
+  const interactive = auth.authHandler()
+  assert.equal(interactive.type, 'keyboard-interactive')
+  let answers
+  interactive.prompt('', '', '', [{ prompt: 'Password:', echo: false }, { prompt: 'OTP:', echo: false }], value => { answers = value })
+  assert.deepEqual(answers, ['', ''])
+  assert.equal(auth.failure().needs, 'interaction')
+  assert.equal(auth.authHandler(), false)
+})
+
+test('rejects unsupported MFA even when a server accepts empty responses', async () => {
+  const keys = ssh2.utils.generateKeyPairSync('ed25519')
+  const key = ssh2.utils.parseKey(keys.public)
+  const fingerprint = `SHA256:${createHash('sha256').update(key.getPublicSSH()).digest('base64').replace(/=+$/, '')}`
+  const clients = new Set()
+  let answers
+  const server = new ssh2.Server({ hostKeys: [keys.private] }, client => {
+    clients.add(client)
+    client.on('error', () => {})
+    client.on('close', () => clients.delete(client))
+    client.on('authentication', context => {
+      if (context.method !== 'keyboard-interactive') return context.reject(['keyboard-interactive'])
+      context.prompt([{ prompt: 'Password:', echo: false }, { prompt: 'OTP:', echo: false }], values => {
+        answers = values
+        context.accept()
+      })
+    })
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  try {
+    const manager = new SshConnectionManager({ emit() {} })
+    await assert.rejects(manager.connect({ id: 'mfa-fixture', name: 'MFA fixture', host: '127.0.0.1', port: server.address().port,
+      username: 'fixture', authType: 'password', trustedFingerprint: fingerprint }, { password: 'never-send-to-mfa' }),
+    error => error.code === 'EAUTHENTICATION_REQUIRED' && error.auth.needs === 'interaction')
+    assert.deepEqual(answers, ['', ''])
+  } finally {
+    for (const client of clients) client.end()
+    await new Promise(resolve => server.close(resolve))
+  }
 })
 
 test('cross-provider move deletes only after a completed copy', async () => {

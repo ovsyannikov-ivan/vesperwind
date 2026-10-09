@@ -4,6 +4,11 @@ use std::{
 };
 
 fn main() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        // Local-network privacy starts on macOS 15. Keep earlier supported
+        // systems launchable even if Network.framework is not installed.
+        println!("cargo:rustc-link-arg=-Wl,-weak_framework,Network");
+    }
     println!(
         "cargo:rustc-env=VESPERWIND_TARGET_TRIPLE={}",
         std::env::var("TARGET").unwrap()

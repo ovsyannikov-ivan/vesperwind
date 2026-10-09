@@ -4,6 +4,7 @@ pub mod desktop;
 pub mod document;
 pub mod filesystem;
 pub mod media;
+pub mod permissions;
 pub mod player;
 pub mod runtime;
 pub mod settings;

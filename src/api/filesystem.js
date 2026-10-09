@@ -4,6 +4,7 @@ import { content } from './content.js'
 import { calculateSize } from './filesystemSize.js'
 import { normalizeApiResponse } from './response.js'
 import { LOCAL_FILESYSTEM_PROVIDER } from './filesystemLocation.js'
+import { permissionsApi } from './permissions.js'
 
 export {
   filesystemLocation,
@@ -22,8 +23,10 @@ const getRoot = async (providerId = LOCAL_FILESYSTEM_PROVIDER) =>
     'Unable to load filesystem root',
   )
 
-const readDir = async (location, options = {}) =>
-  normalizeApiResponse(
+const readDir = async (location, options = {}) => {
+  const access = await permissionsApi.prepareFolder(location, options)
+  if (!access.ok) return access
+  return normalizeApiResponse(
     await backend.request('filesystem:list', {
       filesystemId: providerIdOf(location),
       path: location?.path,
@@ -31,8 +34,11 @@ const readDir = async (location, options = {}) =>
     'EFILESYSTEM_LIST',
     'Unable to read this folder',
   )
+}
 
 const readText = async (location, options = {}) => {
+  const access = await permissionsApi.prepareFolder(location, options)
+  if (!access.ok) return access
   const preparation = await content.prepare(location, options)
   if (!preparation.ok) return preparation
   return normalizeApiResponse(
@@ -48,6 +54,8 @@ const readText = async (location, options = {}) => {
 }
 
 const writeText = async (location, value, options) => {
+  const access = await permissionsApi.prepareFolder(location, options)
+  if (!access.ok) return access
   const preparation = await content.prepare(location, options)
   if (!preparation.ok) return preparation
   return normalizeApiResponse(
@@ -78,6 +86,8 @@ const encodeBytes = (bytes) => {
 }
 
 const readBinary = async (location, options) => {
+  const access = await permissionsApi.prepareFolder(location, options)
+  if (!access.ok) return access
   const preparation = await content.prepare(location, options)
   if (!preparation.ok) return preparation
   const response = normalizeApiResponse(
@@ -90,6 +100,8 @@ const readBinary = async (location, options) => {
 }
 
 const writeBinary = async (location, bytes, options) => {
+  const access = await permissionsApi.prepareFolder(location, options)
+  if (!access.ok) return access
   const preparation = await content.prepare(location, options)
   if (!preparation.ok) return preparation
   return normalizeApiResponse(
@@ -106,6 +118,10 @@ export const DELETE_TIMEOUT = 30_000
 export const REMOTE_OPERATION_TIMEOUT = 120_000
 
 const operate = async ({ action, source, target = null, name, options = {} }) => {
+  for (const location of [source, target].filter(Boolean)) {
+    const access = await permissionsApi.prepareFolder(location, options)
+    if (!access.ok) return access
+  }
   if (action === 'copy' && source?.isDirectory !== true) {
     const preparation = await content.prepare(source)
     if (!preparation.ok) return preparation
@@ -138,9 +154,13 @@ export const filesystem = Object.freeze({
     filesystemId: providerIdOf(location), path: location.path, update,
   }), 'EPROPERTIES_UPDATE', 'Unable to change permissions'),
   calculateSize,
-  resolveLocation: async (location) => normalizeApiResponse(await backend.request('filesystem:resolve-location', {
+  resolveLocation: async (location, options = {}) => {
+    const access = await permissionsApi.prepareFolder(location, options)
+    if (!access.ok) return access
+    return normalizeApiResponse(await backend.request('filesystem:resolve-location', {
     filesystemId: providerIdOf(location), path: location?.path,
-  }, { timeout: 120_000 }), 'EFILESYSTEM_LOCATION', 'Unable to open this folder'),
+    }, { ...options, timeout: 120_000 }), 'EFILESYSTEM_LOCATION', 'Unable to open this folder')
+  },
   getRoot,
   readDir,
   search: startFilesystemSearch,

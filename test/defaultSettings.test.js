@@ -17,7 +17,7 @@ test('HTML aliases and LESS are editable defaults; only untouched previous defau
 test('uses the system color mode by default', () => {
   const settings = createDefaultSettings()
 
-  assert.equal(settings.version, 7)
+  assert.equal(settings.version, 8)
   assert.equal(settings.appearance.theme, 'system')
   assert.equal(settings.appearance.locale, '')
 })
@@ -30,7 +30,7 @@ test('migrates version 1 settings and preserves filesystem filters', () => {
     },
   })
 
-  assert.equal(settings.version, 7)
+  assert.equal(settings.version, 8)
   assert.equal(settings.appearance.theme, 'system')
   assert.deepEqual(settings.filesystem.hiddenNameSuffixes, ['.localized', '.cache'])
 })
@@ -76,4 +76,19 @@ test('normalizes SSH profiles with custom ports without persisting credentials',
   assert.equal(settings.connections[0].initialPath, '/home/demo')
   assert.equal('password' in settings.connections[0], false)
   assert.equal('passphrase' in settings.connections[0], false)
+})
+
+test('remote authentication migration preserves explicit methods and strips every secret field', () => {
+  for (const authType of ['auto', 'agent', 'password', 'privateKey']) {
+    const settings = normalizeSettings({ version: 7, connections: [{ id: 'stable-id', name: 'Fixture', host: 'fixture.invalid', port: 22,
+      username: 'fixture', authType, privateKeyPath: '~/key', sshConfigHost: 'alias', savePassword: true, saveKeyPassphrase: true,
+      secret: 'fixture-secret', password: 'fixture-password', passphrase: 'fixture-passphrase', keyContents: 'fixture-key' }] })
+    const profile = settings.connections[0]
+    assert.equal(profile.authType, authType)
+    assert.equal(profile.protocol, 'sftp')
+    assert.equal(profile.sshConfigHost, 'alias')
+    assert.equal(profile.savePassword, ['auto', 'password'].includes(authType))
+    assert.equal(profile.saveKeyPassphrase, ['auto', 'privateKey'].includes(authType))
+    for (const field of ['secret', 'password', 'passphrase', 'keyContents']) assert.equal(field in profile, false)
+  }
 })
