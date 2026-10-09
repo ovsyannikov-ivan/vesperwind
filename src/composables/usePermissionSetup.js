@@ -20,5 +20,6 @@ export const usePermissionSetup = () => {
     if (response.ok) { open.value = false; ready.value = true }
     return response
   }
-  return { supported, open, ready, initialize, finish, show: () => { if (supported.value) open.value = true } }
+  const continueWithoutSaving = () => { open.value = false; ready.value = true }
+  return { supported, open, ready, initialize, finish, continueWithoutSaving, show: () => { if (supported.value) open.value = true } }
 }

@@ -104,6 +104,13 @@ pub struct SettingsStore {
 }
 
 impl SettingsStore {
+    #[cfg(test)]
+    pub(crate) fn at_path(path: PathBuf) -> Self {
+        Self {
+            path,
+            cached: Mutex::new(None),
+        }
+    }
     pub fn from_environment() -> Result<Self, NativeError> {
         let path = std::env::var("VESPERWIND_SETTINGS_PATH")
             .ok()

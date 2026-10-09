@@ -1,7 +1,7 @@
 # Remote Connections and macOS access setup — acceptance, 2026-10-09
 
-Implementation and verification are complete in the working tree based on main
-`3a591b8c`. No commit or push has been made. Windows verification used an
+The initial acceptance used main `3a591b8c` with the Remote Connections changes.
+Windows verification used an
 independent temporary copy on POL-535; its primary checkout was not modified.
 
 ## Architecture and behavior
@@ -26,6 +26,9 @@ independent temporary copy on POL-535; its primary checkout was not modified.
    Rename preserves them; Forget/removal/endpoint/user/auth/key/save-flag changes
    clean the affected entries and invalidate the SFTP session. Store errors are
    explicit, and a failed save retains a transient secret for session reconnect.
+   Settings update/reset restore affected secrets if cleanup or JSON writing
+   fails; session invalidation follows a successful update. A restoration error
+   is explicit. Filesystem/credential-store crash atomicity is not claimed.
 8. **Auto:** Agent → eligible config/explicit/default key files → saved password →
    supplied password. Existing explicit Password/Private key methods stay explicit;
    new profiles default to Auto. Explicit Agent has no password/key fallback.
@@ -58,7 +61,7 @@ independent temporary copy on POL-535; its primary checkout was not modified.
 20. **Host security:** unknown/changed fingerprints are checked before any auth
     attempt, including in helpers. Config endpoint changes invalidate old trust.
 
-## Verification and limitations
+## Initial verification and limitations
 
 21. **Automated checks:** macOS `npm test`: 520 passed; `cargo test`: 178 passed,
     8 ignored. `npm run build`, native debug/app builds, `cargo fmt --check` and
@@ -90,6 +93,9 @@ The wizard gates file panels until Finish/Set up later, asks separately for
 Desktop/Documents/local-network access and can be reopened from Settings →
 General without remounting the editor. Permission preparation precedes normal IO
 deadlines; pending requests are cancellable, and late responses are ignored.
+If storing completion fails, Retry saving and Continue without saving are
+available. Continuing opens the panels for this session without persisting
+completion; macOS grants are unaffected.
 
 A fresh bundled QA app launched via Launch Services demonstrated actual Desktop
 and Documents system-request waits followed by available access, without the
@@ -102,3 +108,22 @@ macOS 15+. macOS cannot generally distinguish an unanswered local-network prompt
 from a remembered denial: the UI offers explicit waiting plus Cancel/Skip and
 System Settings guidance. See [macOS access setup](macos-permissions.md) and
 [authentication details](remote-authentication.md) for the contracts and limits.
+
+## Failure-recovery regression checks
+
+The follow-up fixes were verified on macOS with `npm test` (522 passed),
+`cargo test` (181 passed, 8 ignored), frontend/native app builds,
+`cargo fmt --check` and `git diff --check`. The Windows results above describe
+the initial acceptance snapshot; this follow-up was not rerun on Windows.
+
+Regression tests cover retrying and continuing after a failed wizard save,
+without recording completion or remounting an existing editor. Rust tests force
+a real filesystem write failure for both settings update and reset, then verify
+the previous JSON and both saved secrets. They also cover backup-read failure,
+partial credential deletion and explicit reporting of failed restoration.
+
+An isolated Tauri QA app demonstrated the warning and Continue without saving
+after a real write failure. Both file panels opened and the stored completion
+flag remained false. A fresh native Keychain/SSH acceptance run passed the
+profile lifecycle, reconnect, terminal and private-pipe transfer cases; synthetic
+credentials were removed and their absence verified.

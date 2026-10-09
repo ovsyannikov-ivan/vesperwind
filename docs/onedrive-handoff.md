@@ -20,8 +20,7 @@ git log -3 --oneline
 Preserve local changes. If the checkout is not on main or fast-forward fails,
 diagnose it without resetting or discarding work. Read `AGENTS.md`, then inspect
 the actual code. Propose a concrete plan and file list before material changes,
-following the user's established review preference. Do not commit/push the new
-Windows feature until the user authorizes it separately.
+following the user's established review preference.
 
 ## Existing implementation to preserve
 

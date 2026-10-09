@@ -8,6 +8,7 @@ const props = defineProps({ open: Boolean })
 const setup = usePermissionSetup()
 const modalElement = ref(null), step = ref(0), busy = ref(false), error = ref('')
 const results = ref({})
+const saveFailed = ref(false)
 const steps = [
   { id: 'desktop', name: 'Desktop', description: 'Browse and manage files in your Desktop folder.' },
   { id: 'documents', name: 'Documents', description: 'Browse and manage files in your Documents folder.' },
@@ -30,12 +31,13 @@ const request = async () => {
 }
 const next = () => { stop(); error.value = ''; step.value++ }
 const finish = async () => {
-  stop(); busy.value = true; error.value = ''
+  stop(); busy.value = true; error.value = ''; saveFailed.value = false
   const response = await setup.finish()
   busy.value = false
-  if (!response.ok) error.value = response.error.message
+  if (!response.ok) { error.value = response.error.message; saveFailed.value = true }
 }
-const show = () => { stop(); step.value = 0; results.value = {}; error.value = ''; modal?.show() }
+const continueWithoutSaving = () => { stop(); setup.continueWithoutSaving() }
+const show = () => { stop(); step.value = 0; results.value = {}; error.value = ''; saveFailed.value = false; modal?.show() }
 const handleShown = () => { if (!props.open) modal?.hide() }
 watch(() => props.open, value => { if (value) show(); else { stop(); modal?.hide() } })
 onMounted(() => {
@@ -70,10 +72,12 @@ onBeforeUnmount(() => { stop(); modalElement.value?.removeEventListener('shown.b
               <p class="small mb-0">Skipped permissions can be granted when you use the feature or from Settings → General → Set up access.</p>
             </div>
             <div v-if="error" class="alert alert-danger small mt-3 mb-0" role="alert">{{ error }}</div>
+            <p v-if="saveFailed" class="small text-body-secondary mt-2 mb-0" role="status">You can continue without saving. This setup may appear again next time you launch Vesperwind. Permissions already granted in macOS are kept.</p>
           </div>
           <div class="modal-footer">
-            <button class="btn btn-sm btn-neutral me-auto" type="button" :disabled="busy && !controller" @click="finish">Set up later</button>
-            <button v-if="current && results[current.id] === 'allowed'" class="btn btn-sm btn-primary" type="button" :disabled="busy && !controller" @click="next">Next</button>
+            <button class="btn btn-sm btn-neutral me-auto" type="button" :disabled="busy && !controller" @click="finish">{{ saveFailed ? 'Retry saving' : 'Set up later' }}</button>
+            <button v-if="saveFailed" class="btn btn-sm btn-primary" type="button" :disabled="busy" @click="continueWithoutSaving">Continue without saving</button>
+            <button v-else-if="current && results[current.id] === 'allowed'" class="btn btn-sm btn-primary" type="button" :disabled="busy && !controller" @click="next">Next</button>
             <button v-else-if="current" class="btn btn-sm btn-neutral" type="button" :disabled="busy && !controller" @click="next">Skip</button>
             <button v-else class="btn btn-sm btn-primary" type="button" :disabled="busy" @click="finish">Finish</button>
           </div>

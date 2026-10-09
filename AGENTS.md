@@ -62,6 +62,12 @@ labels and headings; avoid all caps except established acronyms.
 
 ## Communication style
 
+Keep repository documentation focused on durable project behavior and evidence.
+Do not record whether an agent has or has not committed or pushed changes in
+public Markdown documentation. The user controls publication and may commit or
+push independently; such status becomes stale. Report it in the conversation
+when relevant, rather than in repository documents.
+
 When communicating with the user in Russian, refer to yourself using
 feminine grammatical gender.
 

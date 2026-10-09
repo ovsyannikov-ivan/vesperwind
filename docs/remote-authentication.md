@@ -35,8 +35,15 @@ Forget deletes the selected credential and disconnects the SFTP session so a
 stale session secret cannot silently restore it. Disabling a save flag, removing
 a profile, changing its endpoint/user/config alias, or switching to a method
 which cannot use that secret cleans the affected OS entries. Changing a private
-key path clears its saved passphrase. Settings writes report cleanup errors;
-they do not silently leave a removed profile's saved credential behind.
+key path clears its saved passphrase. Settings update and reset serialize profile
+changes, snapshot affected secrets in zeroizing native memory, then clean the
+entries and persist JSON. Sessions disconnect only after both steps succeed.
+If cleanup or JSON persistence reports an error, the previous secrets are
+restored and the previous settings remain active. If restoration itself fails,
+an explicit error asks the user to re-enter the affected credentials. This
+compensates for reported failures; it is not a crash-atomic transaction across
+the filesystem and the OS credential store. No recovery secrets are written
+to disk or returned to the frontend.
 
 ## Shared native authentication
 

@@ -91,6 +91,104 @@ struct NativeBackend {
 mod tests {
     use super::*;
     use crate::connections::test_profile;
+    struct FailingBackend {
+        memory: MemoryBackend,
+        deletes: std::sync::atomic::AtomicUsize,
+        fail_read: bool,
+        fail_restore: bool,
+    }
+    impl CredentialBackend for FailingBackend {
+        fn get(&self, account: &str) -> Result<Option<Zeroizing<String>>, NativeError> {
+            if self.fail_read {
+                return Err(unavailable());
+            }
+            self.memory.get(account)
+        }
+        fn set(&self, account: &str, secret: &str) -> Result<(), NativeError> {
+            if self.fail_restore && self.deletes.load(std::sync::atomic::Ordering::SeqCst) > 0 {
+                return Err(unavailable());
+            }
+            self.memory.set(account, secret)
+        }
+        fn delete(&self, account: &str) -> Result<(), NativeError> {
+            self.memory.delete(account)?;
+            if self
+                .deletes
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                == 1
+            {
+                return Err(unavailable());
+            }
+            Ok(())
+        }
+        fn exists(&self, account: &str) -> Result<bool, NativeError> {
+            self.memory.exists(account)
+        }
+    }
+
+    #[test]
+    fn partial_delete_failure_restores_every_attempted_secret_and_never_commits() {
+        let backend = Arc::new(FailingBackend {
+            memory: MemoryBackend::default(),
+            deletes: Default::default(),
+            fail_read: false,
+            fail_restore: false,
+        });
+        let store = CredentialStore::with_backend(backend.clone());
+        let mut profile = test_profile("auto");
+        profile.save_password = true;
+        profile.save_key_passphrase = true;
+        for kind in [CredentialKind::Password, CredentialKind::KeyPassphrase] {
+            store.set(&profile, kind, kind.suffix()).unwrap();
+        }
+        let result = store.reconcile_with_commit::<()>(&[profile.clone()], &[], || {
+            panic!("must not save after cleanup fails")
+        });
+        assert_eq!(result.unwrap_err().code, "ECREDENTIAL_UNAVAILABLE");
+        for kind in [CredentialKind::Password, CredentialKind::KeyPassphrase] {
+            assert_eq!(
+                store.get(&profile, kind).unwrap().unwrap().as_str(),
+                kind.suffix()
+            );
+        }
+        assert_eq!(backend.deletes.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn backup_failure_leaves_store_untouched_and_failed_rollback_is_explicit() {
+        for fail_read in [true, false] {
+            let backend = Arc::new(FailingBackend {
+                memory: MemoryBackend::default(),
+                deletes: Default::default(),
+                fail_read,
+                fail_restore: !fail_read,
+            });
+            let store = CredentialStore::with_backend(backend.clone());
+            let mut profile = test_profile("password");
+            profile.save_password = true;
+            store
+                .set(&profile, CredentialKind::Password, "synthetic-secret")
+                .unwrap();
+            let result = store
+                .reconcile_with_commit::<()>(&[profile.clone()], &[], || {
+                    if fail_read {
+                        panic!("must not save without backup");
+                    }
+                    Err(NativeError::new("ESETTINGS", "Failed to save settings"))
+                })
+                .unwrap_err();
+            assert!(!result.message.contains("synthetic-secret"));
+            if fail_read {
+                assert_eq!(backend.deletes.load(std::sync::atomic::Ordering::SeqCst), 0);
+                assert!(backend
+                    .memory
+                    .exists(&credential_id("sftp", &profile.id, CredentialKind::Password).unwrap())
+                    .unwrap());
+            } else {
+                assert_eq!(result.code, "ECREDENTIAL_ROLLBACK");
+            }
+        }
+    }
     #[test]
     fn stable_protocol_profile_and_kind_identity() {
         assert_eq!(
@@ -330,12 +428,27 @@ impl CredentialStore {
         self.backend
             .exists(&credential_id(&profile.protocol, &profile.id, kind)?)
     }
+    #[cfg(test)]
     pub fn reconcile(
         &self,
         previous: &[ConnectionProfile],
         next: &[ConnectionProfile],
     ) -> Result<Vec<String>, NativeError> {
+        self.reconcile_with_commit(previous, next, || Ok(()))
+            .map(|(_, disconnected)| disconnected)
+    }
+
+    /// Retain zeroizing snapshots until the settings write succeeds. This is
+    /// rollback for reported failures, not a cross-store crash transaction.
+    pub fn reconcile_with_commit<T>(
+        &self,
+        previous: &[ConnectionProfile],
+        next: &[ConnectionProfile],
+        commit: impl FnOnce() -> Result<T, NativeError>,
+    ) -> Result<(T, Vec<String>), NativeError> {
+        let _guard = self.lock.lock().unwrap_or_else(|e| e.into_inner());
         let mut disconnected = vec![];
+        let mut accounts = vec![];
         for old in previous {
             let new = next
                 .iter()
@@ -360,7 +473,11 @@ impl CredentialStore {
                 || (old.save_password
                     && new.is_none_or(|p| !p.save_password || !p.permits_password()))
             {
-                self.delete(old, CredentialKind::Password)?;
+                accounts.push(credential_id(
+                    &old.protocol,
+                    &old.id,
+                    CredentialKind::Password,
+                )?);
             }
             if (changed && (self.available() || old.save_key_passphrase))
                 || (old.save_key_passphrase
@@ -370,9 +487,46 @@ impl CredentialStore {
                             || p.private_key_path != old.private_key_path
                     }))
             {
-                self.delete(old, CredentialKind::KeyPassphrase)?;
+                accounts.push(credential_id(
+                    &old.protocol,
+                    &old.id,
+                    CredentialKind::KeyPassphrase,
+                )?);
             }
         }
-        Ok(disconnected)
+        // Read all backups before deleting anything. A locked/unavailable store
+        // must leave both settings and credentials untouched.
+        accounts.sort();
+        accounts.dedup();
+        let backups = accounts
+            .iter()
+            .map(|account| self.backend.get(account).map(|secret| (account, secret)))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut attempted = 0;
+        let result = (|| {
+            for account in &accounts {
+                attempted += 1;
+                self.backend.delete(account)?;
+            }
+            commit()
+        })();
+        match result {
+            Ok(value) => Ok((value, disconnected)),
+            Err(error) => {
+                let mut restored = true;
+                for (account, secret) in backups.iter().take(attempted) {
+                    if let Some(secret) = secret {
+                        if self.backend.set(account, secret).is_err() {
+                            restored = false;
+                        }
+                    }
+                }
+                if restored {
+                    Err(error)
+                } else {
+                    Err(NativeError::new("ECREDENTIAL_ROLLBACK", "The settings update failed and some saved credentials could not be restored. The previous settings are kept; re-enter the affected credentials."))
+                }
+            }
+        }
     }
 }

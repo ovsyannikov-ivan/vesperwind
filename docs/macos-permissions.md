@@ -4,6 +4,10 @@ On the first launch after installing this version, Vesperwind offers a compact
 access wizard before mounting the file panels. macOS shows separate system
 prompts for Desktop, Documents and the local network. Each step is optional;
 Set up later and Finish persist only `permissions.setupCompleted: true`.
+If that write fails, the wizard shows a warning and offers Retry saving or
+Continue without saving. Continuing mounts the file panels for this session;
+it does not change the stored completion flag. The wizard may return on the
+next launch, while permissions granted in macOS remain in effect.
 
 That flag records completion of onboarding, **not** OS permission decisions.
 An older settings file without the field gets the wizard once. The wizard can
