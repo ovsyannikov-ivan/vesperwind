@@ -154,7 +154,7 @@ fn run_properties(app: &AppHandle, output: &Path) -> Result<(), Box<dyn std::err
     let cancelled = std::sync::atomic::AtomicBool::new(false);
     let result = size::calculate(
         &state.filesystem,
-        &state.ssh,
+        &state.remote,
         "local",
         &fixture.to_string_lossy(),
         &cancelled,
@@ -178,7 +178,7 @@ fn run_properties(app: &AppHandle, output: &Path) -> Result<(), Box<dyn std::err
     assert!(
         size::calculate(
             &state.filesystem,
-            &state.ssh,
+            &state.remote,
             "local",
             &fixture.to_string_lossy(),
             &cancelled,
@@ -378,7 +378,7 @@ fn delete_regressions(state: &AppState, output: &Path) -> Result<(), NativeError
     let delete = |path: &Path, timeout_ms| {
         jobs::execute(
             &state.filesystem,
-            &state.ssh,
+            &state.remote,
             OperationRequest {
                 operation_id: Some(uuid::Uuid::new_v4().to_string()),
                 timeout_ms: Some(timeout_ms),

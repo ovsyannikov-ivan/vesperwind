@@ -6,6 +6,7 @@ pub mod network;
 pub mod operations;
 pub mod paths;
 pub mod properties;
+pub mod remote_ops;
 pub mod search;
 pub mod size;
 pub mod text;

@@ -13,6 +13,7 @@ mod native_regression;
 mod office;
 mod permissions;
 mod provider_content;
+mod remote;
 #[cfg(debug_assertions)]
 mod remote_auth_regression;
 mod settings;
@@ -50,6 +51,7 @@ pub struct AppState {
     settings: Arc<SettingsStore>,
     terminal: Arc<TerminalManager>,
     ssh: Arc<SshManager>,
+    remote: remote::RemoteProviders,
     player: Arc<mpv::MpvPlayerManager>,
     thumbnails: Arc<media::thumbnail::ThumbnailManager>,
     web_history: Arc<media::history::WebHistory>,
@@ -235,6 +237,7 @@ pub fn run() {
             settings,
             terminal,
             ssh: Arc::clone(&ssh),
+            remote: remote::RemoteProviders::new(Arc::clone(&ssh)),
             player,
             thumbnails,
             web_history,
@@ -257,7 +260,7 @@ pub fn run() {
                 .configure(history_path);
             app.state::<AppState>()
                 .shell
-                .setup(app.handle(), Arc::clone(&app.state::<AppState>().ssh));
+                .setup(app.handle(), app.state::<AppState>().remote.clone());
             let window = app
                 .get_window("main")
                 .expect("main window must exist before creating media overlay");

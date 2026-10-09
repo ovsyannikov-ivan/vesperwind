@@ -1,12 +1,12 @@
 //! Logical sizes from metadata only. Never prepare or read file content.
 use super::{paths, Filesystem};
-use crate::{error::NativeError, ssh::SshManager};
+use crate::{
+    error::NativeError,
+    remote::{RemoteProviders, SizeChildKind},
+};
 use serde::Serialize;
 use std::{
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+    sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
 };
 
@@ -143,7 +143,7 @@ impl<F: FnMut(&SizeProgress)> Walker<'_, F> {
 }
 pub fn calculate<F: FnMut(&SizeProgress)>(
     filesystem: &Filesystem,
-    ssh: &Arc<SshManager>,
+    remote: &RemoteProviders,
     provider: &str,
     path: &str,
     cancelled: &AtomicBool,
@@ -191,7 +191,7 @@ pub fn calculate<F: FnMut(&SizeProgress)>(
         #[cfg(not(unix))]
         walker.local(&root);
     } else {
-        let root = ssh.properties(provider, path)?;
+        let root = remote.properties(provider, path)?;
         if root.entry_type != "directory" {
             return Err(NativeError::new(
                 "ENOTDIR",
@@ -203,17 +203,17 @@ pub fn calculate<F: FnMut(&SizeProgress)>(
             if !walker.checkpoint() {
                 break;
             }
-            match ssh.size_children(provider, &directory) {
+            match remote.size_children(provider, &directory) {
                 Ok(children) => {
-                    for (path, stat) in children {
+                    for child in children {
                         if !walker.checkpoint() {
                             break;
                         }
                         walker.result.items += 1;
-                        match stat.perm.map(|m| m & 0o170000) {
-                            Some(0o040000) => pending.push(path),
-                            Some(0o100000 | 0o120000) => {
-                                if let Some(size) = stat.size {
+                        match child.kind {
+                            SizeChildKind::Directory => pending.push(child.path),
+                            SizeChildKind::File => {
+                                if let Some(size) = child.size {
                                     walker.result.bytes = walker.result.bytes.saturating_add(size);
                                 } else {
                                     walker.result.errors += 1;
@@ -242,7 +242,7 @@ mod tests {
         std::fs::write(root.join("sub/file"), [0u8; 19]).unwrap();
         std::os::unix::fs::symlink(&root, root.join("cycle")).unwrap();
         let filesystem = Filesystem::from_root(&root, root.clone()).unwrap();
-        let ssh = SshManager::new();
+        let ssh = crate::remote::RemoteProviders::new(crate::ssh::SshManager::new());
         let flag = AtomicBool::new(false);
         let result = calculate(
             &filesystem,

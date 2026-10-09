@@ -76,11 +76,16 @@ impl ContentSource {
                 local_path: Some(real),
             });
         }
-        if !provider_id.starts_with("sftp:") {
-            return Err(NativeError::new(
-                "EFILESYSTEM_ID",
-                "This filesystem is not available",
-            ));
+        // Media streaming is currently provided by SFTP only; other remote
+        // schemes are rejected here rather than reaching the SSH manager.
+        if !matches!(
+            crate::remote::parse_provider(Some(provider_id))?,
+            crate::remote::ProviderRef::Remote {
+                protocol: crate::remote::RemoteProtocol::Sftp,
+                ..
+            }
+        ) {
+            return Err(crate::remote::unavailable());
         }
         let (path, size) = ssh.content_metadata(provider_id, requested)?;
         Ok(Self {
