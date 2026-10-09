@@ -19,6 +19,16 @@ const fixtures = path.resolve('test/fixtures/archives')
 const location = (value) => ({ providerId: 'local', path: value })
 const request = (action, source, name) => ({ action, sources: [location(source)], target: location(root), name })
 test.after(async () => fs.rm(root, { recursive: true, force: true }))
+test('archive fixture filenames are portable to Windows while unsafe entry names remain inside', async () => {
+  for (const name of await fs.readdir(fixtures)) {
+    assert.doesNotMatch(name, /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/iu, name)
+    assert.doesNotMatch(name, /[<>:"\\|?*\x00-\x1f]|[. ]$/u, name)
+  }
+  const data = await fs.readFile(path.join(fixtures, 'reserved-nul.7z'))
+  assert.ok(data.includes(Buffer.from('NUL.txt\0', 'utf16le')), 'the malicious entry is still tested')
+  const manifest = JSON.parse(await fs.readFile(path.join(fixtures, '7z-manifest.json')))
+  assert.equal(createHash('sha256').update(data).digest('hex'), manifest.archives['reserved-nul.7z'])
+})
 test('7z UI policy is case insensitive and does not advertise multipart; worker requires LZMA2', () => {
   for (const name of ['backup.7z', 'BACKUP.7Z', 'Archive.7z']) assert.equal(archiveName(name), true)
   assert.equal(extractionFolderName('backup.7z'), 'backup'); assert.equal(extractionFolderName('Archive.7Z'), 'Archive')
@@ -54,7 +64,7 @@ test('real 7z rejects encrypted, damaged, unsafe and excessive-memory archives w
     'unsafe-link.7z': 'EARCHIVE_UNSAFE_ENTRY',
     'unsupported-bzip2.7z': 'EARCHIVE_UNSUPPORTED_CODEC', 'duplicate.7z': 'EARCHIVE_FORMAT',
   }
-  for (const name of ['dotdot', 'absolute', 'drive', 'unc', 'ads', 'reserved', 'nul', 'trailing', 'backslash', 'control']) cases[`${name}.7z`] = 'EARCHIVE_UNSAFE_PATH'
+  for (const name of ['dotdot', 'absolute', 'drive', 'unc', 'ads', 'reserved', 'reserved-nul', 'trailing', 'backslash', 'control']) cases[`${name}.7z`] = 'EARCHIVE_UNSAFE_PATH'
   for (const [name, code] of Object.entries(cases)) {
     const source = path.join(root, name); await fs.copyFile(path.join(fixtures, name), source)
     const destination = `rejected-${name}`

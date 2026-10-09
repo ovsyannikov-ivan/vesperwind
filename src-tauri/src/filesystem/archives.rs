@@ -481,7 +481,7 @@ mod tests {
             ("unc.7z", "EARCHIVE_UNSAFE_PATH"),
             ("ads.7z", "EARCHIVE_UNSAFE_PATH"),
             ("reserved.7z", "EARCHIVE_UNSAFE_PATH"),
-            ("nul.7z", "EARCHIVE_UNSAFE_PATH"),
+            ("reserved-nul.7z", "EARCHIVE_UNSAFE_PATH"),
             ("trailing.7z", "EARCHIVE_UNSAFE_PATH"),
             ("backslash.7z", "EARCHIVE_UNSAFE_PATH"),
             ("control.7z", "EARCHIVE_UNSAFE_PATH"),

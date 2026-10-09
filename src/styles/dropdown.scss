@@ -1,6 +1,5 @@
 // Shared appearance and interaction states for every Bootstrap dropdown.
-// The media overlay window loads this file without main.scss, so the surface
-// uses explicit values with dark defaults instead of main.scss-only tokens.
+// Both the main window and media overlay load the shared theme tokens.
 :root {
 	--dropdown-border-color: rgb(255 255 255 / 15%);
 }

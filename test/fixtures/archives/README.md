@@ -36,10 +36,13 @@ The generator proves the small solid fixture has multiple files in one block.
 | huge-dictionary | Genuine LZMA2 container with property changed to UINT32_MAX and CRCs rebuilt; EARCHIVE_LIMIT before huge allocation |
 | single-copy | Stored source for unsafe-name mutations; valid control container |
 | duplicate | Stored container with two names changed to one, CRCs rebuilt; reject, no output |
-| dotdot, absolute, drive, unc, ads, reserved, nul, trailing, backslash, control | Valid stored containers with unsafe UTF-16 names and rebuilt header CRCs; EARCHIVE_UNSAFE_PATH |
+| dotdot, absolute, drive, unc, ads, reserved, reserved-nul, trailing, backslash, control | Valid stored containers with unsafe UTF-16 names and rebuilt header CRCs; EARCHIVE_UNSAFE_PATH |
 | unsafe-link | Genuine Unix symlink entry, created with `-snl`; EARCHIVE_UNSAFE_ENTRY |
 
 All names in the table have the `.7z` suffix. Unsafe files intentionally remain
 valid containers so rejection exercises entry/decoder policy rather than merely
 an invalid signature. None may publish partially extracted output or overwrite
 an existing destination. The password is synthetic test data, not a user secret.
+Fixture filenames themselves must be portable to Windows: `reserved-nul.7z`
+contains the unsafe `NUL.txt` entry without using a reserved device name for the
+outer archive checked out by Git.

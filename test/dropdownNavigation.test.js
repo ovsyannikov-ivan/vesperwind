@@ -71,8 +71,13 @@ test('every dropdown, including the media overlay window, uses the context menu 
     Promise.resolve(compiledStyles('src/media-overlay/media-overlay.scss')), read('src/media-overlay/MediaOverlay.vue'),
   ])
   const menu = styles.match(/^\.dropdown-menu \{([^}]*)\}/mu)[1]
-  // Bootstrap's body background exists in every window, including the media
-  // overlay that does not load main.scss (where --app-bg is defined).
+  for (const css of [mainCss, overlayCss]) {
+    assert.match(css, /^:root \{[^}]*--app-bg: #1c1c1e;/mu)
+    assert.match(css, /^:root \{[^}]*--bs-body-bg: var\(--app-bg\);/mu)
+    assert.match(css, /^:root \{[^}]*--bs-border-color: var\(--border\);/mu)
+  }
+  // Both windows must define the theme values used by the shared dropdown.
+  // Bootstrap alone defaults to a white body background in the overlay.
   assert.match(menu, /--bs-dropdown-bg: var\(--bs-body-bg\);/u)
   assert.match(menu, /--bs-dropdown-border-color: var\(--bs-border-color\);/u)
   assert.match(menu, /--bs-dropdown-border-radius: 0\.75rem;/u)

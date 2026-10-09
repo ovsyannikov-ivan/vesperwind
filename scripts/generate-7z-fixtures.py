@@ -78,7 +78,7 @@ with tempfile.TemporaryDirectory(prefix='vesperwind-7z-fixtures-') as temp:
         'dotdot.7z': '../../outside.txt', 'absolute.7z': '/outside.txt',
         'drive.7z': 'C:/outside.txt', 'unc.7z': '\\\\server\\share\\file.txt',
         'ads.7z': 'file:alternate-stream', 'reserved.7z': 'CON',
-        'nul.7z': 'NUL.txt', 'trailing.7z': 'folder./file.txt',
+        'reserved-nul.7z': 'NUL.txt', 'trailing.7z': 'folder./file.txt',
         'backslash.7z': 'folder\\file.txt', 'control.7z': 'file\x01.txt',
     }.items(): mutate_copy(label, unsafe)
     os.symlink('../outside.txt', cwd / 'unsafe-link')
