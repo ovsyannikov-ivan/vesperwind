@@ -5,6 +5,8 @@ mod credential_store;
 mod error;
 mod filesystem;
 mod ftp;
+#[cfg(debug_assertions)]
+mod ftp_regression;
 mod media;
 #[cfg(debug_assertions)]
 mod media_ui_regression;
@@ -279,7 +281,7 @@ pub fn run() {
             {
                 if matches!(
                     std::env::args().nth(1).as_deref(),
-                    Some("--native-regression" | "--remote-auth-regression")
+                    Some("--native-regression" | "--remote-auth-regression" | "--ftp-regression")
                 ) {
                     window.hide()?;
                 }
@@ -290,6 +292,7 @@ pub fn run() {
                 media_ui_regression::setup(app.handle());
                 native_regression::start(app.handle());
                 remote_auth_regression::start(app.handle());
+                ftp_regression::start(app.handle());
             }
             Ok(())
         })

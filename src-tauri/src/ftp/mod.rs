@@ -16,7 +16,7 @@ mod library_contract_tests;
 mod manager_tests;
 #[cfg(test)]
 mod test_certs;
-#[cfg(test)]
+#[cfg(debug_assertions)]
 pub mod test_server;
 
 use crate::{

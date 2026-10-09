@@ -5,6 +5,7 @@
 //! connections, a final error after all bytes were transferred, stalled and
 //! throttled transfers, and servers without `MLSD`. Credentials are synthetic.
 //! It is never part of a release build.
+#![cfg_attr(not(test), allow(dead_code))]
 use rustls::{pki_types::CertificateDer, ServerConfig, ServerConnection, StreamOwned};
 use std::{
     collections::HashMap,
@@ -107,7 +108,12 @@ pub struct FtpTestServer {
 
 impl FtpTestServer {
     pub fn start(root: PathBuf, options: ServerOptions) -> io::Result<Self> {
-        let listener = TcpListener::bind("127.0.0.1:0")?;
+        Self::start_on(0, root, options)
+    }
+
+    /// Listens on a fixed loopback port (0 picks a free one).
+    pub fn start_on(port: u16, root: PathBuf, options: ServerOptions) -> io::Result<Self> {
+        let listener = TcpListener::bind(("127.0.0.1", port))?;
         let addr = listener.local_addr()?;
         listener.set_nonblocking(true)?;
         let stop = Arc::new(AtomicBool::new(false));
@@ -720,6 +726,18 @@ fn list_line(path: &Path, name: &str, format: ListFormat) -> String {
             format!("{kind}rw-r--r--    1 owner    group    {size:>10} Jan 02 15:04 {name}{target}")
         }
     }
+}
+
+/// A server TLS configuration from PEM files (the debug acceptance gets its
+/// certificates from the smoke script).
+pub fn tls_config_from_pem(chain: &Path, key: &Path) -> io::Result<Arc<ServerConfig>> {
+    use rustls::pki_types::{pem::PemObject, PrivateKeyDer};
+    let certificates = CertificateDer::pem_file_iter(chain)
+        .map_err(|e| io::Error::other(e.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| io::Error::other(e.to_string()))?;
+    let key = PrivateKeyDer::from_pem_file(key).map_err(|e| io::Error::other(e.to_string()))?;
+    tls_config(certificates, key)
 }
 
 pub fn tls_config(

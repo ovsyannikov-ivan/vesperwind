@@ -28,7 +28,21 @@ thread_local! { static DEADLINE: Cell<Option<Instant>> = const { Cell::new(None)
 pub(crate) fn set_test_deadline(deadline: Option<Instant>) {
     DEADLINE.with(|d| d.set(deadline));
 }
+/// Set in the filesystem helper when its parent asks it to stop, so the
+/// operation can clean up (for example a partial destination) before exit.
+static CANCEL_REQUESTED: AtomicBool = AtomicBool::new(false);
+/// How long the parent waits for a cooperative stop before killing the helper.
+const CANCEL_GRACE: Duration = Duration::from_secs(3);
+/// The byte a parent writes to the helper's stdin to request a stop.
+const CANCEL_BYTE: u8 = b'c';
+
 pub(crate) fn checkpoint() -> Result<(), NativeError> {
+    if CANCEL_REQUESTED.load(Ordering::Acquire) {
+        return Err(NativeError::new(
+            "ECANCELLED",
+            "The operation was cancelled and its worker was stopped",
+        ));
+    }
     if DEADLINE.with(|d| d.get().is_some_and(|d| Instant::now() >= d)) {
         Err(NativeError::new(
             "ETIMEDOUT",
@@ -225,16 +239,38 @@ pub fn execute_with_progress(
         }
         Ok::<_, std::io::Error>(last)
     });
-    // The worker only reads stdin before any OS operation. This payload is
-    // bounded to 2 MiB, and includes credentials solely in an anonymous pipe.
+    // The worker reads its frame from stdin before any OS operation. This
+    // payload is bounded to 2 MiB, and includes credentials solely in an
+    // anonymous pipe. Afterwards the pipe carries only a stop request.
     let mut stdin = child.stdin.take().unwrap();
-    let writer = std::thread::spawn(move || {
-        stdin.write_all(&(encoded.len() as u32).to_le_bytes())?;
-        stdin.write_all(&encoded)?;
-        // Keep the pipe open in this thread's result until the child exits.
-        // Closing it (including parent death) is the worker's lifetime signal.
-        Ok::<_, std::io::Error>(stdin)
-    });
+    let pipe: Arc<Mutex<Option<std::process::ChildStdin>>> = Arc::new(Mutex::new(None));
+    let writer = {
+        let pipe = Arc::clone(&pipe);
+        std::thread::spawn(move || {
+            stdin.write_all(&(encoded.len() as u32).to_le_bytes())?;
+            stdin.write_all(&encoded)?;
+            // Keep the pipe open until the child exits. Closing it (including
+            // parent death) is the worker's lifetime signal.
+            *pipe.lock().unwrap_or_else(|e| e.into_inner()) = Some(stdin);
+            Ok::<_, std::io::Error>(())
+        })
+    };
+    // Asks the helper to stop at its next checkpoint (so it can remove a
+    // partial destination), then kills it if it does not exit in time.
+    let stop = |child: &mut std::process::Child| {
+        if let Some(stdin) = pipe.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+            let _ = stdin.write_all(&[CANCEL_BYTE]);
+            let _ = stdin.flush();
+            let until = Instant::now() + CANCEL_GRACE;
+            while Instant::now() < until {
+                if matches!(child.try_wait(), Ok(Some(_))) {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+        let _ = child.kill();
+    };
     let mut last_activity = Instant::now();
     let result = loop {
         while let Ok(bytes) = progress.try_recv() {
@@ -243,7 +279,7 @@ pub fn execute_with_progress(
         }
         let idle = idle_timeout.is_some_and(|limit| last_activity.elapsed() >= limit);
         if cancelled.load(Ordering::Acquire) || Instant::now() >= deadline || idle {
-            let _ = child.kill();
+            stop(&mut child);
             break Err(if cancelled.load(Ordering::Acquire) {
                 stopped("ECANCELLED", &affected)
             } else if idle {
@@ -361,11 +397,16 @@ pub fn run_filesystem_helper() -> bool {
             .map_err(|_| NativeError::new("EINVAL", "Invalid operation request"))?;
         std::thread::spawn(move || {
             let mut byte = [0];
-            // No further protocol bytes are allowed. EOF means the owning
-            // process disappeared; stop even if the operation thread is stuck.
+            // Only a stop request may follow the frame. EOF (the owning
+            // process disappeared) or any other byte ends the helper even if
+            // the operation thread is stuck.
             loop {
                 match stdin.read(&mut byte) {
                     Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Ok(1) if byte[0] == CANCEL_BYTE => {
+                        CANCEL_REQUESTED.store(true, Ordering::Release);
+                        continue;
+                    }
                     _ => break,
                 }
             }
