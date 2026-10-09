@@ -17,7 +17,7 @@ test('HTML aliases and LESS are editable defaults; only untouched previous defau
 test('uses the system color mode by default', () => {
   const settings = createDefaultSettings()
 
-  assert.equal(settings.version, 8)
+  assert.equal(settings.version, 9)
   assert.equal(settings.appearance.theme, 'system')
   assert.equal(settings.appearance.locale, '')
 })
@@ -30,7 +30,7 @@ test('migrates version 1 settings and preserves filesystem filters', () => {
     },
   })
 
-  assert.equal(settings.version, 8)
+  assert.equal(settings.version, 9)
   assert.equal(settings.appearance.theme, 'system')
   assert.deepEqual(settings.filesystem.hiddenNameSuffixes, ['.localized', '.cache'])
 })

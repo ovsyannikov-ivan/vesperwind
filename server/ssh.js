@@ -29,6 +29,8 @@ export const validateConnectionProfile = (profile) => {
   if (!profile || typeof profile !== 'object') throw remoteError('EINVAL', 'A connection profile is required')
   const port = Number.parseInt(profile.port, 10)
   if (!/^[A-Za-z0-9._-]+$/.test(profile.id || '')) throw remoteError('EINVAL', 'Invalid connection ID')
+  // SSH handles SFTP profiles only; FTP/FTPS (or unknown) profiles are never SSH.
+  if ((profile.protocol ?? 'sftp') !== 'sftp') throw remoteError('EINVAL', 'This connection profile is not an SFTP profile')
   if (!String(profile.name || '').trim()) throw remoteError('EINVAL', 'Connection name is required')
   if (!String(profile.host || '').trim() || /[\0\r\n]/.test(profile.host)) throw remoteError('EINVAL', 'Invalid SSH host')
   if (!String(profile.username || '').trim() || /[\0\r\n]/.test(profile.username)) throw remoteError('EINVAL', 'Invalid SSH username')
@@ -446,7 +448,7 @@ export const registerSshHandlers = (socket, { connections } = {}) => {
     const connection = manager.connections.get(payload?.connectionId)
     acknowledge?.({ ok: true, status: connection?.status || 'disconnected' })
   })
-  socket.on('connections:capabilities', (_payload, acknowledge) => acknowledge?.({ ok: true, capabilities: { credentialStore: false, sshConfig: false, auto: true, agent: true } }))
+  socket.on('connections:capabilities', (_payload, acknowledge) => acknowledge?.({ ok: true, capabilities: { credentialStore: false, sshConfig: false, auto: true, agent: true, protocols: ['sftp'] } }))
   for (const event of ['connections:credential-status', 'connections:forget-credential']) {
     socket.on(event, (_payload, acknowledge) => acknowledge?.({ ok: false, error: { code: 'ECREDENTIAL_UNAVAILABLE', message: 'Secure credential storage is available in the native app' } }))
   }

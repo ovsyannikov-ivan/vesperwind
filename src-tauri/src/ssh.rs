@@ -1308,8 +1308,20 @@ mod tests {
             private_key_path: Some("/keys/id_ed25519".into()),
             initial_path: Some("/home/demo".into()),
             trusted_fingerprint: None,
+            ftp_tls: String::new(),
+            ftp_data_mode: String::new(),
+            ftp_encoding: String::new(),
+            tls_trusted_certificate: String::new(),
+            plaintext_acknowledged: false,
         };
         assert!(validate_profile(&profile).is_ok());
+        // SSH commands accept SFTP profiles only; FTP/FTPS are never SSH.
+        for protocol in ["ftp", "ftps", "", "unknown"] {
+            let mut other = profile.clone();
+            other.protocol = protocol.into();
+            other.auth_type = "password".into();
+            assert_eq!(validate_profile(&other).unwrap_err().code, "EINVAL");
+        }
         assert_eq!(
             normalize_remote("/home/demo/../shared").unwrap(),
             "/home/shared"

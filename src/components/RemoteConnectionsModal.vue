@@ -1,7 +1,7 @@
 <script setup>
 import Modal from 'bootstrap/js/dist/modal'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { connectionsApi } from '../api/connections.js'
+import { connectionsApi, isSftpProfile } from '../api/connections.js'
 import { useSettings } from '../composables/useSettings.js'
 
 const props = defineProps({ open: Boolean, activePanel: { type: String, default: 'left' } })
@@ -22,7 +22,11 @@ const credentials = ref({ password: false, keyPassphrase: false })
 let modal, selectionGeneration = 0, showGeneration = 0
 const emptyProfile = () => ({ id: '', protocol: 'sftp', name: '', host: '', port: 22, username: '', authType: 'auto', privateKeyPath: '', initialPath: '', trustedFingerprint: '', savePassword: false, saveKeyPassphrase: false, sshConfigHost: '' })
 const draft = reactive(emptyProfile())
-const profiles = computed(() => settings.value.connections || [])
+// This form edits SFTP profiles only. FTP/FTPS profiles stay in settings
+// untouched: every save and delete writes the complete list.
+const allProfiles = computed(() => settings.value.connections || [])
+const profiles = computed(() => allProfiles.value.filter(isSftpProfile))
+const otherProfileCount = computed(() => allProfiles.value.length - profiles.value.length)
 const selected = computed(() => profiles.value.find(item => item.id === selectedId.value) || null)
 const configIdentity = computed(() => configHosts.value.find(host => host.alias === draft.sshConfigHost)?.identities[0] || '')
 const passwordVisible = computed(() => ['auto', 'password'].includes(draft.authType))
@@ -68,7 +72,7 @@ const normalizedDraft = () => {
     saveKeyPassphrase: ['auto', 'privateKey'].includes(draft.authType) && draft.saveKeyPassphrase }
 }
 const saveProfile = async (profile = normalizedDraft()) => {
-  const next = profiles.value.filter(item => item.id !== profile.id)
+  const next = allProfiles.value.filter(item => item.id !== profile.id)
   const response = await saveSettings({ ...settings.value, connections: [...next, profile] })
   if (!response?.ok) throw Error(response?.error?.message || 'Unable to save connection')
   selectedId.value = profile.id
@@ -84,7 +88,7 @@ const remove = async () => {
   if (!selected.value) return
   busy.value = true; clearConnectionError()
   try {
-    const response = await saveSettings({ ...settings.value, connections: profiles.value.filter(item => item.id !== selected.value.id) })
+    const response = await saveSettings({ ...settings.value, connections: allProfiles.value.filter(item => item.id !== selected.value.id) })
     if (!response?.ok) throw Error(response?.error?.message || 'Unable to delete connection')
     newProfile()
   } catch (cause) { error.value = cause.message } finally { busy.value = false }
@@ -195,6 +199,7 @@ onBeforeUnmount(() => {
                   </button>
                 </div>
                 <div v-if="!profiles.length" class="text-body-secondary small mb-2">No saved connections.</div>
+                <div v-if="otherProfileCount" class="text-body-secondary small mb-2" role="note">{{ otherProfileCount }} FTP/FTPS {{ otherProfileCount === 1 ? 'connection is' : 'connections are' }} saved. Editing and connecting will be available when FTP support is added.</div>
                 <template v-if="capabilities.sshConfig">
                   <h2 class="h6 mt-3 mb-2">SSH config</h2>
                   <div class="list-group mb-2">

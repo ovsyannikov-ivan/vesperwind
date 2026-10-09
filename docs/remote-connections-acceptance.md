@@ -127,3 +127,21 @@ after a real write failure. Both file panels opened and the stored completion
 flag remained false. A fresh native Keychain/SSH acceptance run passed the
 profile lifecycle, reconnect, terminal and private-pipe transfer cases; synthetic
 credentials were removed and their absence verified.
+
+## Settings version 9 and FTP/FTPS profiles, 2026-10-09
+
+Settings version 9 adds FTP/FTPS profiles and their credential lifecycle without
+an FTP network backend ([details](ftp-ftps.md)). Shared JSON fixtures verify that
+the JavaScript and Rust normalizers agree, that version-8 SFTP profiles migrate
+unchanged and that FTP/FTPS profiles survive repeated saves. Rust tests with
+in-memory and failing credential backends cover protocol-separated accounts,
+protocol/TLS/pin/endpoint/anonymous/save-flag changes, deletion, reset, rollback
+after a failed JSON write, partial deletion, explicit `ECREDENTIAL_ROLLBACK` and
+an unavailable store.
+
+macOS checks: `npm test` 533 passed, 1 skipped (with a UTF-8 locale; the archive
+tests need one); `cargo test` 201 passed, 8 ignored; `npm run build`,
+`cargo fmt --check` and `git diff --check` passed. The native remote-auth
+acceptance passed every SFTP phase with settings version 9 and cleaned its
+synthetic Keychain entries; the native helper/deletion smoke passed. Windows and
+Linux were not run for this change.

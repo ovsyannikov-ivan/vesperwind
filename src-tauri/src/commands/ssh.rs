@@ -64,7 +64,8 @@ pub fn ssh_config_resolve(payload: ConfigPayload) -> Value {
 }
 #[tauri::command]
 pub fn connections_capabilities(state: State<'_, AppState>) -> Value {
-    json!({"ok":true,"capabilities":{"credentialStore":state.ssh.credentials.available(),"sshConfig":true,"auto":true,"agent":true}})
+    // `protocols` lists protocols that can connect in this build.
+    json!({"ok":true,"capabilities":{"credentialStore":state.ssh.credentials.available(),"sshConfig":true,"auto":true,"agent":true,"protocols":["sftp"]}})
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -97,7 +98,9 @@ pub async fn connections_credential_status(
     };
     let store = state.ssh.credentials.clone();
     Ok(match tauri::async_runtime::spawn_blocking(move || -> Result<Value, crate::error::NativeError> {
-        Ok(json!({"password":store.exists(&profile, CredentialKind::Password)?,"keyPassphrase":store.exists(&profile, CredentialKind::KeyPassphrase)?}))
+        // Only SFTP profiles have key passphrases; FTP/FTPS never query one.
+        let passphrase = profile.is_sftp() && store.exists(&profile, CredentialKind::KeyPassphrase)?;
+        Ok(json!({"password":store.exists(&profile, CredentialKind::Password)?,"keyPassphrase":passphrase}))
     }).await {
         Ok(Ok(status)) => json!({"ok":true,"credentials":status}), Ok(Err(error)) => json!({"ok":false,"error":error}),
         Err(_) => json!({"ok":false,"error":{"code":"ECREDENTIAL_STORE","message":"The credential status task failed"}}),
@@ -120,15 +123,21 @@ pub async fn connections_forget_credential(
             )
         }
     };
-    let manager = state.ssh.clone();
+    if kind == CredentialKind::KeyPassphrase && !profile.is_sftp() {
+        return Ok(
+            json!({"ok":false,"error":{"code":"EINVAL","message":"This connection has no key passphrase"}}),
+        );
+    }
+    let remote = state.remote.clone();
     Ok(
         match tauri::async_runtime::spawn_blocking(move || {
-            let _guard = manager
+            let _guard = remote
+                .ssh()
                 .profile_updates
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
-            manager.credentials.delete(&profile, kind)?;
-            manager.disconnect(&profile.id);
+            remote.ssh().credentials.delete(&profile, kind)?;
+            remote.disconnect_profile(&profile);
             Ok::<_, crate::error::NativeError>(())
         })
         .await

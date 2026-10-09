@@ -189,6 +189,273 @@ mod tests {
             }
         }
     }
+    use crate::connections::test_ftp_profile;
+
+    /// Records every account the store touches.
+    #[derive(Default)]
+    struct RecordingBackend {
+        memory: MemoryBackend,
+        touched: Mutex<Vec<String>>,
+        unavailable: bool,
+    }
+    impl RecordingBackend {
+        fn note(&self, account: &str) -> Result<(), NativeError> {
+            self.touched.lock().unwrap().push(account.into());
+            if self.unavailable {
+                Err(unavailable())
+            } else {
+                Ok(())
+            }
+        }
+    }
+    impl CredentialBackend for RecordingBackend {
+        fn get(&self, account: &str) -> Result<Option<Zeroizing<String>>, NativeError> {
+            self.note(account)?;
+            self.memory.get(account)
+        }
+        fn set(&self, account: &str, secret: &str) -> Result<(), NativeError> {
+            self.note(account)?;
+            self.memory.set(account, secret)
+        }
+        fn delete(&self, account: &str) -> Result<(), NativeError> {
+            self.note(account)?;
+            self.memory.delete(account)
+        }
+        fn exists(&self, account: &str) -> Result<bool, NativeError> {
+            self.note(account)?;
+            self.memory.exists(account)
+        }
+        fn available(&self) -> bool {
+            !self.unavailable
+        }
+    }
+
+    fn saved_ftp(store: &CredentialStore, protocol: &str) -> ConnectionProfile {
+        let mut profile = test_ftp_profile(protocol, "password");
+        profile.save_password = true;
+        store
+            .set(&profile, CredentialKind::Password, "synthetic-ftp-secret")
+            .unwrap();
+        profile
+    }
+
+    #[test]
+    fn ftp_and_ftps_passwords_are_independent_identities() {
+        let store = CredentialStore::with_backend(Arc::new(MemoryBackend::default()));
+        let ftp = saved_ftp(&store, "ftp");
+        let mut ftps = test_ftp_profile("ftps", "password");
+        ftps.save_password = true;
+        assert!(store
+            .get(&ftps, CredentialKind::Password)
+            .unwrap()
+            .is_none());
+        store
+            .set(&ftps, CredentialKind::Password, "synthetic-ftps-secret")
+            .unwrap();
+        assert_eq!(
+            store
+                .get(&ftp, CredentialKind::Password)
+                .unwrap()
+                .unwrap()
+                .as_str(),
+            "synthetic-ftp-secret"
+        );
+        assert_eq!(
+            credential_id("ftps", &ftps.id, CredentialKind::Password).unwrap(),
+            "ftps:fixture-profile:password"
+        );
+    }
+
+    #[test]
+    fn ftp_lifecycle_changes_clean_exactly_the_old_password() {
+        type Change = fn(&mut ConnectionProfile);
+        let cases: [(&str, &str, Change, bool); 13] = [
+            ("ftp", "rename", |p| p.name = "Renamed".into(), false),
+            (
+                "ftp",
+                "initial path",
+                |p| p.initial_path = Some("/pub".into()),
+                false,
+            ),
+            (
+                "ftp",
+                "plaintext acknowledgement",
+                |p| p.plaintext_acknowledged = true,
+                false,
+            ),
+            ("ftp", "host", |p| p.host = "other.invalid".into(), true),
+            ("ftp", "port", |p| p.port = 2121, true),
+            ("ftp", "username", |p| p.username = "other".into(), true),
+            ("ftps", "ftps to ftp", |p| p.protocol = "ftp".into(), true),
+            ("ftp", "ftp to ftps", |p| p.protocol = "ftps".into(), true),
+            ("ftp", "ftp to sftp", |p| p.protocol = "sftp".into(), true),
+            (
+                "ftps",
+                "explicit to implicit",
+                |p| p.ftp_tls = "explicit".into(),
+                true,
+            ),
+            (
+                "ftps",
+                "certificate pin",
+                |p| p.tls_trusted_certificate = "ab".repeat(32),
+                true,
+            ),
+            (
+                "ftp",
+                "anonymous",
+                |p| p.auth_type = "anonymous".into(),
+                true,
+            ),
+            ("ftp", "save flag", |p| p.save_password = false, true),
+        ];
+        for (protocol, label, change, removed) in cases {
+            let store = CredentialStore::with_backend(Arc::new(MemoryBackend::default()));
+            let old = saved_ftp(&store, protocol);
+            let mut next = old.clone();
+            change(&mut next);
+            let disconnected = store
+                .reconcile(std::slice::from_ref(&old), std::slice::from_ref(&next))
+                .unwrap();
+            assert_eq!(
+                !store.exists(&old, CredentialKind::Password).unwrap(),
+                removed,
+                "{label}"
+            );
+            if next.protocol != old.protocol {
+                // The new protocol never receives the previous secret.
+                assert!(store
+                    .get(&next, CredentialKind::Password)
+                    .unwrap()
+                    .is_none());
+                assert_eq!(disconnected, std::slice::from_ref(&old.id), "{label}");
+            }
+        }
+        for next in [vec![], vec![test_profile("password")]] {
+            let store = CredentialStore::with_backend(Arc::new(MemoryBackend::default()));
+            let old = saved_ftp(&store, "ftps");
+            store.reconcile(std::slice::from_ref(&old), &next).unwrap();
+            assert!(!store.exists(&old, CredentialKind::Password).unwrap());
+        }
+    }
+
+    #[test]
+    fn sftp_to_ftp_removes_both_ssh_secrets_and_ftp_never_touches_passphrases() {
+        let backend = Arc::new(RecordingBackend::default());
+        let store = CredentialStore::with_backend(backend.clone());
+        let mut sftp = test_profile("auto");
+        sftp.save_password = true;
+        sftp.save_key_passphrase = true;
+        for kind in [CredentialKind::Password, CredentialKind::KeyPassphrase] {
+            store.set(&sftp, kind, "synthetic").unwrap();
+        }
+        let ftp = test_ftp_profile("ftp", "password");
+        store
+            .reconcile(std::slice::from_ref(&sftp), std::slice::from_ref(&ftp))
+            .unwrap();
+        for kind in [CredentialKind::Password, CredentialKind::KeyPassphrase] {
+            assert!(!store.exists(&sftp, kind).unwrap());
+        }
+        backend.touched.lock().unwrap().clear();
+        let mut moved = ftp.clone();
+        moved.host = "other.invalid".into();
+        store
+            .reconcile(std::slice::from_ref(&ftp), std::slice::from_ref(&moved))
+            .unwrap();
+        assert_eq!(
+            *backend.touched.lock().unwrap(),
+            [
+                "ftp:fixture-profile:password",
+                "ftp:fixture-profile:password"
+            ]
+        );
+    }
+
+    #[test]
+    fn ftp_profile_failures_restore_or_report_rollback() {
+        let backend = Arc::new(FailingBackend {
+            memory: MemoryBackend::default(),
+            deletes: Default::default(),
+            fail_read: false,
+            fail_restore: false,
+        });
+        let store = CredentialStore::with_backend(backend.clone());
+        let old = [saved_ftp(&store, "ftps"), {
+            let mut second = saved_ftp(&store, "ftp");
+            second.id = "second-profile".into();
+            store
+                .set(&second, CredentialKind::Password, "synthetic-second")
+                .unwrap();
+            second
+        }];
+        // The second deletion fails: the first one is restored, nothing commits.
+        let error = store
+            .reconcile_with_commit::<()>(&old, &[], || panic!("must not commit"))
+            .unwrap_err();
+        assert_eq!(error.code, "ECREDENTIAL_UNAVAILABLE");
+        assert!(store.exists(&old[0], CredentialKind::Password).unwrap());
+        assert!(store.exists(&old[1], CredentialKind::Password).unwrap());
+        // JSON persistence fails after deletion: secrets are restored.
+        let store = CredentialStore::with_backend(Arc::new(MemoryBackend::default()));
+        let profile = saved_ftp(&store, "ftps");
+        let mut downgraded = profile.clone();
+        downgraded.protocol = "ftp".into();
+        let error = store
+            .reconcile_with_commit::<()>(std::slice::from_ref(&profile), &[downgraded], || {
+                Err(NativeError::new("ESETTINGS", "Failed to save settings"))
+            })
+            .unwrap_err();
+        assert_eq!(error.code, "ESETTINGS");
+        assert_eq!(
+            store
+                .get(&profile, CredentialKind::Password)
+                .unwrap()
+                .unwrap()
+                .as_str(),
+            "synthetic-ftp-secret"
+        );
+        // Restoration itself fails: the failure is explicit.
+        let failing = Arc::new(FailingBackend {
+            memory: MemoryBackend::default(),
+            deletes: Default::default(),
+            fail_read: false,
+            fail_restore: true,
+        });
+        let store = CredentialStore::with_backend(failing);
+        let profile = saved_ftp(&store, "ftp");
+        let error = store
+            .reconcile_with_commit::<()>(std::slice::from_ref(&profile), &[], || {
+                Err(NativeError::new("ESETTINGS", "Failed to save settings"))
+            })
+            .unwrap_err();
+        assert_eq!(error.code, "ECREDENTIAL_ROLLBACK");
+    }
+
+    #[test]
+    fn unavailable_store_still_saves_ftp_profiles_without_secrets() {
+        let backend = Arc::new(RecordingBackend {
+            unavailable: true,
+            ..Default::default()
+        });
+        let store = CredentialStore::with_backend(backend.clone());
+        let profile = test_ftp_profile("ftps", "password");
+        for next in [
+            vec![],
+            vec![{
+                let mut moved = profile.clone();
+                moved.host = "other.invalid".into();
+                moved.auth_type = "anonymous".into();
+                moved
+            }],
+        ] {
+            let (committed, _) = store
+                .reconcile_with_commit(std::slice::from_ref(&profile), &next, || Ok(true))
+                .unwrap();
+            assert!(committed);
+        }
+        assert!(backend.touched.lock().unwrap().is_empty());
+    }
+
     #[test]
     fn stable_protocol_profile_and_kind_identity() {
         assert_eq!(
@@ -453,11 +720,16 @@ impl CredentialStore {
             let new = next
                 .iter()
                 .find(|item| item.id == old.id && item.protocol == old.protocol);
+            // A protocol change never pairs (see `find` above), so its old
+            // secrets are cleaned like a removed profile's. FTPS TLS mode and
+            // certificate pin are part of the trusted endpoint.
             let changed = new.is_none_or(|p| {
                 p.host != old.host
                     || p.port != old.port
                     || p.username != old.username
                     || p.ssh_config_host != old.ssh_config_host
+                    || p.ftp_tls != old.ftp_tls
+                    || p.tls_trusted_certificate != old.tls_trusted_certificate
             });
             if changed
                 || new.is_some_and(|p| {
@@ -465,6 +737,8 @@ impl CredentialStore {
                         || p.private_key_path != old.private_key_path
                         || p.save_password != old.save_password
                         || p.save_key_passphrase != old.save_key_passphrase
+                        || p.ftp_data_mode != old.ftp_data_mode
+                        || p.ftp_encoding != old.ftp_encoding
                 })
             {
                 disconnected.push(old.id.clone());
@@ -479,13 +753,15 @@ impl CredentialStore {
                     CredentialKind::Password,
                 )?);
             }
-            if (changed && (self.available() || old.save_key_passphrase))
-                || (old.save_key_passphrase
-                    && new.is_none_or(|p| {
-                        !p.save_key_passphrase
-                            || !p.permits_passphrase()
-                            || p.private_key_path != old.private_key_path
-                    }))
+            // FTP/FTPS profiles never have key-passphrase entries.
+            if old.is_sftp()
+                && ((changed && (self.available() || old.save_key_passphrase))
+                    || (old.save_key_passphrase
+                        && new.is_none_or(|p| {
+                            !p.save_key_passphrase
+                                || !p.permits_passphrase()
+                                || p.private_key_path != old.private_key_path
+                        })))
             {
                 accounts.push(credential_id(
                     &old.protocol,
