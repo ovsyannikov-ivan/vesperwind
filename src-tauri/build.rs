@@ -44,6 +44,12 @@ fn main() {
         )
         .expect("Tauri Windows build resources");
         println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
+        // Vendored OpenSSL (openssl-src via libssh2-sys) is compiled with /Zi
+        // but its ossl_static.pdb is not installed, so MSVC reports LNK4099
+        // ("PDB was not found ... linking object as if no debug info") for
+        // every libcrypto object of every linked target. Only that diagnostic
+        // is ignored; other linker warnings remain visible.
+        println!("cargo:rustc-link-arg=/IGNORE:4099");
         println!("cargo:rerun-if-changed=windows-compatibility.manifest");
         let compatibility =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("windows-compatibility.manifest");
