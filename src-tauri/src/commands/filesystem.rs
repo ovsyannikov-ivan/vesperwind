@@ -31,13 +31,13 @@ pub async fn filesystem_properties(
     payload: PropertiesPayload,
 ) -> Result<Value, String> {
     let filesystem = Arc::clone(&state.filesystem);
-    let ssh = Arc::clone(&state.ssh);
+    let remote = state.remote.clone();
     Ok(
         match tauri::async_runtime::spawn_blocking(move || {
             if payload.filesystem_id == "local" {
                 filesystem::properties::read(&filesystem, &payload.path)
             } else {
-                ssh.properties(&payload.filesystem_id, &payload.path)
+                remote.properties(&payload.filesystem_id, &payload.path)
             }
         })
         .await
@@ -55,11 +55,11 @@ pub async fn filesystem_update_properties(
     payload: PropertiesPayload,
 ) -> Result<Value, String> {
     let filesystem = Arc::clone(&state.filesystem);
-    let ssh = Arc::clone(&state.ssh);
+    let remote = state.remote.clone();
     Ok(match tauri::async_runtime::spawn_blocking(move || {
         let update = payload.update.ok_or_else(|| NativeError::new("EINVAL", "A permissions update is required"))?;
         let result = if payload.filesystem_id == "local" { filesystem::properties::update(&filesystem, &payload.path, &update) }
-            else { ssh.update_properties(&payload.filesystem_id, &payload.path, &update) };
+            else { remote.update_properties(&payload.filesystem_id, &payload.path, &update) };
         // Also invalidate on partial mutation (e.g. chown succeeded, chmod failed).
         let _ = app.emit("filesystem:changed", json!({"providerId": payload.filesystem_id,
             "directoryPath": std::path::Path::new(&payload.path).parent().map(|p| p.to_string_lossy()), "kind": "metadata"}));
@@ -85,11 +85,11 @@ pub fn filesystem_calculate_size(
     let jobs = Arc::clone(&state.operation_jobs);
     let cancelled = jobs.register(&payload.job_id);
     let filesystem = Arc::clone(&state.filesystem);
-    let ssh = Arc::clone(&state.ssh);
+    let remote = state.remote.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let result = filesystem::size::calculate(
             &filesystem,
-            &ssh,
+            &remote,
             &payload.filesystem_id,
             &payload.path,
             &cancelled,
@@ -143,7 +143,7 @@ pub async fn filesystem_resolve_location(
     payload: FilesystemPathPayload,
 ) -> Result<Value, String> {
     let filesystem = Arc::clone(&state.filesystem);
-    let ssh = Arc::clone(&state.ssh);
+    let remote = state.remote.clone();
     let provider = payload.filesystem_id.unwrap_or_else(|| "local".into());
     let path = payload.path.unwrap_or_default();
     #[cfg(not(windows))]
@@ -162,7 +162,7 @@ pub async fn filesystem_resolve_location(
             let mut resolved = if provider == "local" {
                 filesystem::network::connect_if_network(&path, owner)?
             } else {
-                ssh.resolve_path(&provider, &path)?
+                remote.resolve_path(&provider, &path)?
             };
             if provider == "local" {
                 if !filesystem.is_computer_root(&resolved) {
@@ -175,7 +175,7 @@ pub async fn filesystem_resolve_location(
                     resolved = logical.to_string_lossy().into_owned();
                 }
             } else {
-                ssh.list(&provider, &resolved)?;
+                remote.list(&provider, &resolved)?;
             }
             Ok(json!({"ok":true,"location":{"providerId":provider,"path":resolved}}))
         })
@@ -234,7 +234,7 @@ pub fn filesystem_root(state: State<'_, AppState>, payload: FilesystemRootPayloa
             .as_deref()
             .filter(|value| *value != "local")
         {
-            let (root, initial, home) = state.ssh.root(provider)?;
+            let (root, initial, home) = state.remote.root(provider)?;
             return Ok::<_, NativeError>(
                 json!({ "ok": true, "root": root, "initial": initial, "homePath": home }),
             );
@@ -256,7 +256,7 @@ pub async fn filesystem_list(
     payload: FilesystemPathPayload,
 ) -> Result<Value, String> {
     let filesystem = Arc::clone(&state.filesystem);
-    let ssh = Arc::clone(&state.ssh);
+    let remote = state.remote.clone();
     #[cfg(target_os = "windows")]
     let content = Arc::clone(&state.content);
     let path = payload.path.unwrap_or_default();
@@ -267,7 +267,7 @@ pub async fn filesystem_list(
             .as_deref()
             .filter(|value| *value != "local")
         {
-            let entries = ssh.list(provider, &path)?;
+            let entries = remote.list(provider, &path)?;
             return Ok::<_, NativeError>(json!({ "ok": true, "path": path, "entries": entries }));
         }
         filesystem::Filesystem::require_local(payload.filesystem_id.as_deref())?;
@@ -320,11 +320,11 @@ pub fn filesystem_search(
         .insert(search_id.clone(), Arc::clone(&cancelled));
     let jobs = Arc::clone(&state.search_jobs);
     let filesystem = Arc::clone(&state.filesystem);
-    let ssh = Arc::clone(&state.ssh);
+    let remote = state.remote.clone();
     std::thread::spawn(move || {
         let result = filesystem::search::search(
             &filesystem,
-            &ssh,
+            &remote,
             payload.filesystem_id.as_deref().unwrap_or("local"),
             &payload.base_path,
             &payload.query,
@@ -386,7 +386,7 @@ pub async fn filesystem_read_text(
     {
         return Ok(
             match state
-                .ssh
+                .remote
                 .read_text(provider, &path, payload.max_bytes, payload.strict_text)
             {
                 Ok((content, modified)) => {
@@ -449,7 +449,7 @@ pub async fn filesystem_write_text(
         .as_deref()
         .filter(|value| *value != "local")
     {
-        return Ok(match state.ssh.write_text(provider, &path, &content) {
+        return Ok(match state.remote.write_text(provider, &path, &content) {
             Ok(modified) => json!({"ok":true,"modifiedAt":modified}),
             Err(error) => failure(error),
         });
@@ -508,7 +508,7 @@ pub async fn filesystem_read_binary(
 ) -> Result<Value, String> {
     let path = payload.path.unwrap_or_default();
     if let Some(provider) = payload.filesystem_id.as_deref().filter(|id| *id != "local") {
-        return Ok(match state.ssh.read_binary(provider, &path) {
+        return Ok(match state.remote.read_binary(provider, &path) {
             Ok((bytes, modified)) => {
                 json!({"ok":true,"base64":STANDARD.encode(bytes),"modifiedAt":modified})
             }
@@ -570,7 +570,7 @@ pub async fn filesystem_write_binary(
         }
     };
     if let Some(provider) = payload.filesystem_id.as_deref().filter(|id| *id != "local") {
-        return Ok(match state.ssh.write_binary(provider, &path, &bytes) {
+        return Ok(match state.remote.write_binary(provider, &path, &bytes) {
             Ok(modified) => json!({"ok":true,"modifiedAt":modified}),
             Err(error) => failure(error),
         });
@@ -611,7 +611,7 @@ pub async fn filesystem_operate(
 ) -> Result<Value, String> {
     let jobs = Arc::clone(&state.operation_jobs);
     let filesystem = Arc::clone(&state.filesystem);
-    let ssh = Arc::clone(&state.ssh);
+    let remote = state.remote.clone();
     // Register before spawning so cancellation can also stop a queued job.
     let id = payload
         .operation_id
@@ -620,7 +620,7 @@ pub async fn filesystem_operate(
     let cancelled = jobs.register(&id);
     Ok(
         match tauri::async_runtime::spawn_blocking(move || {
-            let result = filesystem::jobs::execute(&filesystem, &ssh, payload, &cancelled);
+            let result = filesystem::jobs::execute(&filesystem, &remote, payload, &cancelled);
             jobs.finish(&id);
             result
         })

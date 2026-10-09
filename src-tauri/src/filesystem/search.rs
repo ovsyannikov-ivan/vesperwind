@@ -1,12 +1,9 @@
 use super::{alias, Filesystem};
-use crate::{error::NativeError, ssh::SshManager};
+use crate::{error::NativeError, remote::RemoteProviders};
 use serde::Serialize;
 use std::{
     path::Path,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+    sync::atomic::{AtomicBool, Ordering},
 };
 
 pub const MAX_RESULTS: usize = 10_000;
@@ -78,7 +75,7 @@ fn skip_error(error: &NativeError) -> bool {
 
 pub fn search<F>(
     filesystem: &Filesystem,
-    ssh: &Arc<SshManager>,
+    remote: &RemoteProviders,
     provider_id: &str,
     base_path: &str,
     query: &str,
@@ -101,7 +98,7 @@ where
         super::paths::verify_existing_inside_root(filesystem, &resolved)?;
     } else {
         // The provider's list method validates its configured root.
-        ssh.list(provider_id, base_path)?;
+        remote.list(provider_id, base_path)?;
     }
     let mut pending = vec![base_path.to_owned()];
     let mut batch = Vec::with_capacity(BATCH_SIZE);
@@ -114,7 +111,7 @@ where
         let entries = if provider_id == "local" {
             filesystem.list_directory(&directory)
         } else {
-            ssh.list(provider_id, &directory)
+            remote.list(provider_id, &directory)
         };
         let entries = match entries {
             Ok(value) => value,
@@ -213,7 +210,7 @@ mod tests {
             .unwrap();
         }
         let filesystem = Filesystem::from_root(&root, root.clone()).unwrap();
-        let ssh = SshManager::new();
+        let ssh = crate::remote::RemoteProviders::new(SshManager::new());
         let cancelled = AtomicBool::new(false);
         let mut batches = Vec::new();
         let outcome = super::search(

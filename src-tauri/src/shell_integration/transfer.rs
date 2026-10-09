@@ -242,30 +242,12 @@ pub fn download_entries(
     Ok(())
 }
 
-/// The SFTP provider as a streaming source. Uses the existing provider
-/// connection (with its reconnect policy); no parallel SFTP implementation.
-#[derive(Clone)]
-pub struct SftpFiles(pub std::sync::Arc<crate::ssh::SshManager>);
-
-impl RemoteFiles for SftpFiles {
-    fn stat(&self, provider: &str, path: &str) -> Result<RemoteStat, NativeError> {
-        self.0.remote_stat(provider, path)
-    }
-
-    fn list(&self, provider: &str, path: &str) -> Result<Vec<RemoteStat>, NativeError> {
-        self.0.remote_children(provider, path)
-    }
-
-    fn open(&self, provider: &str, path: &str) -> Result<Box<dyn Read + Send>, NativeError> {
-        Ok(Box::new(self.0.open_content_stream(provider, path)?))
-    }
-}
-
-/// Dispatches on the provider id, so native shell objects can stream both
-/// local files and SFTP files through one interface.
+/// Dispatches on the provider id, so native shell objects can stream local
+/// files and every remote provider through one interface. Remote reads use
+/// the provider's existing connection and reconnect policy.
 #[derive(Clone)]
 pub struct ProviderFiles {
-    pub sftp: SftpFiles,
+    pub remote: crate::remote::RemoteProviders,
 }
 
 fn local_stat(path: &Path) -> Result<RemoteStat, NativeError> {
@@ -299,13 +281,13 @@ impl RemoteFiles for ProviderFiles {
         if provider == "local" {
             local_stat(Path::new(path))
         } else {
-            self.sftp.stat(provider, path)
+            self.remote.stat(provider, path)
         }
     }
 
     fn list(&self, provider: &str, path: &str) -> Result<Vec<RemoteStat>, NativeError> {
         if provider != "local" {
-            return self.sftp.list(provider, path);
+            return self.remote.children(provider, path);
         }
         fs::read_dir(path)
             .map_err(|error| {
@@ -321,7 +303,7 @@ impl RemoteFiles for ProviderFiles {
 
     fn open(&self, provider: &str, path: &str) -> Result<Box<dyn Read + Send>, NativeError> {
         if provider != "local" {
-            return self.sftp.open(provider, path);
+            return self.remote.open_read(provider, path);
         }
         Ok(Box::new(fs::File::open(path).map_err(|error| {
             NativeError::from_io(&error, "Unable to open the file").with_path(path)

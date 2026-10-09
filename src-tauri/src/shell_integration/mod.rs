@@ -14,14 +14,14 @@ mod macos;
 #[cfg(target_os = "windows")]
 pub(crate) mod windows;
 
-use crate::{error::NativeError, ssh::SshManager};
+use crate::error::NativeError;
 use clipboard::{ClipboardFileRef, ClipboardManager, ClipboardOperation, ClipboardSnapshot};
 use serde::{Deserialize, Serialize};
 #[cfg(target_os = "macos")]
 use std::sync::atomic::Ordering;
 use std::sync::{atomic::AtomicBool, Arc, Mutex, OnceLock};
 use tauri::{AppHandle, Emitter};
-use transfer::{ProviderFiles, SftpFiles};
+use transfer::ProviderFiles;
 
 /// Items dragged out of Vesperwind use the same `{ providerId, path }` model.
 pub type DragItem = ClipboardFileRef;
@@ -100,11 +100,9 @@ fn not_desktop() -> NativeError {
 }
 
 impl ShellIntegration {
-    pub fn setup(&self, app: &AppHandle, ssh: Arc<SshManager>) {
+    pub fn setup(&self, app: &AppHandle, remote: crate::remote::RemoteProviders) {
         let _ = APP.set(app.clone());
-        let _ = self.files.set(ProviderFiles {
-            sftp: SftpFiles(ssh),
-        });
+        let _ = self.files.set(ProviderFiles { remote });
         #[cfg(target_os = "macos")]
         {
             use tauri::Manager;

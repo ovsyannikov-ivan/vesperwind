@@ -176,7 +176,7 @@ fn run(app: &AppHandle, root: &std::path::Path, phase: &str) -> Result<Vec<&'sta
             let transfer = serde_json::from_value(json!({"action":"copy","filesystemId":format!("sftp:{}",password.id),"sourcePath":"/fixture.txt","targetFilesystemId":"local","targetDirectory":root.join("local-transfer").to_string_lossy()})).unwrap();
             crate::filesystem::jobs::execute(
                 &state.filesystem,
-                &state.ssh,
+                &state.remote,
                 transfer,
                 &std::sync::atomic::AtomicBool::new(false),
             )

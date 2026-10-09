@@ -5,7 +5,7 @@ use super::{
 };
 use crate::{
     error::NativeError,
-    ssh::{OperationConnection, SshManager},
+    remote::{OperationConnections, RemoteProviders},
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -96,12 +96,14 @@ struct Input {
     root: PathBuf,
     home: PathBuf,
     desktop: bool,
-    remote: Vec<OperationConnection>,
+    // Flattened so the frame keeps its `remote` field for SFTP snapshots.
+    #[serde(flatten)]
+    remote: OperationConnections,
 }
 
 pub fn execute(
     filesystem: &Filesystem,
-    ssh: &SshManager,
+    remote_providers: &RemoteProviders,
     request: OperationRequest,
     cancelled: &AtomicBool,
 ) -> Result<OperationResult, NativeError> {
@@ -122,7 +124,7 @@ pub fn execute(
     if cancelled.load(Ordering::Acquire) {
         return Err(stopped("ECANCELLED", &affected));
     }
-    let remote = ssh.operation_connections(&request)?;
+    let remote = remote_providers.operation_connections(&request)?;
     let input = Input {
         #[cfg(debug_assertions)]
         parent_probe: false,
@@ -309,8 +311,7 @@ pub fn run_filesystem_helper() -> bool {
         if input.remote.is_empty() {
             super::operations::perform(&filesystem, input.request)
         } else {
-            SshManager::from_operation_connections(input.remote)?
-                .operate(&filesystem, input.request)
+            super::remote_ops::operate(&filesystem, &input.remote.open()?, input.request)
         }
     })();
     let response = match result {
@@ -344,6 +345,19 @@ mod tests {
         assert_eq!(jobs.jobs.lock().unwrap().early.len(), 1024);
         jobs.cancel("active");
         assert!(active.load(Ordering::Acquire));
+    }
+    #[test]
+    fn helper_frame_keeps_its_remote_field_and_accepts_the_previous_shape() {
+        let frame = serde_json::json!({
+            "request": {"action":"delete","sourcePath":"/a","targetDirectory":null,"name":null,
+                "filesystemId":"local","targetFilesystemId":null},
+            "root": "/", "home": "/", "desktop": false, "remote": []
+        });
+        let input: Input = serde_json::from_value(frame).unwrap();
+        assert!(input.remote.is_empty());
+        let encoded = serde_json::to_value(&input).unwrap();
+        assert_eq!(encoded["remote"], serde_json::json!([]));
+        assert_eq!(encoded["request"]["action"], "delete");
     }
     #[test]
     fn expired_deadline_is_structured() {

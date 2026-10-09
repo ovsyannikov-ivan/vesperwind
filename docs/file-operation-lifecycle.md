@@ -51,3 +51,19 @@ successful deletions after failures. Frontend tests cover busy release, partial
 failure refresh, ignored late responses, subsequent requests and socket/SFTP
 recovery. Real network-loss SFTP and interactive OS-error display remain distinct
 from mocked transport and helper validation.
+
+## Remote provider dispatch
+
+A provider id is `local` or `<scheme>:<connection-id>`. `src-tauri/src/remote.rs`
+parses it once; only registered schemes (currently `sftp`) are accepted, and any
+other id fails with `EFILESYSTEM_ID` before it reaches a protocol manager.
+`RemoteProviders` routes listing, editor reads/writes, properties, search, size
+calculation and clipboard/drag streams to the protocol that owns the id. Each
+protocol keeps its own connection, authentication and reconnect policy.
+
+Operations with a remote side run in the same helper process. The helper frame is
+unchanged: SFTP snapshots stay in its `remote` field. Copy, move, rename, create
+and delete semantics live in `filesystem/remote_ops.rs` and use a small
+`RemoteEndpoint` trait; a cross-provider move removes the source only after the
+whole copy succeeded, otherwise `EPARTIAL_MOVE` reports the completed copy.
+Media streaming is still SFTP-only and rejects other schemes explicitly.
