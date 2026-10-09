@@ -4,6 +4,7 @@ mod content;
 mod credential_store;
 mod error;
 mod filesystem;
+mod ftp;
 mod media;
 #[cfg(debug_assertions)]
 mod media_ui_regression;
