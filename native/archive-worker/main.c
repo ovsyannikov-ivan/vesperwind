@@ -1,6 +1,7 @@
 /* App-owned streaming archive worker. Never invokes external filter programs. */
 #include <archive.h>
 #include <archive_entry.h>
+#include "archive_memory.h"
 #include <ctype.h>
 #include <errno.h>
 #include <locale.h>
@@ -36,7 +37,16 @@ static int fail(const char *code, const char *message) {
     puts("}}"); fflush(stdout); return 1;
 }
 static int archive_fail(struct archive *a) {
+    if (vw_archive_memory_exceeded()) return fail("EARCHIVE_LIMIT", "7z extraction exceeds the 512 MiB decoder and metadata memory budget");
+    const char *message = archive_error_string(a);
+    if (message && (strstr(message, "unsupported") || strstr(message, "Unsupported") || strstr(message, "Unexpected codec")))
+        return fail("EARCHIVE_UNSUPPORTED_CODEC", message);
     return fail("EARCHIVE_FORMAT", archive_error_string(a));
+}
+static int reader_fail(struct archive *a) {
+    if (archive_read_has_encrypted_entries(a) > 0)
+        return fail("EARCHIVE_ENCRYPTED", "This archive is encrypted. Password-protected archive extraction is not supported yet.");
+    return archive_fail(a);
 }
 static void progress(uint64_t entries, uint64_t bytes, int done) {
     /* Bounded event rate, also for archives containing millions of tiny files. */
@@ -159,6 +169,7 @@ static struct archive *reader(void) {
     archive_read_support_format_tar(a);
     archive_read_support_format_rar(a);
     archive_read_support_format_rar5(a);
+    archive_read_support_format_7zip(a);
     archive_read_support_filter_none(a);
     archive_read_support_filter_gzip(a);
     return a;
@@ -174,9 +185,12 @@ static int extract(const char *source) {
     archive_write_disk_set_options(disk, ARCHIVE_EXTRACT_SECURE_NODOTDOT |
         ARCHIVE_EXTRACT_SECURE_NOABSOLUTEPATHS | ARCHIVE_EXTRACT_SECURE_SYMLINKS |
         ARCHIVE_EXTRACT_NO_OVERWRITE | ARCHIVE_EXTRACT_TIME);
-    if (archive_open_path(a, source, PATH_READ_ARCHIVE) != ARCHIVE_OK) { result = archive_fail(a); goto end; }
+    if (archive_open_path(a, source, PATH_READ_ARCHIVE) != ARCHIVE_OK) { result = reader_fail(a); goto end; }
     while ((status = archive_read_next_header(a, &entry)) != ARCHIVE_EOF) {
-        if (status != ARCHIVE_OK) { result = archive_fail(a); goto end; }
+        if (status != ARCHIVE_OK) { result = reader_fail(a); goto end; }
+        if (archive_entry_is_encrypted(entry) || archive_read_has_encrypted_entries(a) > 0) {
+            result = fail("EARCHIVE_ENCRYPTED", "This archive is encrypted. Password-protected archive extraction is not supported yet."); goto end;
+        }
         const char *name = archive_entry_pathname(entry);
         if (!safe_path(name)) { result = fail("EARCHIVE_UNSAFE_PATH", "Unsafe archive entry path"); goto end; }
         if (archive_entry_symlink(entry) || archive_entry_hardlink(entry) ||
@@ -192,7 +206,7 @@ static int extract(const char *source) {
         since_space_check = 0;
         /* A tar root-directory record must not change the private staging root. */
         if (archive_entry_filetype(entry) == AE_IFDIR && strspn(name, "./") == strlen(name)) {
-            if (archive_read_data_skip(a) != ARCHIVE_OK) { result = archive_fail(a); goto end; }
+            if (archive_read_data_skip(a) != ARCHIVE_OK) { result = reader_fail(a); goto end; }
             continue;
         }
         /* Never apply ownership, ACLs, xattrs, file flags or setuid permissions. */
@@ -200,7 +214,7 @@ static int extract(const char *source) {
         if (archive_write_header(disk, entry) != ARCHIVE_OK) { result = archive_fail(disk); goto end; }
         const void *block; size_t size; la_int64_t offset;
         while ((status = archive_read_data_block(a, &block, &size, &offset)) != ARCHIVE_EOF) {
-            if (status != ARCHIVE_OK) { result = archive_fail(a); goto end; }
+            if (status != ARCHIVE_OK) { result = reader_fail(a); goto end; }
             if (offset < 0 || (uint64_t)offset > limit - logical_bytes || size > MAX_BYTES - bytes ||
                 size > limit - logical_bytes - (uint64_t)offset) { result = fail("EARCHIVE_LIMIT", "Archive exceeds extraction limits"); goto end; }
             if ((uint64_t)offset + size > extent) extent = (uint64_t)offset + size;
@@ -305,7 +319,9 @@ static int run(int argc, char **argv) {
     setlocale(LC_ALL, "");
 #endif
     if (argc == 2 && !strcmp(argv[1], "--version")) {
-        printf("vesperwind-archive/%d libarchive/%s zip,tar,tgz,rar,rar5\n", WORKER_PROTOCOL, archive_version_string()); return 0;
+        if (!lzma_filter_decoder_is_supported(LZMA_FILTER_LZMA1) || !lzma_filter_decoder_is_supported(LZMA_FILTER_LZMA2))
+            return fail("EARCHIVE_VERSION", "Bundled liblzma lacks required decoders");
+        printf("vesperwind-archive/%d libarchive/%s zip,tar,tgz,rar,rar5,7z liblzma/%s codecs=copy,lzma,lzma2 memory=%llu\n", WORKER_PROTOCOL, archive_version_string(), lzma_version_string(), (unsigned long long)ARCHIVE_MEMORY_BUDGET); return 0;
     }
     if (argc == 3 && !strcmp(argv[1], "extract")) return extract(argv[2]);
     if (argc >= 4 && !strcmp(argv[1], "create")) return create_zip(argv[2], argc - 3, argv + 3);

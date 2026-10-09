@@ -279,7 +279,7 @@ pub fn perform(
         ));
     }
     let version = run_worker(&binary, &["--version".into()], None, &cancel, &progress)?;
-    if !version.starts_with("vesperwind-archive/1 libarchive/libarchive 3.8.9 ") {
+    if !compatible_worker(&version) {
         return Err(NativeError::new(
             "EARCHIVE_VERSION",
             "Bundled archive worker version mismatch",
@@ -343,9 +343,25 @@ pub fn perform(
     }
     result
 }
+fn compatible_worker(version: &str) -> bool {
+    version.trim() == "vesperwind-archive/1 libarchive/libarchive 3.8.9 zip,tar,tgz,rar,rar5,7z liblzma/5.8.3 codecs=copy,lzma,lzma2 memory=536870912"
+}
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn stale_workers_without_7z_lzma2_or_memory_budget_are_rejected() {
+        assert!(!compatible_worker(
+            "vesperwind-archive/1 libarchive/libarchive 3.8.9 zip,tar,tgz,rar,rar5"
+        ));
+        let expected = "vesperwind-archive/1 libarchive/libarchive 3.8.9 zip,tar,tgz,rar,rar5,7z liblzma/5.8.3 codecs=copy,lzma,lzma2 memory=536870912";
+        assert!(compatible_worker(expected));
+        assert!(!compatible_worker(&expected.replace(",lzma2", "")));
+        assert!(!compatible_worker(
+            &expected.replace("memory=536870912", "memory=unlimited")
+        ));
+        assert!(!compatible_worker(&expected.replace("/1 ", "/2 ")));
+    }
     #[test]
     fn destination_names_reject_cross_platform_escapes() {
         for name in [
@@ -417,9 +433,126 @@ mod tests {
             "rar_binary_data.rar",
             "rar5_stored.rar",
             "rar5_compressed.rar",
+            "safe-copy.7z",
+            "safe-lzma.7z",
+            "safe-lzma2.7z",
+            "safe-solid-lzma2.7z",
+            "unicode-names.7z",
+            "safe-bcj-lzma2.7z",
         ] {
             run(name, &format!("extracted-{name}")).unwrap();
+            if name.ends_with(".7z") && name != "safe-bcj-lzma2.7z" {
+                let output = root.join(format!("extracted-{name}"));
+                assert_eq!(
+                    fs::read(output.join("folder/read me.txt")).unwrap(),
+                    b"archive fixture\n"
+                );
+                assert_eq!(
+                    fs::read_to_string(output.join("folder/Книга/Глава 1.txt")).unwrap(),
+                    "Привет, 7z!\n"
+                );
+                assert_eq!(
+                    fs::read(output.join("folder/binary.bin")).unwrap(),
+                    (0..2048).map(|i| (i % 256) as u8).collect::<Vec<_>>()
+                );
+                assert!(output.join("folder/empty directory").is_dir());
+                assert_eq!(
+                    fs::metadata(output.join("folder/empty.txt")).unwrap().len(),
+                    0
+                );
+                assert_eq!(
+                    fs::read(root.join(name)).unwrap(),
+                    fs::read(fixtures.join(name)).unwrap()
+                );
+            }
         }
+        for (name, code) in [
+            ("encrypted.7z", "EARCHIVE_ENCRYPTED"),
+            ("encrypted-header.7z", "EARCHIVE_ENCRYPTED"),
+            ("corrupted.7z", "EARCHIVE_FORMAT"),
+            ("truncated.7z", "EARCHIVE_FORMAT"),
+            ("unsupported-bzip2.7z", "EARCHIVE_UNSUPPORTED_CODEC"),
+            ("huge-dictionary.7z", "EARCHIVE_LIMIT"),
+            ("unsafe-link.7z", "EARCHIVE_UNSAFE_ENTRY"),
+            ("duplicate.7z", "EARCHIVE_FORMAT"),
+            ("dotdot.7z", "EARCHIVE_UNSAFE_PATH"),
+            ("absolute.7z", "EARCHIVE_UNSAFE_PATH"),
+            ("drive.7z", "EARCHIVE_UNSAFE_PATH"),
+            ("unc.7z", "EARCHIVE_UNSAFE_PATH"),
+            ("ads.7z", "EARCHIVE_UNSAFE_PATH"),
+            ("reserved.7z", "EARCHIVE_UNSAFE_PATH"),
+            ("nul.7z", "EARCHIVE_UNSAFE_PATH"),
+            ("trailing.7z", "EARCHIVE_UNSAFE_PATH"),
+            ("backslash.7z", "EARCHIVE_UNSAFE_PATH"),
+            ("control.7z", "EARCHIVE_UNSAFE_PATH"),
+        ] {
+            assert_eq!(
+                run(name, &format!("rejected-{name}")).unwrap_err().code,
+                code,
+                "{name}"
+            );
+            assert!(!root.join(format!("rejected-{name}")).exists());
+        }
+        assert!(!root.join("outside.txt").exists());
+        assert_eq!(
+            run("safe-lzma2.7z", "extracted-safe-lzma2.7z")
+                .unwrap_err()
+                .code,
+            "EARCHIVE_PUBLISH"
+        );
+        // A real solid stream publishes only after completion; progress reaches
+        // the Rust backend while output is still private.
+        let source = root.join("large-solid-lzma2.7z");
+        fs::copy(fixtures.join("large-solid-lzma2.7z"), &source).unwrap();
+        let mut large_request = ArchiveRequest {
+            job_id: uuid::Uuid::new_v4().to_string(),
+            action: "extract".into(),
+            name: "large-output".into(),
+            sources: vec![Location {
+                provider_id: "local".into(),
+                path: source.to_string_lossy().into_owned(),
+            }],
+            target: Location {
+                provider_id: "local".into(),
+                path: root.to_string_lossy().into_owned(),
+            },
+        };
+        let progressed = AtomicBool::new(false);
+        perform(
+            &filesystem,
+            &large_request,
+            Arc::new(AtomicBool::new(false)),
+            |_| {
+                progressed.store(true, Ordering::Release);
+                assert!(!root.join("large-output").exists());
+            },
+        )
+        .unwrap();
+        assert!(progressed.load(Ordering::Acquire));
+        for name in [
+            "large/first.bin",
+            "large/nested/second.bin",
+            "large/nested/Книга/third.bin",
+        ] {
+            assert_eq!(
+                fs::metadata(root.join("large-output").join(name))
+                    .unwrap()
+                    .len(),
+                128 * 1024 * 1024
+            );
+        }
+        large_request.name = "cancelled-7z".into();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let progress_cancel = Arc::clone(&cancel);
+        assert_eq!(
+            perform(&filesystem, &large_request, cancel, |_| {
+                progress_cancel.store(true, Ordering::Release);
+            })
+            .unwrap_err()
+            .code,
+            "ECANCELLED"
+        );
+        assert!(!root.join("cancelled-7z").exists());
         let book = root.join("Книга");
         fs::create_dir(&book).unwrap();
         fs::write(book.join("Глава.txt"), "Unicode ZIP round trip").unwrap();

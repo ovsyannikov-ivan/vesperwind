@@ -1,0 +1,63 @@
+{
+  "folder/read me.txt": {
+    "sha256": "759ad2ffeb54eec4165fc63d0a8d9cd4c592d314b87840a6a6c9b1156c41d601",
+    "base64": "YXJjaGl2ZSBmaXh0dXJlCg=="
+  },
+  "folder/Книга/Глава 1.txt": {
+    "sha256": "269d28a0c92f927205316c18dc5079d9e0991f15e525ecffe5e43c98aa4dc7e5",
+    "base64": "0J/RgNC40LLQtdGCLCA3eiEK"
+  },
+  "folder/empty.txt": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "base64": ""
+  },
+  "folder/binary.bin": {
+    "sha256": "10fc3c51a152e90e5b90319b601d92ccf37290ef53c35ff92507687d8a911a08",
+    "base64": "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"
+  },
+  "branch.exe": {
+    "sha256": "4f286b2046ecbe15b48fcb9943e5dc429e30ef6e65e71572cb4bc494ad7c40f8"
+  },
+  "large": {
+    "large/first.bin": {
+      "size": 134217728,
+      "sha256": "a626d17da2e502f5b4b8e3ebd23f0bf9daef6255688d8e0bb482b3ae3794a682"
+    },
+    "large/nested/second.bin": {
+      "size": 134217728,
+      "sha256": "a626d17da2e502f5b4b8e3ebd23f0bf9daef6255688d8e0bb482b3ae3794a682"
+    },
+    "large/nested/Книга/third.bin": {
+      "size": 134217728,
+      "sha256": "a626d17da2e502f5b4b8e3ebd23f0bf9daef6255688d8e0bb482b3ae3794a682"
+    }
+  },
+  "archives": {
+    "absolute.7z": "30414c28e2592f800cc6097f1a35120feda2b63184084fe72c5b3dbec882bbf5",
+    "ads.7z": "ff8a989281c1e79057643e3f5bd27bff3bf11af9170b5ebb6e68b3f6dc57b10c",
+    "backslash.7z": "b38b467a55c4a30130f2d6d82890f79fec9012d65f305a6bff8369fd9d3db9bf",
+    "control.7z": "ec64c0b991579fe21d5c92c68af59c48d498dd0793b67878c19c0ebc1dcb1d74",
+    "corrupted.7z": "e533243eab18b6bcf14cc82547d9f1e3b09e7a3ec3a48c8fe1561f69e48dae1a",
+    "dotdot.7z": "a13f2e5fb5a7be674e372da827cae23963c47315a91efe9c6f76e2482962983a",
+    "drive.7z": "1b9d8cae412b84279c39eb3167d56cceaebb028ce26e30b45ff77a0dd6b62efe",
+    "duplicate.7z": "09afc2d83eccf313cdaf6538553a56cdf644d65fe7dd7e107eacffb7575ddef2",
+    "encrypted-header.7z": "cb7d2b9381d703c30ada30489ce4d448f5f5dfad3507366d9ffea111c7812dfc",
+    "encrypted.7z": "638908f32924a96575eb45fe11f85c9ac4d8dc56b9295e33fff0e6480833e35c",
+    "huge-dictionary.7z": "f4779a68665657bb2809e43c7f6d452dd1c247f916106d89137fce75197bb843",
+    "large-solid-lzma2.7z": "6eaf54d89e95c70de6e806d1aa572d3672e8d4c7f321cba8c84f61c3d3d240c7",
+    "nul.7z": "501b5913c359c200c1e28bda40abace722518321f606b15150c1cce31671a31c",
+    "reserved.7z": "aacb032311406daddf598b5a95030fd93d893fe2ad4898716170cb8afc1c3dde",
+    "safe-bcj-lzma2.7z": "b7e7306926204ae35c85fe98033c819c205f1961591486fb0cfde7d253782dc6",
+    "safe-copy.7z": "73e24c0db903e072527891e4c3a37ffca41f792eed9dbf7d977ff8406185db33",
+    "safe-lzma.7z": "4b9760e2618204507486e0417f00bb3e931210be729df96937cbe7309719f36a",
+    "safe-lzma2.7z": "d34d8bfc6f4e6200079b59b4e8184c23649a92936b1d8c97726b09d8f2c90cb3",
+    "safe-solid-lzma2.7z": "4651a12f193ebd4b06de0c90e71b7e9966ade3aa08f4f65b193bf22a98b522a8",
+    "single-copy.7z": "afb863831835c2a4cbc61813ede13ba0ac1f465195a5ee4b07ccdd26435515af",
+    "trailing.7z": "85885cc2a69ec9bca72d4e58749c0031cabf4c2ab762ccb20dff8892aa95dc6a",
+    "truncated.7z": "dd2c7143874cdb927eda6459bea4a447c3d98e876d60cbf4e5ddda39419aae5a",
+    "unc.7z": "2b884f99744ab4da0b1f7ef2f57c36ef2241f5c8d6c192e05377d46ea2b78721",
+    "unicode-names.7z": "4651a12f193ebd4b06de0c90e71b7e9966ade3aa08f4f65b193bf22a98b522a8",
+    "unsafe-link.7z": "0b93992233d0e4698bc0622aea5d0333f1e496e7fed58a54ed9f8f10b8d7d157",
+    "unsupported-bzip2.7z": "9e7a48bf02ad7082c80bcf25fd417238da74f1c9bcc349d187cdd2fc09b0924d"
+  }
+}

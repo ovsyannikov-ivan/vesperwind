@@ -38,6 +38,25 @@ jobs:
             - name: Check whitespace errors
               run: git diff --check
 
+    archive-linux:
+        name: Archive worker / Linux
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+            - uses: dtolnay/rust-toolchain@1.99.0
+            - run: npm ci
+            - name: Build pinned static worker and test resource budgets
+              run: npm run build:archives
+            - name: Check static codec linkage
+              run: |
+                  ldd src-tauri/binaries/vesperwind-archive-x86_64-unknown-linux-gnu | tee /tmp/archive-linkage.txt
+                  ! grep -Ei 'lib(lzma|archive|z)\.' /tmp/archive-linkage.txt
+            - name: Run real archive acceptance
+              run: node --test test/archives.test.js
+
     rust-macos:
         name: Rust / macOS
         runs-on: macos-14
@@ -67,6 +86,10 @@ jobs:
             - name: Build bundled archive worker and test disk limits
               working-directory: .
               run: npm run build:archives
+
+            - name: Run real Node archive acceptance including solid LZMA2
+              working-directory: .
+              run: node --test test/archives.test.js
 
             - name: Build and verify pinned thumbnail FFmpeg
               working-directory: .
@@ -142,6 +165,10 @@ jobs:
             - name: Build bundled archive worker and test disk limits
               working-directory: .
               run: npm run build:archives
+
+            - name: Run real Node archive acceptance including solid LZMA2
+              working-directory: .
+              run: node --test test/archives.test.js
 
             - name: Verify bundled libmpv including HTTP HTTPS and HLS
               working-directory: .

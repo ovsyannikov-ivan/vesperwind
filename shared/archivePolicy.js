@@ -1,5 +1,5 @@
-export const archiveName = (name) => /\.(zip|tar|tar\.gz|tgz|rar)$/iu.test(name || '')
-export const extractionFolderName = (name) => String(name || '').replace(/\.(tar\.gz|tgz|zip|tar|rar)$/iu, '') || 'Extracted'
+export const archiveName = (name) => /\.(zip|tar|tar\.gz|tgz|rar|7z)$/iu.test(name || '')
+export const extractionFolderName = (name) => String(name || '').replace(/\.(tar\.gz|tgz|zip|tar|rar|7z)$/iu, '') || 'Extracted'
 export const validArchiveDestinationName = (name) => typeof name === 'string' &&
   Boolean(name.trim()) && name === name.trim() && name !== '.' && name !== '..' &&
   !/[\\/:\x00-\x1f\x7f]/u.test(name) && !/[. ]$/u.test(name) &&

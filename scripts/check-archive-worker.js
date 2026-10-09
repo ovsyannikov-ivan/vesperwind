@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { compatibleArchiveWorker } from '../shared/archiveWorkerPolicy.js'
 export const archiveWorkerPath = () => {
   const target = spawnSync('rustc', ['-vV'], { encoding: 'utf8' }).stdout?.match(/^host: (.+)$/m)?.[1]
   if (!target) throw new Error('Unable to determine archive worker target; install the Rust toolchain')
@@ -9,7 +10,7 @@ export const archiveWorkerPath = () => {
 export const checkArchiveWorker = () => {
   const binary = archiveWorkerPath()
   const result = spawnSync(binary, ['--version'], { encoding: 'utf8', timeout: 5000, shell: false })
-  if (result.error || result.status !== 0 || !result.stdout.startsWith('vesperwind-archive/1 libarchive/libarchive 3.8.9 ')) {
+  if (result.error || result.status !== 0 || !compatibleArchiveWorker(result.stdout)) {
     throw new Error('Missing or incompatible bundled archive worker. Run npm run build:archives before dev/build. System archive tools are never used.')
   }
   return binary

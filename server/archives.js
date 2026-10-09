@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { validateArchiveRequest } from '../shared/archivePolicy.js'
+import { compatibleArchiveWorker } from '../shared/archiveWorkerPolicy.js'
 import { resolveInsideRoot, verifyRealPathInsideRoot, serializeFilesystemError } from './filesystem.js'
 
 const triples = { 'darwin-arm64': 'aarch64-apple-darwin', 'darwin-x64': 'x86_64-apple-darwin',
@@ -60,7 +61,7 @@ export const performArchive = async (request, { signal, onProgress, binary = bun
   const names = sources.map((source) => path.basename(source).toLocaleLowerCase('en-US'))
   if (new Set(names).size !== names.length) throw Object.assign(new Error('Selected sources have duplicate names; archive them separately'), { code: 'EARCHIVE_DUPLICATE' })
   const version = await runWorker(binary, ['--version'], { signal })
-  if (!/^vesperwind-archive\/1 libarchive\/libarchive 3\.8\.9 /u.test(version)) throw Object.assign(new Error('Bundled archive worker version mismatch'), { code: 'EARCHIVE_VERSION' })
+  if (!compatibleArchiveWorker(version)) throw Object.assign(new Error('Bundled archive worker version or codec capabilities mismatch'), { code: 'EARCHIVE_VERSION' })
   const stage = await fs.mkdtemp(path.join(target, '.vesperwind-archive-'))
   try {
     await fs.chmod(stage, 0o700)

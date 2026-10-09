@@ -41,6 +41,7 @@
     "resources": [
       "binaries/libarchive-LICENSE.txt",
       "binaries/zlib-LICENSE.txt",
+      "binaries/liblzma-LICENSE.txt",
       "binaries/archive-BUILD-INFO.json",
       "vendor/libmpv/**/*",
       "vendor/lowa/**/*",
