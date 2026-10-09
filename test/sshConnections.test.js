@@ -137,4 +137,9 @@ test('rejects invalid ports and Windows-style SFTP paths', () => {
   const base = { id: 'test', name: 'Test', host: 'example.com', username: 'demo', authType: 'password' }
   assert.throws(() => validateConnectionProfile({ ...base, port: 0 }), { code: 'EINVAL' })
   assert.throws(() => validateConnectionProfile({ ...base, port: 22, initialPath: 'C:\\remote' }), { code: 'EINVAL' })
+  // FTP/FTPS and unknown protocols are never accepted as SSH profiles.
+  for (const protocol of ['ftp', 'ftps', '', 'SFTP']) {
+    assert.throws(() => validateConnectionProfile({ ...base, port: 21, authType: 'password', protocol }), { code: 'EINVAL' })
+  }
+  assert.equal(validateConnectionProfile({ ...base, port: 22, protocol: 'sftp' }).port, 22)
 })

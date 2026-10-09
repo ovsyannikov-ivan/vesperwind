@@ -3,17 +3,17 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import vm from 'node:vm'
 import { computed, effectScope, nextTick, reactive, ref, watch } from 'vue'
-import { createDefaultSettings, normalizeSettings } from '../shared/defaultSettings.js'
+import { createDefaultSettings, isSftpProfile, normalizeSettings } from '../shared/defaultSettings.js'
 
 const source = (await fs.readFile(new URL('../src/components/RemoteConnectionsModal.vue', import.meta.url), 'utf8'))
   .split('<script setup>')[1].split('</script>')[0].replace(/^import .*$/gm, '')
 const profile = { id: 'existing', name: 'Saved', protocol: 'sftp', host: 'fixture.invalid', port: 22, username: 'fixture',
   authType: 'password', privateKeyPath: '', sshConfigHost: '', savePassword: true, saveKeyPassphrase: false, trustedFingerprint: '', initialPath: '' }
-const fixture = ({ supported = true, response = { ok: true, connectionId: 'existing' }, config = [] } = {}) => {
+const fixture = ({ supported = true, response = { ok: true, connectionId: 'existing' }, config = [], extra = [] } = {}) => {
   const settings = ref(createDefaultSettings()), saved = [], requests = [], events = [], forgotten = []
   const scope = effectScope()
-  settings.value.connections = [profile]
-  const dependencies = { computed, nextTick, onMounted() {}, onBeforeUnmount() {}, reactive, ref, watch,
+  settings.value.connections = normalizeSettings({ connections: [...extra, profile] }).connections
+  const dependencies = { computed, nextTick, onMounted() {}, onBeforeUnmount() {}, reactive, ref, watch, isSftpProfile,
     defineProps: () => reactive({ open: true, activePanel: 'left' }), defineEmits: () => (...args) => events.push(args),
     crypto: { randomUUID: () => 'new-stable-id' },
     useSettings: () => ({ settings, loadSettings: async () => ({ ok: true }),
@@ -27,7 +27,7 @@ const fixture = ({ supported = true, response = { ok: true, connectionId: 'exist
       connect: async (...args) => { requests.push(args); return response },
     },
   }
-  const api = scope.run(() => vm.compileFunction(`${source}\nreturn { draft, password, keyPassphrase, credentials, capabilities, authNeeds, warning, select, selectConfig, newProfile, save, connect, show, forget }`, Object.keys(dependencies))(...Object.values(dependencies)))
+  const api = scope.run(() => vm.compileFunction(`${source}\nreturn { draft, password, keyPassphrase, credentials, capabilities, authNeeds, warning, select, selectConfig, newProfile, save, connect, show, forget, profiles, otherProfileCount, remove }`, Object.keys(dependencies))(...Object.values(dependencies)))
   return { ...api, saved, requests, events, forgotten, stop: () => scope.stop() }
 }
 test('saved password status does not refill the input; typed secrets bypass settings and are cleared on success', async () => {
@@ -86,5 +86,35 @@ test('unsupported browser/SEA capabilities do not request saved secrets or SSH c
     assert.equal(f.capabilities.value.credentialStore, false)
     assert.equal(f.credentials.value.password, false)
     assert.equal(f.password.value, '')
+  } finally { f.stop() }
+})
+test('the SFTP-only form never opens, rewrites, connects or drops FTP/FTPS profiles', async () => {
+  const ftp = { id: 'router', name: 'Router', host: '192.0.2.1', port: 21, username: 'admin', authType: 'password', protocol: 'ftp',
+    savePassword: true, plaintextAcknowledged: true }
+  const ftps = { id: 'nas', name: 'NAS', host: 'nas.invalid', port: 990, username: 'anonymous', authType: 'anonymous', protocol: 'ftps',
+    ftpTls: 'implicit', tlsTrustedCertificate: 'ab'.repeat(32) }
+  const f = fixture({ extra: [ftp, ftps] })
+  const others = normalizeSettings({ connections: [ftp, ftps] }).connections
+  const kept = (settings) => settings.connections.filter(item => item.protocol !== 'sftp')
+  try {
+    await f.show()
+    assert.deepEqual(f.profiles.value.map(item => item.id), ['existing'])
+    assert.equal(f.otherProfileCount.value, 2)
+    assert.equal(f.draft.id, 'existing')
+    f.draft.name = 'Renamed'
+    await f.save()
+    assert.deepEqual(kept(f.saved.at(-1)), others)
+    await f.connect()
+    assert.equal(f.requests.length, 1)
+    assert.equal(f.requests[0][0].protocol, 'sftp')
+    assert.deepEqual(kept(f.saved.at(-1)), others)
+    f.newProfile(); Object.assign(f.draft, { name: 'Added', host: 'added.invalid', username: 'fixture' })
+    await f.save()
+    assert.equal(f.saved.at(-1).connections.find(item => item.id === 'new-stable-id').protocol, 'sftp')
+    assert.deepEqual(kept(f.saved.at(-1)), others)
+    f.select(f.profiles.value.find(item => item.id === 'existing'))
+    await f.remove()
+    assert.deepEqual(f.saved.at(-1).connections.map(item => item.id), ['router', 'nas', 'new-stable-id'])
+    assert.deepEqual(kept(f.saved.at(-1)), others)
   } finally { f.stop() }
 })

@@ -1,8 +1,8 @@
 use super::failure;
 use crate::{
     connections::ConnectionProfile,
-    settings::{normalize_settings, SettingsStore},
-    ssh::SshManager,
+    remote::RemoteProviders,
+    settings::{normalize_settings, reset_changed_connection_trust, SettingsStore},
     AppState,
 };
 use serde::Deserialize;
@@ -26,11 +26,11 @@ pub async fn settings_update(
     payload: SettingsPayload,
 ) -> Result<Value, String> {
     let settings = state.settings.clone();
-    let ssh = state.ssh.clone();
+    let remote = state.remote.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
         update(
             &settings,
-            &ssh,
+            &remote,
             payload.settings.as_ref().unwrap_or(&Value::Null),
         )
     })
@@ -47,9 +47,9 @@ pub async fn settings_update(
 #[tauri::command]
 pub async fn settings_reset(state: State<'_, AppState>, _payload: Value) -> Result<Value, String> {
     let settings = state.settings.clone();
-    let ssh = state.ssh.clone();
+    let remote = state.remote.clone();
     let result =
-        tauri::async_runtime::spawn_blocking(move || update(&settings, &ssh, &Value::Null))
+        tauri::async_runtime::spawn_blocking(move || update(&settings, &remote, &Value::Null))
             .await
             .unwrap_or_else(|_| {
                 Err(crate::error::NativeError::new(
@@ -61,7 +61,7 @@ pub async fn settings_reset(state: State<'_, AppState>, _payload: Value) -> Resu
 }
 
 fn save_reconciled(
-    ssh: &SshManager,
+    remote: &RemoteProviders,
     previous: &Value,
     next: &Value,
     commit: impl FnOnce() -> Result<Value, crate::error::NativeError>,
@@ -73,25 +73,33 @@ fn save_reconciled(
     };
     let previous_profiles = decode(previous)?;
     let next_profiles = decode(next)?;
-    let (saved, disconnected) =
-        ssh.credentials
-            .reconcile_with_commit(&previous_profiles, &next_profiles, commit)?;
+    let (saved, disconnected) = remote.ssh().credentials.reconcile_with_commit(
+        &previous_profiles,
+        &next_profiles,
+        commit,
+    )?;
+    // Sessions belong to the protocol the profile had before this update.
     for id in disconnected {
-        ssh.disconnect(&id);
+        if let Some(old) = previous_profiles.iter().find(|profile| profile.id == id) {
+            remote.disconnect_profile(old);
+        }
     }
     Ok(saved)
 }
 fn update(
     settings: &Arc<SettingsStore>,
-    ssh: &Arc<SshManager>,
+    remote: &RemoteProviders,
     value: &Value,
 ) -> Result<Value, crate::error::NativeError> {
-    let _guard = ssh
+    let _guard = remote
+        .ssh()
         .profile_updates
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    let next = normalize_settings(value);
-    save_reconciled(ssh, &settings.load()?, &next, || {
+    let previous = settings.load()?;
+    let mut next = normalize_settings(value);
+    reset_changed_connection_trust(&previous, &mut next);
+    save_reconciled(remote, &previous, &next, || {
         if value.is_null() {
             settings.reset()
         } else {
@@ -117,6 +125,7 @@ mod tests {
     use crate::{
         connections::test_profile,
         credential_store::{CredentialKind, CredentialStore, MemoryBackend},
+        ssh::SshManager,
     };
 
     #[test]
@@ -147,7 +156,12 @@ mod tests {
             std::fs::write(&root, "blocked parent").unwrap();
             let mut next = previous.clone();
             next["connections"][0]["host"] = json!("changed.invalid");
-            assert!(update(&settings, &ssh, if reset { &Value::Null } else { &next }).is_err());
+            assert!(update(
+                &settings,
+                &RemoteProviders::new(Arc::clone(&ssh)),
+                if reset { &Value::Null } else { &next }
+            )
+            .is_err());
             assert_eq!(settings.load().unwrap(), previous);
             for kind in [CredentialKind::Password, CredentialKind::KeyPassphrase] {
                 assert_eq!(
@@ -163,7 +177,12 @@ mod tests {
             std::fs::rename(&backup, &root).unwrap();
             assert_eq!(SettingsStore::at_path(path).load().unwrap(), previous);
             // The same production update path succeeds once storage is writable.
-            update(&settings, &ssh, if reset { &Value::Null } else { &next }).unwrap();
+            update(
+                &settings,
+                &RemoteProviders::new(Arc::clone(&ssh)),
+                if reset { &Value::Null } else { &next },
+            )
+            .unwrap();
             assert!(!ssh
                 .credentials
                 .exists(&profile, CredentialKind::Password)
@@ -174,5 +193,95 @@ mod tests {
                 .unwrap());
             std::fs::remove_dir_all(root).unwrap();
         }
+    }
+    #[test]
+    fn ftp_profiles_keep_their_fields_and_secrets_through_the_production_update() {
+        let root = std::env::temp_dir().join(format!("vesper-ftp-update-{}", uuid::Uuid::new_v4()));
+        let backup = root.with_extension("backup");
+        let settings = Arc::new(SettingsStore::at_path(root.join("settings.json")));
+        let mut ssh = SshManager::with_settings(settings.clone());
+        Arc::get_mut(&mut ssh).unwrap().credentials =
+            CredentialStore::with_backend(Arc::new(MemoryBackend::default()));
+        let remote = RemoteProviders::new(Arc::clone(&ssh));
+        let ftps = json!({"id":"nas","name":"NAS","host":"nas.invalid","port":990,"username":"ivan",
+            "authType":"password","protocol":"ftps","ftpTls":"implicit","savePassword":true,
+            "tlsTrustedCertificate":"ab".repeat(32)});
+        let ftp = json!({"id":"router","name":"Router","host":"192.0.2.1","port":21,"username":"admin",
+            "authType":"password","protocol":"ftp","savePassword":true,"plaintextAcknowledged":true});
+        let sftp = serde_json::to_value(test_profile("auto")).unwrap();
+        let saved = update(
+            &settings,
+            &remote,
+            &json!({"connections":[ftps, ftp, sftp]}),
+        )
+        .unwrap();
+        let profiles: Vec<ConnectionProfile> =
+            serde_json::from_value(saved["connections"].clone()).unwrap();
+        for profile in &profiles[..2] {
+            ssh.credentials
+                .set(profile, CredentialKind::Password, "synthetic-ftp-secret")
+                .unwrap();
+        }
+        // An unrelated settings change keeps every profile and secret.
+        let mut next = saved.clone();
+        next["appearance"]["theme"] = json!("dark");
+        assert_eq!(
+            update(&settings, &remote, &next).unwrap()["connections"],
+            saved["connections"]
+        );
+        assert!(ssh
+            .credentials
+            .exists(&profiles[0], CredentialKind::Password)
+            .unwrap());
+        // FTPS -> FTP on a failing write: metadata and the FTPS secret are restored.
+        let mut downgrade = saved.clone();
+        downgrade["connections"][0]["protocol"] = json!("ftp");
+        downgrade["connections"][0]["plaintextAcknowledged"] = json!(true);
+        std::fs::rename(&root, &backup).unwrap();
+        std::fs::write(&root, "blocked parent").unwrap();
+        assert!(update(&settings, &remote, &downgrade).is_err());
+        assert_eq!(
+            settings.load().unwrap()["connections"],
+            saved["connections"]
+        );
+        assert!(ssh
+            .credentials
+            .exists(&profiles[0], CredentialKind::Password)
+            .unwrap());
+        std::fs::remove_file(&root).unwrap();
+        std::fs::rename(&backup, &root).unwrap();
+        // The same update succeeds once storage is writable: the old secret is
+        // gone, FTP never receives it, and plaintext must be confirmed again.
+        let result = update(&settings, &remote, &downgrade).unwrap();
+        assert_eq!(result["connections"][0]["protocol"], "ftp");
+        assert_eq!(result["connections"][0]["plaintextAcknowledged"], false);
+        assert!(!ssh
+            .credentials
+            .exists(&profiles[0], CredentialKind::Password)
+            .unwrap());
+        let downgraded: ConnectionProfile =
+            serde_json::from_value(result["connections"][0].clone()).unwrap();
+        assert!(!ssh
+            .credentials
+            .exists(&downgraded, CredentialKind::Password)
+            .unwrap());
+        // A host change clears the plaintext acknowledgement and the secret.
+        let mut moved = result.clone();
+        moved["connections"][1]["host"] = json!("192.0.2.2");
+        let result = update(&settings, &remote, &moved).unwrap();
+        assert_eq!(result["connections"][1]["plaintextAcknowledged"], false);
+        assert!(!ssh
+            .credentials
+            .exists(&profiles[1], CredentialKind::Password)
+            .unwrap());
+        // Reset removes the remaining FTP-family profiles.
+        assert_eq!(
+            update(&settings, &remote, &Value::Null).unwrap()["connections"],
+            json!([])
+        );
+        assert!(!std::fs::read_to_string(root.join("settings.json"))
+            .unwrap()
+            .contains("synthetic"));
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

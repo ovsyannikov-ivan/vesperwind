@@ -2,8 +2,10 @@
 
 Remote Connections supports SFTP profiles with `auto`, `password`, `privateKey`
 and `agent` authentication. New profiles use Auto. Existing profiles retain their
-explicit authentication method and ID when settings are migrated to version 8.
-FTP/FTPS transports are outside this change.
+explicit authentication method and ID when settings are migrated to version 8
+and, unchanged, to version 9. Settings version 9 can also hold FTP/FTPS profiles
+and their saved passwords; FTP/FTPS cannot connect yet. See
+[FTP and FTPS connections](ftp-ftps.md).
 
 ## Saved credentials
 
@@ -21,8 +23,9 @@ Future protocols can reuse the store without treating an SSH host as its key.
   Its existing Node SSH transport supports session-only Auto/password/key/agent.
 
 Settings contain profile metadata, authentication mode, key **path**, initial
-path, trusted fingerprint, SSH config alias and two save flags. They never contain
-passwords, passphrases or private-key bytes. The native status API returns only
+path, trusted fingerprint, SSH config alias and two save flags (FTP/FTPS profiles
+carry their own metadata instead, see [FTP and FTPS](ftp-ftps.md)). They never
+contain passwords, passphrases or private-key bytes. The native status API returns only
 existence booleans. There is no frontend API for retrieving saved secrets.
 
 The modal's Save action saves metadata only. Checked credentials are persisted
@@ -40,7 +43,9 @@ changes, snapshot affected secrets in zeroizing native memory, then clean the
 entries and persist JSON. Sessions disconnect only after both steps succeed.
 If cleanup or JSON persistence reports an error, the previous secrets are
 restored and the previous settings remain active. If restoration itself fails,
-an explicit error asks the user to re-enter the affected credentials. This
+an explicit error asks the user to re-enter the affected credentials.
+Profiles pair by id and protocol, so a protocol change removes the old
+protocol's secrets; sessions are ended by the profile's previous protocol. This
 compensates for reported failures; it is not a crash-atomic transaction across
 the filesystem and the OS credential store. No recovery secrets are written
 to disk or returned to the frontend.

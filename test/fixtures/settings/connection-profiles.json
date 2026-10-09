@@ -1,0 +1,1842 @@
+{
+  "normalize": [
+    {
+      "name": "v8 SFTP profiles are unchanged",
+      "input": [
+        {
+          "id": "v8-auto",
+          "name": "Server auto",
+          "host": "sftp.example.test",
+          "port": 22,
+          "username": "deploy",
+          "authType": "auto",
+          "protocol": "sftp",
+          "savePassword": true,
+          "saveKeyPassphrase": true,
+          "sshConfigHost": "prod",
+          "privateKeyPath": "~/.ssh/id_ed25519",
+          "initialPath": "/srv",
+          "trustedFingerprint": "SHA256:AbCdEf0123456789+/xyz"
+        },
+        {
+          "id": "v8-password",
+          "name": "Server password",
+          "host": "sftp.example.test",
+          "port": 22,
+          "username": "deploy",
+          "authType": "password",
+          "protocol": "sftp",
+          "savePassword": true,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "/srv",
+          "trustedFingerprint": "SHA256:AbCdEf0123456789+/xyz"
+        },
+        {
+          "id": "v8-privateKey",
+          "name": "Server privateKey",
+          "host": "sftp.example.test",
+          "port": 22,
+          "username": "deploy",
+          "authType": "privateKey",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": true,
+          "sshConfigHost": "",
+          "privateKeyPath": "~/.ssh/id_ed25519",
+          "initialPath": "/srv",
+          "trustedFingerprint": "SHA256:AbCdEf0123456789+/xyz"
+        },
+        {
+          "id": "v8-agent",
+          "name": "Server agent",
+          "host": "sftp.example.test",
+          "port": 22,
+          "username": "deploy",
+          "authType": "agent",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "/srv",
+          "trustedFingerprint": "SHA256:AbCdEf0123456789+/xyz"
+        }
+      ],
+      "expected": [
+        {
+          "id": "v8-auto",
+          "name": "Server auto",
+          "host": "sftp.example.test",
+          "port": 22,
+          "username": "deploy",
+          "authType": "auto",
+          "protocol": "sftp",
+          "savePassword": true,
+          "saveKeyPassphrase": true,
+          "sshConfigHost": "prod",
+          "privateKeyPath": "~/.ssh/id_ed25519",
+          "initialPath": "/srv",
+          "trustedFingerprint": "SHA256:AbCdEf0123456789+/xyz"
+        },
+        {
+          "id": "v8-password",
+          "name": "Server password",
+          "host": "sftp.example.test",
+          "port": 22,
+          "username": "deploy",
+          "authType": "password",
+          "protocol": "sftp",
+          "savePassword": true,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "/srv",
+          "trustedFingerprint": "SHA256:AbCdEf0123456789+/xyz"
+        },
+        {
+          "id": "v8-privateKey",
+          "name": "Server privateKey",
+          "host": "sftp.example.test",
+          "port": 22,
+          "username": "deploy",
+          "authType": "privateKey",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": true,
+          "sshConfigHost": "",
+          "privateKeyPath": "~/.ssh/id_ed25519",
+          "initialPath": "/srv",
+          "trustedFingerprint": "SHA256:AbCdEf0123456789+/xyz"
+        },
+        {
+          "id": "v8-agent",
+          "name": "Server agent",
+          "host": "sftp.example.test",
+          "port": 22,
+          "username": "deploy",
+          "authType": "agent",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "/srv",
+          "trustedFingerprint": "SHA256:AbCdEf0123456789+/xyz"
+        }
+      ]
+    },
+    {
+      "name": "legacy SFTP profile without protocol migrates to sftp",
+      "input": [
+        {
+          "id": "legacy",
+          "name": "Legacy",
+          "host": "old.example.test",
+          "port": 2222,
+          "username": "root",
+          "authType": "password",
+          "savePassword": true
+        }
+      ],
+      "expected": [
+        {
+          "id": "legacy",
+          "name": "Legacy",
+          "host": "old.example.test",
+          "port": 2222,
+          "username": "root",
+          "authType": "password",
+          "protocol": "sftp",
+          "savePassword": true,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "",
+          "trustedFingerprint": ""
+        }
+      ]
+    },
+    {
+      "name": "FTP password profile round trips",
+      "input": [
+        {
+          "id": "ftp-1",
+          "name": "Router",
+          "host": "192.0.2.10",
+          "port": 2121,
+          "username": "admin",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": true,
+          "initialPath": "/pub",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": true
+        }
+      ],
+      "expected": [
+        {
+          "id": "ftp-1",
+          "name": "Router",
+          "host": "192.0.2.10",
+          "port": 2121,
+          "username": "admin",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": true,
+          "initialPath": "/pub",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": true
+        }
+      ]
+    },
+    {
+      "name": "FTPS explicit profile round trips with a canonical certificate pin",
+      "input": [
+        {
+          "id": "ftps-explicit",
+          "name": "NAS",
+          "host": "nas.example.test",
+          "port": 21,
+          "username": "ivan",
+          "authType": "password",
+          "protocol": "ftps",
+          "ftpTls": "explicit",
+          "savePassword": true,
+          "initialPath": "",
+          "tlsTrustedCertificate": "AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89"
+        }
+      ],
+      "expected": [
+        {
+          "id": "ftps-explicit",
+          "name": "NAS",
+          "host": "nas.example.test",
+          "port": 21,
+          "username": "ivan",
+          "authType": "password",
+          "protocol": "ftps",
+          "savePassword": true,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "explicit",
+          "tlsTrustedCertificate": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+        }
+      ]
+    },
+    {
+      "name": "FTPS implicit anonymous profile fills the username and never saves a password",
+      "input": [
+        {
+          "id": "ftps-implicit",
+          "name": "Mirror",
+          "host": "mirror.example.test",
+          "port": 990,
+          "username": "",
+          "authType": "anonymous",
+          "protocol": "ftps",
+          "ftpTls": "implicit",
+          "savePassword": true
+        }
+      ],
+      "expected": [
+        {
+          "id": "ftps-implicit",
+          "name": "Mirror",
+          "host": "mirror.example.test",
+          "port": 990,
+          "username": "anonymous",
+          "authType": "anonymous",
+          "protocol": "ftps",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "implicit",
+          "tlsTrustedCertificate": ""
+        }
+      ]
+    },
+    {
+      "name": "unknown protocols are dropped, never treated as SFTP",
+      "input": [
+        {
+          "id": "smb",
+          "name": "Share",
+          "host": "h",
+          "port": 445,
+          "username": "u",
+          "authType": "password",
+          "protocol": "smb"
+        },
+        {
+          "id": "upper",
+          "name": "U",
+          "host": "h",
+          "port": 22,
+          "username": "u",
+          "authType": "auto",
+          "protocol": "SFTP"
+        },
+        {
+          "id": "blank",
+          "name": "B",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": ""
+        },
+        {
+          "id": "number",
+          "name": "N",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": 7
+        }
+      ],
+      "expected": []
+    },
+    {
+      "name": "incompatible fields and modes are normalized per protocol",
+      "input": [
+        {
+          "id": "ftp-agent",
+          "name": "Agent",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "agent",
+          "protocol": "ftp",
+          "privateKeyPath": "~/key",
+          "trustedFingerprint": "SHA256:abc",
+          "sshConfigHost": "alias",
+          "saveKeyPassphrase": true,
+          "ftpTls": "implicit",
+          "tlsTrustedCertificate": "AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89",
+          "ftpDataMode": "active",
+          "ftpEncoding": "cp1251"
+        },
+        {
+          "id": "ftps-mixed",
+          "name": "Mixed",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "privateKey",
+          "protocol": "ftps",
+          "ftpTls": "none",
+          "plaintextAcknowledged": true,
+          "saveKeyPassphrase": true
+        },
+        {
+          "id": "sftp-mixed",
+          "name": "S",
+          "host": "h",
+          "port": 22,
+          "username": "u",
+          "authType": "anonymous",
+          "protocol": "sftp",
+          "ftpTls": "explicit",
+          "tlsTrustedCertificate": "AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89",
+          "plaintextAcknowledged": true,
+          "ftpDataMode": "passive"
+        }
+      ],
+      "expected": [
+        {
+          "id": "ftp-agent",
+          "name": "Agent",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": false
+        },
+        {
+          "id": "ftps-mixed",
+          "name": "Mixed",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "explicit",
+          "tlsTrustedCertificate": ""
+        },
+        {
+          "id": "sftp-mixed",
+          "name": "S",
+          "host": "h",
+          "port": 22,
+          "username": "u",
+          "authType": "privateKey",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "",
+          "trustedFingerprint": ""
+        }
+      ]
+    },
+    {
+      "name": "secret-like fields never persist",
+      "input": [
+        {
+          "id": "s",
+          "name": "S",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": true,
+          "password": "fixture-password",
+          "secret": "fixture-secret",
+          "passphrase": "fixture-passphrase",
+          "keyContents": "fixture-key"
+        }
+      ],
+      "expected": [
+        {
+          "id": "s",
+          "name": "S",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": true,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": false
+        }
+      ]
+    },
+    {
+      "name": "the first profile with an id wins across protocols",
+      "input": [
+        {
+          "id": "dup",
+          "name": "First",
+          "host": "a",
+          "port": 22,
+          "username": "u",
+          "authType": "auto",
+          "protocol": "sftp"
+        },
+        {
+          "id": "dup",
+          "name": "Second",
+          "host": "b",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftp"
+        }
+      ],
+      "expected": [
+        {
+          "id": "dup",
+          "name": "First",
+          "host": "a",
+          "port": 22,
+          "username": "u",
+          "authType": "auto",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "",
+          "trustedFingerprint": ""
+        }
+      ]
+    },
+    {
+      "name": "invalid ports and endpoints are rejected; explicit ports are kept",
+      "input": [
+        {
+          "id": "p0",
+          "name": "P",
+          "host": "h",
+          "port": 0,
+          "username": "u",
+          "protocol": "ftp"
+        },
+        {
+          "id": "pstr",
+          "name": "P",
+          "host": "h",
+          "port": "21",
+          "username": "u",
+          "protocol": "ftp"
+        },
+        {
+          "id": "pbig",
+          "name": "P",
+          "host": "h",
+          "port": 70000,
+          "username": "u",
+          "protocol": "ftp"
+        },
+        {
+          "id": "pfrac",
+          "name": "P",
+          "host": "h",
+          "port": 21.5,
+          "username": "u",
+          "protocol": "ftp"
+        },
+        {
+          "id": "hlong",
+          "name": "H",
+          "host": "hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh",
+          "port": 21,
+          "username": "u",
+          "protocol": "ftp"
+        },
+        {
+          "id": "hctl",
+          "name": "H",
+          "host": "h\nevil",
+          "port": 21,
+          "username": "u",
+          "protocol": "ftp"
+        },
+        {
+          "id": "ulong",
+          "name": "U",
+          "host": "h",
+          "port": 21,
+          "username": "uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu",
+          "protocol": "ftp"
+        },
+        {
+          "id": "bad/id",
+          "name": "B",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "protocol": "ftp"
+        },
+        {
+          "id": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+          "name": "B",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "protocol": "ftp"
+        },
+        {
+          "id": "noname",
+          "name": "  ",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "protocol": "ftp"
+        },
+        {
+          "id": "nouser",
+          "name": "N",
+          "host": "h",
+          "port": 21,
+          "username": "",
+          "authType": "password",
+          "protocol": "ftp"
+        },
+        {
+          "id": "implicit-21",
+          "name": "Custom port",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "ftpTls": "implicit"
+        }
+      ],
+      "expected": [
+        {
+          "id": "implicit-21",
+          "name": "Custom port",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "implicit",
+          "tlsTrustedCertificate": ""
+        }
+      ]
+    },
+    {
+      "name": "text is trimmed and bounded like JavaScript",
+      "input": [
+        {
+          "id": "﻿trimmed ",
+          "name": "　🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️ ",
+          "host": "﻿ host.example.test  ",
+          "port": 21,
+          "username": " user ",
+          "authType": "password",
+          "protocol": "ftp",
+          "initialPath": "/a\u0000b"
+        }
+      ],
+      "expected": [
+        {
+          "id": "trimmed",
+          "name": "🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️🛰️",
+          "host": "host.example.test",
+          "port": 21,
+          "username": "user",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": false
+        }
+      ]
+    },
+    {
+      "name": "invalid certificate pins are cleared",
+      "input": [
+        {
+          "id": "pin",
+          "name": "Pin",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "tlsTrustedCertificate": "not-a-sha256"
+        },
+        {
+          "id": "pin2",
+          "name": "Pin",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "tlsTrustedCertificate": "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg"
+        }
+      ],
+      "expected": [
+        {
+          "id": "pin",
+          "name": "Pin",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "explicit",
+          "tlsTrustedCertificate": ""
+        },
+        {
+          "id": "pin2",
+          "name": "Pin",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "explicit",
+          "tlsTrustedCertificate": ""
+        }
+      ]
+    }
+  ],
+  "trustReset": [
+    {
+      "name": "rename and username changes keep trust",
+      "previous": [
+        {
+          "id": "ftp",
+          "name": "F",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": true
+        },
+        {
+          "id": "ftps",
+          "name": "S",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "explicit",
+          "tlsTrustedCertificate": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+        },
+        {
+          "id": "sftp",
+          "name": "P",
+          "host": "h",
+          "port": 22,
+          "username": "u",
+          "authType": "auto",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "",
+          "trustedFingerprint": "SHA256:abc"
+        }
+      ],
+      "next": [
+        {
+          "id": "ftp",
+          "name": "Renamed",
+          "host": "h",
+          "port": 21,
+          "username": "other",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": true
+        },
+        {
+          "id": "ftps",
+          "name": "S",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "explicit",
+          "tlsTrustedCertificate": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+        },
+        {
+          "id": "sftp",
+          "name": "P",
+          "host": "h",
+          "port": 22,
+          "username": "u",
+          "authType": "auto",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "",
+          "trustedFingerprint": "SHA256:abc"
+        }
+      ],
+      "expected": [
+        {
+          "id": "ftp",
+          "name": "Renamed",
+          "host": "h",
+          "port": 21,
+          "username": "other",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": true
+        },
+        {
+          "id": "ftps",
+          "name": "S",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "explicit",
+          "tlsTrustedCertificate": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+        },
+        {
+          "id": "sftp",
+          "name": "P",
+          "host": "h",
+          "port": 22,
+          "username": "u",
+          "authType": "auto",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "",
+          "trustedFingerprint": "SHA256:abc"
+        }
+      ]
+    },
+    {
+      "name": "host change clears the plaintext acknowledgement",
+      "previous": [
+        {
+          "id": "ftp",
+          "name": "F",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": true
+        },
+        {
+          "id": "ftps",
+          "name": "S",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "explicit",
+          "tlsTrustedCertificate": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+        },
+        {
+          "id": "sftp",
+          "name": "P",
+          "host": "h",
+          "port": 22,
+          "username": "u",
+          "authType": "auto",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "",
+          "trustedFingerprint": "SHA256:abc"
+        }
+      ],
+      "next": [
+        {
+          "id": "ftp",
+          "name": "F",
+          "host": "other",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": true
+        },
+        {
+          "id": "ftps",
+          "name": "S",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "explicit",
+          "tlsTrustedCertificate": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+        },
+        {
+          "id": "sftp",
+          "name": "P",
+          "host": "h",
+          "port": 22,
+          "username": "u",
+          "authType": "auto",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "",
+          "trustedFingerprint": "SHA256:abc"
+        }
+      ],
+      "expected": [
+        {
+          "id": "ftp",
+          "name": "F",
+          "host": "other",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": false
+        },
+        {
+          "id": "ftps",
+          "name": "S",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "explicit",
+          "tlsTrustedCertificate": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+        },
+        {
+          "id": "sftp",
+          "name": "P",
+          "host": "h",
+          "port": 22,
+          "username": "u",
+          "authType": "auto",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "",
+          "trustedFingerprint": "SHA256:abc"
+        }
+      ]
+    },
+    {
+      "name": "port change clears the certificate pin",
+      "previous": [
+        {
+          "id": "ftp",
+          "name": "F",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": true
+        },
+        {
+          "id": "ftps",
+          "name": "S",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "explicit",
+          "tlsTrustedCertificate": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+        },
+        {
+          "id": "sftp",
+          "name": "P",
+          "host": "h",
+          "port": 22,
+          "username": "u",
+          "authType": "auto",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "",
+          "trustedFingerprint": "SHA256:abc"
+        }
+      ],
+      "next": [
+        {
+          "id": "ftp",
+          "name": "F",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": true
+        },
+        {
+          "id": "ftps",
+          "name": "S",
+          "host": "h",
+          "port": 990,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "explicit",
+          "tlsTrustedCertificate": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+        },
+        {
+          "id": "sftp",
+          "name": "P",
+          "host": "h",
+          "port": 22,
+          "username": "u",
+          "authType": "auto",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "",
+          "trustedFingerprint": "SHA256:abc"
+        }
+      ],
+      "expected": [
+        {
+          "id": "ftp",
+          "name": "F",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": true
+        },
+        {
+          "id": "ftps",
+          "name": "S",
+          "host": "h",
+          "port": 990,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "explicit",
+          "tlsTrustedCertificate": ""
+        },
+        {
+          "id": "sftp",
+          "name": "P",
+          "host": "h",
+          "port": 22,
+          "username": "u",
+          "authType": "auto",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "",
+          "trustedFingerprint": "SHA256:abc"
+        }
+      ]
+    },
+    {
+      "name": "TLS mode change clears the certificate pin",
+      "previous": [
+        {
+          "id": "ftp",
+          "name": "F",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": true
+        },
+        {
+          "id": "ftps",
+          "name": "S",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "explicit",
+          "tlsTrustedCertificate": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+        },
+        {
+          "id": "sftp",
+          "name": "P",
+          "host": "h",
+          "port": 22,
+          "username": "u",
+          "authType": "auto",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "",
+          "trustedFingerprint": "SHA256:abc"
+        }
+      ],
+      "next": [
+        {
+          "id": "ftp",
+          "name": "F",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": true
+        },
+        {
+          "id": "ftps",
+          "name": "S",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "implicit",
+          "tlsTrustedCertificate": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+        },
+        {
+          "id": "sftp",
+          "name": "P",
+          "host": "h",
+          "port": 22,
+          "username": "u",
+          "authType": "auto",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "",
+          "trustedFingerprint": "SHA256:abc"
+        }
+      ],
+      "expected": [
+        {
+          "id": "ftp",
+          "name": "F",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": true
+        },
+        {
+          "id": "ftps",
+          "name": "S",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "implicit",
+          "tlsTrustedCertificate": ""
+        },
+        {
+          "id": "sftp",
+          "name": "P",
+          "host": "h",
+          "port": 22,
+          "username": "u",
+          "authType": "auto",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "",
+          "trustedFingerprint": "SHA256:abc"
+        }
+      ]
+    },
+    {
+      "name": "FTPS to FTP never carries an acknowledgement",
+      "previous": [
+        {
+          "id": "ftp",
+          "name": "F",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": true
+        },
+        {
+          "id": "ftps",
+          "name": "S",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "explicit",
+          "tlsTrustedCertificate": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+        },
+        {
+          "id": "sftp",
+          "name": "P",
+          "host": "h",
+          "port": 22,
+          "username": "u",
+          "authType": "auto",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "",
+          "trustedFingerprint": "SHA256:abc"
+        }
+      ],
+      "next": [
+        {
+          "id": "ftp",
+          "name": "F",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": true
+        },
+        {
+          "id": "ftps",
+          "name": "S",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": true
+        },
+        {
+          "id": "sftp",
+          "name": "P",
+          "host": "h",
+          "port": 22,
+          "username": "u",
+          "authType": "auto",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "",
+          "trustedFingerprint": "SHA256:abc"
+        }
+      ],
+      "expected": [
+        {
+          "id": "ftp",
+          "name": "F",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": true
+        },
+        {
+          "id": "ftps",
+          "name": "S",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": false
+        },
+        {
+          "id": "sftp",
+          "name": "P",
+          "host": "h",
+          "port": 22,
+          "username": "u",
+          "authType": "auto",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "",
+          "trustedFingerprint": "SHA256:abc"
+        }
+      ]
+    },
+    {
+      "name": "FTP to FTPS never carries a pin",
+      "previous": [
+        {
+          "id": "ftp",
+          "name": "F",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": true
+        },
+        {
+          "id": "ftps",
+          "name": "S",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "explicit",
+          "tlsTrustedCertificate": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+        },
+        {
+          "id": "sftp",
+          "name": "P",
+          "host": "h",
+          "port": 22,
+          "username": "u",
+          "authType": "auto",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "",
+          "trustedFingerprint": "SHA256:abc"
+        }
+      ],
+      "next": [
+        {
+          "id": "ftp",
+          "name": "F",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "explicit",
+          "tlsTrustedCertificate": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+        },
+        {
+          "id": "ftps",
+          "name": "S",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "explicit",
+          "tlsTrustedCertificate": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+        },
+        {
+          "id": "sftp",
+          "name": "P",
+          "host": "h",
+          "port": 22,
+          "username": "u",
+          "authType": "auto",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "",
+          "trustedFingerprint": "SHA256:abc"
+        }
+      ],
+      "expected": [
+        {
+          "id": "ftp",
+          "name": "F",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "explicit",
+          "tlsTrustedCertificate": ""
+        },
+        {
+          "id": "ftps",
+          "name": "S",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "explicit",
+          "tlsTrustedCertificate": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+        },
+        {
+          "id": "sftp",
+          "name": "P",
+          "host": "h",
+          "port": 22,
+          "username": "u",
+          "authType": "auto",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "",
+          "trustedFingerprint": "SHA256:abc"
+        }
+      ]
+    },
+    {
+      "name": "SFTP host-key trust is left to the existing SFTP flow",
+      "previous": [
+        {
+          "id": "ftp",
+          "name": "F",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": true
+        },
+        {
+          "id": "ftps",
+          "name": "S",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "explicit",
+          "tlsTrustedCertificate": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+        },
+        {
+          "id": "sftp",
+          "name": "P",
+          "host": "h",
+          "port": 22,
+          "username": "u",
+          "authType": "auto",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "",
+          "trustedFingerprint": "SHA256:abc"
+        }
+      ],
+      "next": [
+        {
+          "id": "ftp",
+          "name": "F",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": true
+        },
+        {
+          "id": "ftps",
+          "name": "S",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "explicit",
+          "tlsTrustedCertificate": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+        },
+        {
+          "id": "sftp",
+          "name": "P",
+          "host": "other",
+          "port": 22,
+          "username": "u",
+          "authType": "auto",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "",
+          "trustedFingerprint": "SHA256:abc"
+        }
+      ],
+      "expected": [
+        {
+          "id": "ftp",
+          "name": "F",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": true
+        },
+        {
+          "id": "ftps",
+          "name": "S",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "explicit",
+          "tlsTrustedCertificate": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+        },
+        {
+          "id": "sftp",
+          "name": "P",
+          "host": "other",
+          "port": 22,
+          "username": "u",
+          "authType": "auto",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "",
+          "trustedFingerprint": "SHA256:abc"
+        }
+      ]
+    },
+    {
+      "name": "a new profile keeps its submitted trust",
+      "previous": [
+        {
+          "id": "ftp",
+          "name": "F",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": true
+        },
+        {
+          "id": "ftps",
+          "name": "S",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "explicit",
+          "tlsTrustedCertificate": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+        },
+        {
+          "id": "sftp",
+          "name": "P",
+          "host": "h",
+          "port": 22,
+          "username": "u",
+          "authType": "auto",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "",
+          "trustedFingerprint": "SHA256:abc"
+        }
+      ],
+      "next": [
+        {
+          "id": "ftp",
+          "name": "F",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": true
+        },
+        {
+          "id": "ftps",
+          "name": "S",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "explicit",
+          "tlsTrustedCertificate": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+        },
+        {
+          "id": "sftp",
+          "name": "P",
+          "host": "h",
+          "port": 22,
+          "username": "u",
+          "authType": "auto",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "",
+          "trustedFingerprint": "SHA256:abc"
+        },
+        {
+          "id": "new",
+          "name": "N",
+          "host": "n",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": true
+        }
+      ],
+      "expected": [
+        {
+          "id": "ftp",
+          "name": "F",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": true
+        },
+        {
+          "id": "ftps",
+          "name": "S",
+          "host": "h",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftps",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "ftpTls": "explicit",
+          "tlsTrustedCertificate": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+        },
+        {
+          "id": "sftp",
+          "name": "P",
+          "host": "h",
+          "port": 22,
+          "username": "u",
+          "authType": "auto",
+          "protocol": "sftp",
+          "savePassword": false,
+          "saveKeyPassphrase": false,
+          "sshConfigHost": "",
+          "privateKeyPath": "",
+          "initialPath": "",
+          "trustedFingerprint": "SHA256:abc"
+        },
+        {
+          "id": "new",
+          "name": "N",
+          "host": "n",
+          "port": 21,
+          "username": "u",
+          "authType": "password",
+          "protocol": "ftp",
+          "savePassword": false,
+          "initialPath": "",
+          "ftpDataMode": "passive",
+          "ftpEncoding": "utf-8",
+          "plaintextAcknowledged": true
+        }
+      ]
+    }
+  ]
+}

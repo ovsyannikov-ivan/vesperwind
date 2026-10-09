@@ -8,7 +8,7 @@ use std::{
 };
 use uuid::Uuid;
 
-const SETTINGS_VERSION: u64 = 8;
+const SETTINGS_VERSION: u64 = 9;
 const EDITOR_FORMATS_V6: &[&str] = &[
     ".jsx",
     ".tsx",
@@ -377,29 +377,201 @@ fn normalize_editable_files(value: &Value) -> Vec<String> {
     files
 }
 
-fn normalize_connections(value: Option<&Value>) -> Vec<Value> {
-    let mut seen = HashSet::new();
-    value.and_then(Value::as_array).into_iter().flatten().take(100).filter_map(|item| {
-        let id = item.get("id")?.as_str()?.trim();
-        let name = item.get("name")?.as_str()?.trim();
-        let host = item.get("host")?.as_str()?.trim();
-        let username = item.get("username")?.as_str()?.trim();
-        let port = item.get("port")?.as_u64()?;
-        if id.is_empty() || id.len() > 80 || !id.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c)) || name.is_empty() || host.is_empty() || username.is_empty() || !(1..=65535).contains(&port) || !seen.insert(id.to_string()) { return None; }
-        let auth_type = item.get("authType").and_then(Value::as_str).filter(|v| ["auto", "agent", "password", "privateKey"].contains(v)).unwrap_or("privateKey");
-        let trusted = item.get("trustedFingerprint").and_then(Value::as_str).filter(|value| value.starts_with("SHA256:")).unwrap_or("");
-        Some(json!({
+// Connection profiles. shared/defaultSettings.js implements the same rules;
+// test/fixtures/settings/connection-profiles.json is the parity contract.
+// Profiles contain metadata only and never secrets.
+const CONNECTION_PROTOCOLS: &[&str] = &["sftp", "ftp", "ftps"];
+const SFTP_AUTH_TYPES: &[&str] = &["auto", "agent", "password", "privateKey"];
+const FTP_AUTH_TYPES: &[&str] = &["password", "anonymous"];
+const FTP_TLS_MODES: &[&str] = &["explicit", "implicit"];
+
+/// `String.prototype.trim` semantics, so both backends trim identically.
+fn js_trim(value: &str) -> &str {
+    let space = |c: char| {
+        matches!(
+            c,
+            '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
+                ..='\u{200a}'
+                    | '\u{2028}'
+                    | '\u{2029}'
+                    | '\u{202f}'
+                    | '\u{205f}'
+                    | '\u{3000}'
+                    | '\u{feff}'
+        )
+    };
+    value.trim_matches(space)
+}
+fn bounded_text(value: Option<&Value>, limit: usize) -> Option<String> {
+    let text = js_trim(value?.as_str()?);
+    (text.chars().count() <= limit && !text.chars().any(|c| c <= '\u{1f}' || c == '\u{7f}'))
+        .then(|| text.to_string())
+}
+fn optional_text(value: Option<&Value>, limit: usize) -> String {
+    bounded_text(value, limit).unwrap_or_default()
+}
+fn normalize_port(value: Option<&Value>) -> Option<u64> {
+    let value = value?;
+    let port = value.as_u64().or_else(|| {
+        value
+            .as_f64()
+            .filter(|v| v.fract() == 0.0 && *v >= 0.0)
+            .map(|v| v as u64)
+    })?;
+    (1..=65535).contains(&port).then_some(port)
+}
+/// SHA-256 of the DER certificate as 64 lowercase hex digits.
+pub(crate) fn normalize_certificate_pin(value: Option<&Value>) -> String {
+    let pin: String = value
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .chars()
+        .filter(|c| *c != ':')
+        .collect::<String>()
+        .to_ascii_lowercase();
+    if pin.len() == 64 && pin.chars().all(|c| c.is_ascii_hexdigit()) {
+        pin
+    } else {
+        String::new()
+    }
+}
+
+fn normalize_connection(item: &Value) -> Option<Value> {
+    let item = item.as_object()?;
+    let id = js_trim(item.get("id")?.as_str()?);
+    // A missing protocol is a legacy SFTP profile; an unknown one is never SFTP.
+    let protocol = match item.get("protocol") {
+        None | Some(Value::Null) => "sftp",
+        Some(value) => value.as_str()?,
+    };
+    if id.is_empty()
+        || id.len() > 80
+        || !id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))
+        || !CONNECTION_PROTOCOLS.contains(&protocol)
+    {
+        return None;
+    }
+    let name: String = item
+        .get("name")
+        .and_then(Value::as_str)
+        .map(|value| js_trim(value).chars().take(120).collect())
+        .unwrap_or_default();
+    let host = bounded_text(item.get("host"), 255)?;
+    let port = normalize_port(item.get("port"))?;
+    let mut username = bounded_text(item.get("username"), 128)?;
+    if name.is_empty() || host.is_empty() {
+        return None;
+    }
+    let flag = |key: &str| item.get(key).and_then(Value::as_bool).unwrap_or(false);
+    if protocol == "sftp" {
+        if username.is_empty() {
+            return None;
+        }
+        let auth_type = item
+            .get("authType")
+            .and_then(Value::as_str)
+            .filter(|v| SFTP_AUTH_TYPES.contains(v))
+            .unwrap_or("privateKey");
+        let trusted = item
+            .get("trustedFingerprint")
+            .and_then(Value::as_str)
+            .filter(|value| {
+                value.len() <= 100
+                    && value.strip_prefix("SHA256:").is_some_and(|rest| {
+                        !rest.is_empty()
+                            && rest
+                                .chars()
+                                .all(|c| c.is_ascii_alphanumeric() || "+/=".contains(c))
+                    })
+            })
+            .unwrap_or("");
+        return Some(json!({
             "id": id, "name": name, "host": host, "port": port, "username": username,
             "authType": auth_type,
             "protocol": "sftp",
-            "savePassword": (["auto", "password"].contains(&auth_type) && item.get("savePassword").and_then(Value::as_bool).unwrap_or(false)),
-            "saveKeyPassphrase": (["auto", "privateKey"].contains(&auth_type) && item.get("saveKeyPassphrase").and_then(Value::as_bool).unwrap_or(false)),
-            "sshConfigHost": item.get("sshConfigHost").and_then(Value::as_str).unwrap_or("").trim(),
-            "privateKeyPath": if ["auto", "privateKey"].contains(&auth_type) { item.get("privateKeyPath").and_then(Value::as_str).unwrap_or("").trim() } else { "" },
-            "initialPath": item.get("initialPath").and_then(Value::as_str).unwrap_or("").trim(),
+            "savePassword": (["auto", "password"].contains(&auth_type) && flag("savePassword")),
+            "saveKeyPassphrase": (["auto", "privateKey"].contains(&auth_type) && flag("saveKeyPassphrase")),
+            "sshConfigHost": optional_text(item.get("sshConfigHost"), 255),
+            "privateKeyPath": if ["auto", "privateKey"].contains(&auth_type) { optional_text(item.get("privateKeyPath"), 4096) } else { String::new() },
+            "initialPath": optional_text(item.get("initialPath"), 4096),
             "trustedFingerprint": trusted,
-        }))
-    }).collect()
+        }));
+    }
+    let auth_type = item
+        .get("authType")
+        .and_then(Value::as_str)
+        .filter(|v| FTP_AUTH_TYPES.contains(v))
+        .unwrap_or("password");
+    if username.is_empty() && auth_type == "anonymous" {
+        username = "anonymous".into();
+    }
+    if username.is_empty() {
+        return None;
+    }
+    let mut profile = json!({
+        "id": id, "name": name, "host": host, "port": port, "username": username,
+        "authType": auth_type,
+        "protocol": protocol,
+        "savePassword": (auth_type == "password" && flag("savePassword")),
+        "initialPath": optional_text(item.get("initialPath"), 4096),
+        "ftpDataMode": "passive",
+        "ftpEncoding": "utf-8",
+    });
+    if protocol == "ftps" {
+        profile["ftpTls"] = json!(item
+            .get("ftpTls")
+            .and_then(Value::as_str)
+            .filter(|v| FTP_TLS_MODES.contains(v))
+            .unwrap_or("explicit"));
+        profile["tlsTrustedCertificate"] =
+            json!(normalize_certificate_pin(item.get("tlsTrustedCertificate")));
+    } else {
+        profile["plaintextAcknowledged"] = json!(flag("plaintextAcknowledged"));
+    }
+    Some(profile)
+}
+
+fn normalize_connections(value: Option<&Value>) -> Vec<Value> {
+    let mut seen = HashSet::new();
+    value
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .take(100)
+        .filter_map(normalize_connection)
+        // The first profile with an id wins, so credential identities stay unique.
+        .filter(|profile| seen.insert(profile["id"].as_str().unwrap_or("").to_string()))
+        .collect()
+}
+
+/// Trust belongs to an endpoint. When a saved FTP/FTPS profile moves to
+/// another protocol, host, port or TLS mode, its plaintext acknowledgement
+/// and certificate pin are cleared. SFTP host-key trust is unchanged.
+pub(crate) fn reset_changed_connection_trust(previous: &Value, next: &mut Value) {
+    let before = previous["connections"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let Some(profiles) = next["connections"].as_array_mut() else {
+        return;
+    };
+    for profile in profiles {
+        let Some(old) = before.iter().find(|old| old["id"] == profile["id"]) else {
+            continue;
+        };
+        let endpoint_changed = old["protocol"] != profile["protocol"]
+            || old["host"] != profile["host"]
+            || old["port"] != profile["port"];
+        if profile["protocol"] == "ftp" && endpoint_changed {
+            profile["plaintextAcknowledged"] = json!(false);
+        }
+        if profile["protocol"] == "ftps" && (endpoint_changed || old["ftpTls"] != profile["ftpTls"])
+        {
+            profile["tlsTrustedCertificate"] = json!("");
+        }
+    }
 }
 
 fn normalize_string_list(
@@ -448,7 +620,10 @@ fn settings_io_error(error: std::io::Error) -> NativeError {
 
 #[cfg(test)]
 mod tests {
-    use super::{default_settings, normalize_formatting, normalize_settings, SettingsStore};
+    use super::{
+        default_settings, normalize_connections, normalize_formatting, normalize_settings,
+        reset_changed_connection_trust, SettingsStore,
+    };
     use serde_json::json;
 
     #[test]
@@ -493,6 +668,69 @@ mod tests {
             &json!({"version": 7, "editor": {"editableFiles": [".js", ".html"]}}),
         );
         assert_eq!(custom["editor"]["editableFiles"], json!([".js", ".html"]));
+    }
+
+    // Shared with test/connectionProfiles.test.js; both backends must agree.
+    const CONNECTION_FIXTURES: &str =
+        include_str!("../../../test/fixtures/settings/connection-profiles.json");
+
+    #[test]
+    fn connection_profiles_match_the_shared_javascript_fixtures() {
+        let fixtures: serde_json::Value = serde_json::from_str(CONNECTION_FIXTURES).unwrap();
+        for case in fixtures["normalize"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let normalized = normalize_connections(Some(&case["input"]));
+            assert_eq!(json!(normalized), case["expected"], "{name}");
+            let again = normalize_connections(Some(&case["expected"]));
+            assert_eq!(json!(again), case["expected"], "{name} (fixed point)");
+        }
+        for case in fixtures["trustReset"].as_array().unwrap() {
+            let previous = json!({ "connections": case["previous"] });
+            let mut next = json!({ "connections": case["next"] });
+            reset_changed_connection_trust(&previous, &mut next);
+            assert_eq!(next["connections"], case["expected"], "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn settings_v8_sftp_profiles_migrate_to_v9_unchanged() {
+        let fixtures: serde_json::Value = serde_json::from_str(CONNECTION_FIXTURES).unwrap();
+        let v8 = fixtures["normalize"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|case| case["name"] == "v8 SFTP profiles are unchanged")
+            .unwrap();
+        let settings = normalize_settings(&json!({"version": 8, "connections": v8["input"]}));
+        assert_eq!(settings["version"], 9);
+        assert_eq!(settings["connections"], v8["input"]);
+    }
+
+    #[test]
+    fn ftp_profiles_survive_a_settings_store_round_trip() {
+        let fixtures: serde_json::Value = serde_json::from_str(CONNECTION_FIXTURES).unwrap();
+        let profiles: Vec<_> = fixtures["normalize"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|case| {
+                let name = case["name"].as_str().unwrap();
+                name.contains("round trips") || name.contains("implicit anonymous")
+            })
+            .flat_map(|case| case["expected"].as_array().unwrap().clone())
+            .collect();
+        let path = std::env::temp_dir()
+            .join(format!("vesper-ftp-settings-{}", uuid::Uuid::new_v4()))
+            .join("settings.json");
+        let store = SettingsStore::at_path(path.clone());
+        store
+            .save(&json!({ "connections": profiles, "appearance": {"theme":"dark"} }))
+            .unwrap();
+        let reopened = SettingsStore::at_path(path.clone()).load().unwrap();
+        assert_eq!(reopened["connections"], json!(profiles));
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(!raw.contains("fixture-password"));
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]

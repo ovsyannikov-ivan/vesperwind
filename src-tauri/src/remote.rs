@@ -5,6 +5,7 @@
 //! never reaches a protocol manager. Each protocol keeps its own connection,
 //! authentication and reconnect policy; this module only routes requests.
 use crate::{
+    connections::ConnectionProfile,
     error::NativeError,
     filesystem::{
         operations::OperationRequest,
@@ -144,6 +145,22 @@ enum Backend<'a> {
 impl RemoteProviders {
     pub fn new(ssh: Arc<SshManager>) -> Self {
         Self { ssh }
+    }
+
+    /// The SSH manager also owns the shared CredentialStore and the
+    /// profile-update lock used by settings reconciliation.
+    pub fn ssh(&self) -> &Arc<SshManager> {
+        &self.ssh
+    }
+
+    /// Ends the session of a saved profile, routed by that profile's own
+    /// protocol. Profile ids are unique across protocols, so an FTP/FTPS id
+    /// can never close an SFTP session. FTP/FTPS have no sessions yet; their
+    /// manager plugs in here.
+    pub fn disconnect_profile(&self, profile: &ConnectionProfile) {
+        if profile.is_sftp() {
+            self.ssh.disconnect(&profile.id);
+        }
     }
 
     fn backend(&self, provider_id: &str) -> Result<Backend<'_>, NativeError> {

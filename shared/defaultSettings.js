@@ -1,7 +1,7 @@
 import { EDITOR_THEMES as editorThemes } from './editorThemeCatalog.js'
 import { DEFAULT_FORMATTING, normalizeFormatting } from './editorFormatting.js'
 
-export const SETTINGS_VERSION = 8
+export const SETTINGS_VERSION = 9
 const editorThemeIds = new Set(editorThemes.map(({ id }) => id))
 export const normalizeEditorTheme = (id) => editorThemeIds.has(id) ? id : 'auto'
 
@@ -130,36 +130,94 @@ export const normalizeEditableFiles = (value) => {
   return [...uniqueEntries.values()]
 }
 
+// Connection profiles. The Rust backend (src-tauri/src/settings/mod.rs)
+// implements the same rules; test/fixtures/settings/connection-profiles.json
+// is the shared parity contract. Profiles never contain secrets.
+export const CONNECTION_PROTOCOLS = Object.freeze(['sftp', 'ftp', 'ftps'])
+const SFTP_AUTH_TYPES = ['auto', 'agent', 'password', 'privateKey']
+const FTP_AUTH_TYPES = ['password', 'anonymous']
+const FTP_TLS_MODES = ['explicit', 'implicit']
+const PROFILE_ID = /^[A-Za-z0-9._-]{1,80}$/
+const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/
+
+// Ports are suggested only when a profile is created; normalization never
+// replaces a port the profile already has.
+export const defaultConnectionPort = (protocol, ftpTls = 'explicit') =>
+  protocol === 'sftp' ? 22 : protocol === 'ftps' && ftpTls === 'implicit' ? 990 : 21
+export const defaultConnectionAuthType = (protocol) => protocol === 'sftp' ? 'auto' : 'password'
+export const isSftpProfile = (profile) => profile?.protocol === 'sftp'
+
+// Trimmed string within a code point limit and without control characters.
+const boundedText = (value, limit) => {
+  if (typeof value !== 'string') return null
+  const text = value.trim()
+  return [...text].length <= limit && !CONTROL_CHARACTER.test(text) ? text : null
+}
+const optionalText = (value, limit) => boundedText(value, limit) ?? ''
+const normalizePort = (value) => Number.isInteger(value) && value >= 1 && value <= 65535 ? value : null
+// SHA-256 of the DER certificate as 64 lowercase hex digits; colons allowed on input.
+export const normalizeCertificatePin = (value) => {
+  if (typeof value !== 'string') return ''
+  const pin = value.replaceAll(':', '').toLowerCase()
+  return /^[0-9a-f]{64}$/.test(pin) ? pin : ''
+}
+
 const normalizeConnectionProfile = (value) => {
-  if (!value || typeof value !== 'object') return null
-  const id = String(value.id || '').trim().slice(0, 80)
-  const name = String(value.name || '').trim().slice(0, 120)
-  const host = String(value.host || '').trim().slice(0, 255)
-  const username = String(value.username || '').trim().slice(0, 128)
-  const port = Number.parseInt(value.port, 10)
-  const authType = ['auto', 'agent', 'password', 'privateKey'].includes(value.authType) ? value.authType : 'privateKey'
-  if (!/^[A-Za-z0-9._-]+$/.test(id) || !name || !host || !username || port < 1 || port > 65535) {
-    return null
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const id = typeof value.id === 'string' ? value.id.trim() : ''
+  // A missing protocol is a legacy SFTP profile; an unknown one is never SFTP.
+  const protocol = value.protocol === undefined || value.protocol === null ? 'sftp' : value.protocol
+  if (!PROFILE_ID.test(id) || !CONNECTION_PROTOCOLS.includes(protocol)) return null
+  const name = typeof value.name === 'string' ? [...value.name.trim()].slice(0, 120).join('') : ''
+  const host = boundedText(value.host, 255)
+  const port = normalizePort(value.port)
+  let username = boundedText(value.username, 128)
+  if (!name || !host || port === null || username === null) return null
+  if (protocol === 'sftp') {
+    if (!username) return null
+    const authType = SFTP_AUTH_TYPES.includes(value.authType) ? value.authType : 'privateKey'
+    const trustedFingerprint = typeof value.trustedFingerprint === 'string'
+      && value.trustedFingerprint.length <= 100 && /^SHA256:[A-Za-z0-9+/=]+$/.test(value.trustedFingerprint)
+      ? value.trustedFingerprint : ''
+    return {
+      id,
+      name,
+      host,
+      port,
+      username,
+      authType,
+      protocol,
+      savePassword: ['auto', 'password'].includes(authType) && value.savePassword === true,
+      saveKeyPassphrase: ['auto', 'privateKey'].includes(authType) && value.saveKeyPassphrase === true,
+      sshConfigHost: optionalText(value.sshConfigHost, 255),
+      privateKeyPath: ['auto', 'privateKey'].includes(authType) ? optionalText(value.privateKeyPath, 4096) : '',
+      initialPath: optionalText(value.initialPath, 4096),
+      trustedFingerprint,
+    }
   }
-  return {
+  const authType = FTP_AUTH_TYPES.includes(value.authType) ? value.authType : 'password'
+  if (!username && authType === 'anonymous') username = 'anonymous'
+  if (!username) return null
+  const profile = {
     id,
     name,
     host,
     port,
     username,
     authType,
-    protocol: 'sftp',
-    savePassword: ['auto', 'password'].includes(authType) && value.savePassword === true,
-    saveKeyPassphrase: ['auto', 'privateKey'].includes(authType) && value.saveKeyPassphrase === true,
-    sshConfigHost: String(value.sshConfigHost || '').trim().slice(0, 255),
-    privateKeyPath: ['auto', 'privateKey'].includes(authType)
-      ? String(value.privateKeyPath || '').trim().slice(0, 4096)
-      : '',
-    initialPath: String(value.initialPath || '').trim().slice(0, 4096),
-    trustedFingerprint: /^SHA256:[A-Za-z0-9+/=]+$/.test(value.trustedFingerprint || '')
-      ? value.trustedFingerprint
-      : '',
+    protocol,
+    savePassword: authType === 'password' && value.savePassword === true,
+    initialPath: optionalText(value.initialPath, 4096),
+    ftpDataMode: 'passive',
+    ftpEncoding: 'utf-8',
   }
+  if (protocol === 'ftps') {
+    profile.ftpTls = FTP_TLS_MODES.includes(value.ftpTls) ? value.ftpTls : 'explicit'
+    profile.tlsTrustedCertificate = normalizeCertificatePin(value.tlsTrustedCertificate)
+  } else {
+    profile.plaintextAcknowledged = value.plaintextAcknowledged === true
+  }
+  return profile
 }
 
 export const normalizeConnectionProfiles = (value) => {
@@ -167,9 +225,29 @@ export const normalizeConnectionProfiles = (value) => {
   const profiles = new Map()
   for (const item of value.slice(0, 100)) {
     const profile = normalizeConnectionProfile(item)
-    if (profile) profiles.set(profile.id, profile)
+    // The first profile with an id wins, so credential identities stay unique.
+    if (profile && !profiles.has(profile.id)) profiles.set(profile.id, profile)
   }
   return [...profiles.values()]
+}
+
+// Trust belongs to an endpoint. When a saved FTP/FTPS profile moves to another
+// protocol, host, port or TLS mode, its plaintext acknowledgement and
+// certificate pin are cleared; they must be confirmed again for the new one.
+export const resetChangedConnectionTrust = (previous, next) => {
+  const before = new Map((Array.isArray(previous) ? previous : []).map(profile => [profile.id, profile]))
+  return next.map((profile) => {
+    const old = before.get(profile.id)
+    if (!old || profile.protocol === 'sftp') return profile
+    const endpointChanged = old.protocol !== profile.protocol || old.host !== profile.host || old.port !== profile.port
+    if (profile.protocol === 'ftp' && endpointChanged && profile.plaintextAcknowledged) {
+      return { ...profile, plaintextAcknowledged: false }
+    }
+    if (profile.protocol === 'ftps' && (endpointChanged || old.ftpTls !== profile.ftpTls) && profile.tlsTrustedCertificate) {
+      return { ...profile, tlsTrustedCertificate: '' }
+    }
+    return profile
+  })
 }
 
 export const createDefaultSettings = () => ({

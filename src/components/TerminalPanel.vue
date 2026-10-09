@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useSettings } from '../composables/useSettings.js'
+import { isSftpProfile } from '../api/connections.js'
 import {
   closeTerminalTab,
   createTerminalTab,
@@ -20,7 +21,8 @@ const menuStyle = ref({})
 const instances = ref({})
 let sequence = 0
 let localSequence = 0
-const profiles = computed(() => settings.value.connections || [])
+// SSH terminals are available for SFTP profiles only.
+const profiles = computed(() => (settings.value.connections || []).filter(isSftpProfile))
 const positionMenu = () => {
   const bounds = addButton.value?.getBoundingClientRect()
   if (!bounds) return

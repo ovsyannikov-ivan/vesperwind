@@ -2,6 +2,9 @@ import { backend } from './backend.js'
 import { normalizeApiResponse } from './response.js'
 import { permissionsApi } from './permissions.js'
 
+// Only SFTP profiles can connect until the FTP/FTPS backend exists.
+export { isSftpProfile } from '../../shared/defaultSettings.js'
+
 export const providerIdForConnection = (connectionId) => `sftp:${connectionId}`
 export const connectionIdFromProvider = (providerId) =>
   typeof providerId === 'string' && providerId.startsWith('sftp:')

@@ -6,6 +6,7 @@ import process from 'node:process'
 import {
   createDefaultSettings,
   normalizeSettings,
+  resetChangedConnectionTrust,
 } from '../shared/defaultSettings.js'
 
 const configuredSettingsPath = process.env.VESPERWIND_SETTINGS_PATH?.trim()
@@ -82,7 +83,11 @@ export const loadSettings = async () => {
 }
 
 export const saveSettings = async (value) => {
+  // An unreadable previous file must not block saving or resetting settings.
+  const previousSettings = await loadSettings().catch(() => null)
   const nextSettings = normalizeSettings(value)
+  // Same endpoint-trust rule as the native settings update.
+  nextSettings.connections = resetChangedConnectionTrust(previousSettings?.connections, nextSettings.connections)
   await persistSettings(nextSettings)
   cachedSettings = nextSettings
   return cachedSettings

@@ -2,7 +2,7 @@
 import Modal from 'bootstrap/js/dist/modal'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { filesystem } from '../api/filesystem.js'
-import { providerIdForConnection } from '../api/connections.js'
+import { isSftpProfile, providerIdForConnection } from '../api/connections.js'
 import { useSettings } from '../composables/useSettings.js'
 
 const props = defineProps({ open: Boolean, tab: Object, busy: Boolean, error: String })
@@ -21,7 +21,8 @@ let loadToken = 0
 
 const providers = computed(() => {
   const result = [{ id: 'local', name: 'Local' }]
-  for (const profile of settings.value.connections || []) result.push({ id: providerIdForConnection(profile.id), name: profile.name || profile.host })
+  // Only SFTP profiles have a provider until FTP/FTPS connections exist.
+  for (const profile of (settings.value.connections || []).filter(isSftpProfile)) result.push({ id: providerIdForConnection(profile.id), name: profile.name || profile.host })
   if (props.tab?.filesystemId && !result.some((provider) => provider.id === props.tab.filesystemId)) {
     result.push({ id: props.tab.filesystemId, name: props.tab.filesystemId })
   }
