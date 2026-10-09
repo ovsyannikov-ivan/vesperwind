@@ -134,7 +134,7 @@ test('production template has no image container until ready and fades only fill
   const { code, errors } = compileTemplate({ source: template, filename: 'ThumbnailPreview.vue', id: 'thumbnail-test' })
   assert.deepEqual(errors, [])
   const module = await import(`data:text/javascript;base64,${Buffer.from(code.replaceAll('from "vue"', `from ${JSON.stringify(import.meta.resolve('vue'))}`)).toString('base64')}`)
-  const render = (preview) => renderToString(createSSRApp({ props: ['preview'], render: module.render,
+  const render = (preview) => renderToString(createSSRApp({ props: ['preview', 'controlsTarget'], render: module.render,
     setup: () => ({ formatMediaDuration: (n) => String(n) }) }, { preview }))
   const pending = await render({ visible: true, time: 42, ratio: .5, url: '', loading: true })
   assert.match(pending, />42<\/span>/)

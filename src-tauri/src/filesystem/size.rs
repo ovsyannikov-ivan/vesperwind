@@ -231,10 +231,11 @@ pub fn calculate<F: FnMut(&SizeProgress)>(
     (walker.progress)(&walker.result);
     Ok(walker.result)
 }
-#[cfg(test)]
+// The walk test needs Unix symlinks and file descriptors; on other targets
+// the module would only import unused items.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    #[cfg(unix)]
     #[test]
     fn metadata_only_walk_never_follows_links_and_can_cancel() {
         let root = std::env::temp_dir().join(format!("vesper-size-{}", uuid::Uuid::new_v4()));

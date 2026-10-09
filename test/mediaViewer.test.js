@@ -34,7 +34,9 @@ test('builds an image carousel from sibling files and wraps navigation', () => {
   const first = node('first.jpg')
   const second = node('second.png')
   const video = node('clip.mp4')
-  const viewer = useMediaViewer()
+  // The composable registers scope cleanup, so it runs inside a scope.
+  const scope = effectScope()
+  const viewer = scope.run(() => useMediaViewer())
 
   assert.equal(
     viewer.openMedia({ node: first, siblings: [first, second, video] }),
@@ -50,13 +52,16 @@ test('builds an image carousel from sibling files and wraps navigation', () => {
   assert.equal(viewer.currentViewerMedia.value.path, first.path)
   viewer.showPrevious()
   assert.equal(viewer.currentViewerMedia.value.path, second.path)
+  scope.stop()
 })
 
 test('builds a video carousel with the MKV web fallback source', () => {
   const first = node('first.mp4')
   const second = node('second.mov')
   const matroska = node('archive.mkv')
-  const viewer = useMediaViewer()
+  // The composable registers scope cleanup, so it runs inside a scope.
+  const scope = effectScope()
+  const viewer = scope.run(() => useMediaViewer())
 
   viewer.openMedia({
     node: second,
@@ -69,6 +74,7 @@ test('builds a video carousel with the MKV web fallback source', () => {
     ['first.mp4', 'archive.mkv', 'second.mov'],
   )
   assert.equal(viewer.currentViewerMedia.value.path, second.path)
+  scope.stop()
 })
 
 test('native audio and subtitle selectors use vertical Bootstrap dropdown menus', () => {

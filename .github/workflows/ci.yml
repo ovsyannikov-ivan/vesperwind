@@ -18,10 +18,10 @@ jobs:
 
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
 
             - name: Setup Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@v7
               with:
                   node-version: 22
                   cache: npm
@@ -42,8 +42,8 @@ jobs:
         name: Archive worker / Linux
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v4
-            - uses: actions/setup-node@v4
+            - uses: actions/checkout@v7
+            - uses: actions/setup-node@v7
               with:
                   node-version: 22
             - uses: dtolnay/rust-toolchain@1.99.0
@@ -67,7 +67,7 @@ jobs:
 
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
 
             - name: Setup Rust
               uses: dtolnay/rust-toolchain@1.99.0
@@ -75,7 +75,7 @@ jobs:
                   components: rustfmt
 
             - name: Setup Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@v7
               with:
                   node-version: 22
 
@@ -131,7 +131,7 @@ jobs:
 
             - name: Upload native acceptance diagnostics
               if: always()
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@v7
               with:
                   name: native-macos-office-acceptance
                   path: ${{ runner.temp }}/vesperwind-native-acceptance
@@ -146,7 +146,7 @@ jobs:
 
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
 
             - name: Setup Rust
               uses: dtolnay/rust-toolchain@1.99.0
@@ -154,7 +154,7 @@ jobs:
                   components: rustfmt
 
             - name: Setup Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@v7
               with:
                   node-version: 22
 
@@ -200,7 +200,7 @@ jobs:
 
             - name: Upload native acceptance diagnostics
               if: always()
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@v7
               with:
                   name: native-windows-office-acceptance
                   path: ${{ runner.temp }}/vesperwind-native-acceptance
