@@ -249,6 +249,18 @@ where
     ) -> FtpResult<Self> {
         debug!("Connecting to server (secure)");
         let stream = TcpStream::connect(addr).map_err(FtpError::ConnectionError)?;
+        Self::connect_secure_implicit_with_stream(stream, tls_connector, domain)
+    }
+
+    /// Vesperwind: implicit FTPS over a caller-configured TCP stream, so its
+    /// connect, read and write timeouts also cover the TLS handshake and the
+    /// greeting.
+    #[cfg(all(feature = "secure", feature = "deprecated"))]
+    pub fn connect_secure_implicit_with_stream(
+        stream: TcpStream,
+        tls_connector: impl TlsConnector<Stream = T> + Send + Sync + 'static,
+        domain: &str,
+    ) -> FtpResult<Self> {
         debug!("Established connection with server");
         debug!("TLS OK; initializing ssl stream");
         let stream = tls_connector

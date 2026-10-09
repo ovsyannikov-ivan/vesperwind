@@ -8,7 +8,9 @@ use crate::{
     error::NativeError,
     filesystem::{
         operations::OperationRequest,
-        remote_ops::{remote_join, remote_name, RemoteEndpoint, RemoteSessions},
+        remote_ops::{
+            remote_join, remote_name, RemoteEndpoint, RemoteSessions, TransferRead, TransferWrite,
+        },
         FileEntry,
     },
 };
@@ -84,7 +86,8 @@ enum TerminalCommand {
 
 pub struct SshManager {
     pub credentials: Arc<CredentialStore>,
-    pub profile_updates: Mutex<()>,
+    /// Serializes connection, profile and settings changes; shared with FTP.
+    pub profile_updates: Arc<Mutex<()>>,
     settings: Option<Arc<crate::settings::SettingsStore>>,
     connections: Mutex<HashMap<String, Arc<RemoteConnection>>>,
     terminals: Mutex<HashMap<String, mpsc::Sender<TerminalCommand>>>,
@@ -110,11 +113,15 @@ impl SshManager {
     fn build(settings: Option<Arc<crate::settings::SettingsStore>>) -> Arc<Self> {
         Arc::new(Self {
             credentials: CredentialStore::native(),
-            profile_updates: Mutex::new(()),
+            profile_updates: Arc::new(Mutex::new(())),
             settings,
             connections: Mutex::new(HashMap::new()),
             terminals: Mutex::new(HashMap::new()),
         })
+    }
+
+    pub fn settings(&self) -> Option<Arc<crate::settings::SettingsStore>> {
+        self.settings.clone()
     }
 
     pub fn connect(
@@ -985,13 +992,13 @@ impl RemoteEndpoint for RemoteConnection {
             .filter(|v| v != "." && v != "..")
             .collect())
     }
-    fn open_read(&self, path: &str) -> Result<Box<dyn Read + '_>, NativeError> {
-        Ok(Box::new(
+    fn open_read(&self, path: &str) -> Result<Box<dyn TransferRead + '_>, NativeError> {
+        Ok(Box::new(SftpTransfer(
             self.sftp.open(Path::new(path)).map_err(sftp_error)?,
-        ))
+        )))
     }
-    fn create_new(&self, path: &str) -> Result<Box<dyn Write + '_>, NativeError> {
-        Ok(Box::new(
+    fn create_new(&self, path: &str) -> Result<Box<dyn TransferWrite + '_>, NativeError> {
+        Ok(Box::new(SftpTransfer(
             self.sftp
                 .open_mode(
                     Path::new(path),
@@ -1000,7 +1007,7 @@ impl RemoteEndpoint for RemoteConnection {
                     OpenType::File,
                 )
                 .map_err(sftp_error)?,
-        ))
+        )))
     }
     fn create_folder(&self, path: &str) -> Result<(), NativeError> {
         self.sftp.mkdir(Path::new(path), 0o755).map_err(sftp_error)
@@ -1012,6 +1019,36 @@ impl RemoteEndpoint for RemoteConnection {
     }
     fn remove(&self, requested: &str) -> Result<(), NativeError> {
         RemoteConnection::remove(self, requested)
+    }
+}
+
+/// An SFTP file handle in a transfer. Closing the handle reports whether the
+/// server accepted the written data; reads need no completion.
+struct SftpTransfer(ssh2::File);
+impl Read for SftpTransfer {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        self.0.read(buffer)
+    }
+}
+impl Write for SftpTransfer {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        self.0.write(buffer)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.flush()
+    }
+}
+impl TransferRead for SftpTransfer {
+    fn finish(self: Box<Self>) -> Result<(), NativeError> {
+        Ok(())
+    }
+}
+impl TransferWrite for SftpTransfer {
+    fn finish(mut self: Box<Self>) -> Result<(), NativeError> {
+        self.0
+            .flush()
+            .map_err(|e| NativeError::from_io(&e, "The file transfer failed"))?;
+        self.0.close().map_err(sftp_error)
     }
 }
 

@@ -65,7 +65,7 @@ pub fn ssh_config_resolve(payload: ConfigPayload) -> Value {
 #[tauri::command]
 pub fn connections_capabilities(state: State<'_, AppState>) -> Value {
     // `protocols` lists protocols that can connect in this build.
-    json!({"ok":true,"capabilities":{"credentialStore":state.ssh.credentials.available(),"sshConfig":true,"auto":true,"agent":true,"protocols":["sftp"]}})
+    json!({"ok":true,"capabilities":{"credentialStore":state.ssh.credentials.available(),"sshConfig":true,"auto":true,"agent":true,"protocols":["sftp","ftp","ftps"]}})
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     cell::Cell,
     collections::HashMap,
-    io::{Read, Write},
+    io::{BufRead, Read, Write},
     path::PathBuf,
     process::{Command, Stdio},
     sync::{
@@ -24,6 +24,10 @@ use std::{
 pub const DELETE_TIMEOUT_MS: u64 = 30_000;
 pub const OPERATION_TIMEOUT_MS: u64 = 600_000;
 thread_local! { static DEADLINE: Cell<Option<Instant>> = const { Cell::new(None) }; }
+#[cfg(test)]
+pub(crate) fn set_test_deadline(deadline: Option<Instant>) {
+    DEADLINE.with(|d| d.set(deadline));
+}
 pub(crate) fn checkpoint() -> Result<(), NativeError> {
     if DEADLINE.with(|d| d.get().is_some_and(|d| Instant::now() >= d)) {
         Err(NativeError::new(
@@ -101,12 +105,41 @@ struct Input {
     remote: OperationConnections,
 }
 
+/// Copy and move with a remote side transfer file contents. They are not
+/// bounded by the overall operation deadline but by inactivity: the helper
+/// reports progress, and an operation that makes none for `IDLE_TIMEOUT_MS`
+/// is stopped. Socket timeouts inside the helper are shorter than this.
+pub const TRANSFER_TIMEOUT_MS: u64 = 24 * 60 * 60 * 1000;
+pub const IDLE_TIMEOUT_MS: u64 = 120_000;
+/// Upper bound of one helper output line (progress or result).
+const MAX_FRAME: u64 = 2 * 1024 * 1024;
+
+pub fn is_remote_transfer(request: &OperationRequest) -> bool {
+    matches!(request.action.as_str(), "copy" | "move")
+        && [&request.filesystem_id, &request.target_filesystem_id]
+            .into_iter()
+            .flatten()
+            .any(|provider| provider != "local")
+}
+
 pub fn execute(
     filesystem: &Filesystem,
     remote_providers: &RemoteProviders,
     request: OperationRequest,
     cancelled: &AtomicBool,
 ) -> Result<OperationResult, NativeError> {
+    execute_with_progress(filesystem, remote_providers, request, cancelled, |_| {})
+}
+
+/// `on_progress` receives the bytes transferred so far, from this thread.
+pub fn execute_with_progress(
+    filesystem: &Filesystem,
+    remote_providers: &RemoteProviders,
+    request: OperationRequest,
+    cancelled: &AtomicBool,
+    mut on_progress: impl FnMut(u64),
+) -> Result<OperationResult, NativeError> {
+    let transfer = is_remote_transfer(&request);
     let timeout = request
         .timeout_ms
         .unwrap_or(if request.action == "delete" {
@@ -114,7 +147,15 @@ pub fn execute(
         } else {
             OPERATION_TIMEOUT_MS
         })
-        .clamp(1, OPERATION_TIMEOUT_MS);
+        .clamp(
+            1,
+            if transfer {
+                TRANSFER_TIMEOUT_MS
+            } else {
+                OPERATION_TIMEOUT_MS
+            },
+        );
+    let idle_timeout = transfer.then_some(Duration::from_millis(IDLE_TIMEOUT_MS));
     let deadline = Instant::now() + Duration::from_millis(timeout);
     let affected = request
         .source_path
@@ -124,6 +165,8 @@ pub fn execute(
     if cancelled.load(Ordering::Acquire) {
         return Err(stopped("ECANCELLED", &affected));
     }
+    let mut request = request;
+    request.timeout_ms = Some(timeout);
     let remote = remote_providers.operation_connections(&request)?;
     let input = Input {
         #[cfg(debug_assertions)]
@@ -161,14 +204,26 @@ pub fn execute(
         .spawn()
         .map_err(|e| NativeError::from_io(&e, "Unable to start the file operation worker"))?;
     // Read output concurrently, so even a long native path cannot fill a pipe
-    // and deadlock the parent waiting for exit. Protocol output is bounded.
+    // and deadlock the parent waiting for exit. Every line is bounded.
     let stdout = child.stdout.take().unwrap();
+    let (progress_sender, progress) = std::sync::mpsc::channel::<u64>();
     let reader = std::thread::spawn(move || {
-        let mut bytes = vec![];
-        stdout
-            .take(2 * 1024 * 1024)
-            .read_to_end(&mut bytes)
-            .map(|_| bytes)
+        let mut stdout = std::io::BufReader::new(stdout);
+        let mut last = Vec::new();
+        loop {
+            let mut line = Vec::new();
+            let read = (&mut stdout).take(MAX_FRAME).read_until(b'\n', &mut line)?;
+            if read == 0 {
+                break;
+            }
+            match serde_json::from_slice::<serde_json::Value>(&line) {
+                Ok(frame) if frame.get("progress").is_some() => {
+                    let _ = progress_sender.send(frame["progress"]["bytes"].as_u64().unwrap_or(0));
+                }
+                _ => last = line,
+            }
+        }
+        Ok::<_, std::io::Error>(last)
     });
     // The worker only reads stdin before any OS operation. This payload is
     // bounded to 2 MiB, and includes credentials solely in an anonymous pipe.
@@ -180,17 +235,26 @@ pub fn execute(
         // Closing it (including parent death) is the worker's lifetime signal.
         Ok::<_, std::io::Error>(stdin)
     });
+    let mut last_activity = Instant::now();
     let result = loop {
-        if cancelled.load(Ordering::Acquire) || Instant::now() >= deadline {
+        while let Ok(bytes) = progress.try_recv() {
+            last_activity = Instant::now();
+            on_progress(bytes);
+        }
+        let idle = idle_timeout.is_some_and(|limit| last_activity.elapsed() >= limit);
+        if cancelled.load(Ordering::Acquire) || Instant::now() >= deadline || idle {
             let _ = child.kill();
-            break Err(stopped(
-                if cancelled.load(Ordering::Acquire) {
-                    "ECANCELLED"
-                } else {
-                    "ETIMEDOUT"
-                },
-                &affected,
-            ));
+            break Err(if cancelled.load(Ordering::Acquire) {
+                stopped("ECANCELLED", &affected)
+            } else if idle {
+                NativeError::new(
+                    "ETIMEDOUT",
+                    "The transfer made no progress and was stopped. Vesperwind is ready for another operation.",
+                )
+                .with_path(&affected)
+            } else {
+                stopped("ETIMEDOUT", &affected)
+            });
         }
         match child.try_wait() {
             Ok(Some(status)) => {
@@ -228,6 +292,9 @@ pub fn execute(
         .join()
         .map_err(|_| NativeError::new("EWORKER_LOST", "Worker output was lost"))?
         .map_err(|e| NativeError::from_io(&e, "Unable to read worker result"))?;
+    while let Ok(bytes) = progress.try_recv() {
+        on_progress(bytes);
+    }
     let response: serde_json::Value = serde_json::from_slice(&bytes)
         .map_err(|_| NativeError::new("EWORKER_LOST", "Invalid worker response"))?;
     if response["ok"] == true {
@@ -242,6 +309,29 @@ pub fn execute(
         Err(error)
     }
 }
+
+/// Progress of the operation running in this filesystem helper, written to
+/// stdout as `{"progress":{"bytes":N}}` lines at most every 250 ms. Outside a
+/// helper this does nothing.
+static PROGRESS: Mutex<Option<(u64, Instant)>> = Mutex::new(None);
+const PROGRESS_INTERVAL: Duration = Duration::from_millis(250);
+
+pub(crate) fn report_progress(bytes: u64) {
+    let mut state = PROGRESS.lock().unwrap_or_else(|e| e.into_inner());
+    let Some((total, last)) = state.as_mut() else {
+        return;
+    };
+    *total += bytes;
+    if last.elapsed() < PROGRESS_INTERVAL {
+        return;
+    }
+    *last = Instant::now();
+    let frame = format!("{{\"progress\":{{\"bytes\":{total}}}}}\n");
+    let mut stdout = std::io::stdout();
+    let _ = stdout.write_all(frame.as_bytes());
+    let _ = stdout.flush();
+}
+
 fn stopped(code: &str, path: &str) -> NativeError {
     NativeError::new(code, if code == "ETIMEDOUT" {
         "The operation did not complete within the allowed time. The worker was terminated and Vesperwind is ready for another operation."
@@ -295,6 +385,8 @@ pub fn run_filesystem_helper() -> bool {
         if input.parent_probe {
             std::thread::sleep(Duration::from_secs(30));
         }
+        *PROGRESS.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some((0, Instant::now() - PROGRESS_INTERVAL));
         DEADLINE.with(|d| {
             d.set(Some(
                 Instant::now()
@@ -318,7 +410,9 @@ pub fn run_filesystem_helper() -> bool {
         Ok(result) => serde_json::json!({"ok":true,"result":result}),
         Err(error) => serde_json::json!({"ok":false,"error":error}),
     };
-    let _ = std::io::stdout().write_all(&serde_json::to_vec(&response).unwrap());
+    let mut line = serde_json::to_vec(&response).unwrap();
+    line.push(b'\n');
+    let _ = std::io::stdout().write_all(&line);
     true
 }
 

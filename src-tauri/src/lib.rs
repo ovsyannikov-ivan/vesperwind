@@ -367,6 +367,9 @@ pub fn run() {
                 commands::ssh::ssh_connect,
                 commands::ssh::ssh_disconnect,
                 commands::ssh::ssh_status,
+                commands::ftp::ftp_connect,
+                commands::ftp::ftp_disconnect,
+                commands::ftp::ftp_status,
                 commands::ssh::ssh_config_hosts,
                 commands::ssh::ssh_config_resolve,
                 commands::ssh::connections_capabilities,
@@ -422,6 +425,7 @@ pub fn run() {
             shutdown_web_history.close_all();
             shutdown_history.flush();
             ssh.shutdown();
+            app_handle.state::<AppState>().remote.ftp().shutdown();
             // Allow cancelled archive workers to kill/reap their child and
             // remove staging before normal application shutdown finishes.
             let until = std::time::Instant::now() + std::time::Duration::from_secs(2);

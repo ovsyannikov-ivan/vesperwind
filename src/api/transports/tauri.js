@@ -63,6 +63,9 @@ const requestCommands = Object.freeze({
   'ssh:status': 'ssh_status',
   'ssh:config-hosts': 'ssh_config_hosts',
   'ssh:config-resolve': 'ssh_config_resolve',
+  'ftp:connect': 'ftp_connect',
+  'ftp:disconnect': 'ftp_disconnect',
+  'ftp:status': 'ftp_status',
   'connections:capabilities': 'connections_capabilities',
   'connections:credential-status': 'connections_credential_status',
   'connections:forget-credential': 'connections_forget_credential',
@@ -80,7 +83,7 @@ const sendCommands = Object.freeze({
   'terminal:close': 'terminal_close',
 })
 
-const pushEvents = new Set(['terminal:output', 'terminal:exit', 'ssh:status', 'player:state', 'filesystem:changed', 'filesystem:search-results', 'filesystem:size-progress', 'archive:progress',
+const pushEvents = new Set(['terminal:output', 'terminal:exit', 'ssh:status', 'ftp:status', 'player:state', 'filesystem:changed', 'filesystem:search-results', 'filesystem:size-progress', 'archive:progress',
   'clipboard:staging', 'clipboard:consumed', 'native-drag:drop', 'native-drag:end', 'native-drag:error'])
 
 const normalizeInvokeError = (error) => ({

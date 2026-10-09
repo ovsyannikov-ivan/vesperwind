@@ -26,13 +26,109 @@ pub trait RemoteEndpoint {
     fn is_directory(&self, path: &str) -> Result<bool, NativeError>;
     /// Child names without `.` and `..`.
     fn child_names(&self, path: &str) -> Result<Vec<String>, NativeError>;
-    fn open_read(&self, path: &str) -> Result<Box<dyn Read + '_>, NativeError>;
+    fn open_read(&self, path: &str) -> Result<Box<dyn TransferRead + '_>, NativeError>;
     /// Creates a new file; an existing entry is an error, never overwritten.
-    fn create_new(&self, path: &str) -> Result<Box<dyn Write + '_>, NativeError>;
+    fn create_new(&self, path: &str) -> Result<Box<dyn TransferWrite + '_>, NativeError>;
     fn create_folder(&self, path: &str) -> Result<(), NativeError>;
     fn rename(&self, from: &str, to: &str) -> Result<(), NativeError>;
     /// Recursively removes a requested path.
     fn remove(&self, requested: &str) -> Result<(), NativeError>;
+}
+
+/// A download. `finish` completes the protocol transfer after end-of-file
+/// (for FTP: the server's final reply) and reports its outcome.
+pub trait TransferRead: Read {
+    fn finish(self: Box<Self>) -> Result<(), NativeError>;
+}
+
+/// An upload. Success exists only after `finish` confirmed the transfer;
+/// `abort` (or dropping the writer) never reports success.
+pub trait TransferWrite: Write {
+    fn finish(self: Box<Self>) -> Result<(), NativeError>;
+    fn abort(self: Box<Self>) {}
+}
+
+/// Local files have no protocol completion beyond writing all bytes.
+struct LocalRead(fs::File);
+impl Read for LocalRead {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        self.0.read(buffer)
+    }
+}
+impl TransferRead for LocalRead {
+    fn finish(self: Box<Self>) -> Result<(), NativeError> {
+        Ok(())
+    }
+}
+struct LocalWrite(fs::File);
+impl Write for LocalWrite {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        self.0.write(buffer)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.flush()
+    }
+}
+impl TransferWrite for LocalWrite {
+    fn finish(mut self: Box<Self>) -> Result<(), NativeError> {
+        self.0
+            .flush()
+            .map_err(|e| NativeError::from_io(&e, "The file transfer failed"))
+    }
+}
+
+/// Bytes per read/write step of a transfer; between steps the deadline and
+/// cancellation are checked and progress is reported.
+pub const TRANSFER_CHUNK: usize = 256 * 1024;
+
+fn transfer_io_error(error: &std::io::Error) -> NativeError {
+    if matches!(
+        error.kind(),
+        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+    ) {
+        NativeError::new(
+            "ETIMEDOUT",
+            "The remote server stopped responding during the transfer",
+        )
+        .with_native_error(error.to_string())
+    } else {
+        NativeError::from_io(error, "The file transfer failed")
+    }
+}
+
+/// Copies one file in bounded chunks. Success needs end-of-file on the
+/// source and completion of both transfers; otherwise the writer is aborted.
+fn copy_stream(
+    mut reader: Box<dyn TransferRead + '_>,
+    mut writer: Box<dyn TransferWrite + '_>,
+) -> Result<u64, NativeError> {
+    let mut buffer = vec![0u8; TRANSFER_CHUNK];
+    let mut total = 0u64;
+    let copied = (|| loop {
+        super::jobs::checkpoint()?;
+        let read = match reader.read(&mut buffer) {
+            Ok(0) => return Ok(()),
+            Ok(read) => read,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(transfer_io_error(&e)),
+        };
+        super::jobs::checkpoint()?;
+        writer
+            .write_all(&buffer[..read])
+            .map_err(|e| transfer_io_error(&e))?;
+        total += read as u64;
+        super::jobs::report_progress(read as u64);
+    })();
+    if let Err(error) = copied {
+        writer.abort();
+        return Err(error);
+    }
+    if let Err(error) = reader.finish() {
+        writer.abort();
+        return Err(error);
+    }
+    writer.finish()?;
+    Ok(total)
 }
 
 /// The helper's open remote connections, looked up by provider id.
@@ -127,7 +223,7 @@ pub fn operate(
         if request.action == "create-folder" {
             target.create_folder(&destination)?;
         } else {
-            target.create_new(&destination)?;
+            target.create_new(&destination)?.finish()?;
         }
         return Ok(operation_result(
             &request.action,
@@ -329,27 +425,39 @@ pub fn copy_entry(
             )?;
         }
     } else {
-        let mut reader: Box<dyn Read + '_> = if let Some(remote) = source_remote {
+        let reader: Box<dyn TransferRead + '_> = if let Some(remote) = source_remote {
             remote.open_read(&resolved_source)?
         } else {
-            Box::new(
-                fs::File::open(&resolved_source)
-                    .map_err(|e| NativeError::from_io(&e, "Unable to open source file"))?,
-            )
+            Box::new(LocalRead(fs::File::open(&resolved_source).map_err(
+                |e| NativeError::from_io(&e, "Unable to open source file"),
+            )?))
         };
-        let mut writer: Box<dyn Write + '_> = if let Some(remote) = target_remote {
+        let writer: Box<dyn TransferWrite + '_> = if let Some(remote) = target_remote {
             remote.create_new(destination)?
         } else {
-            Box::new(
+            Box::new(LocalWrite(
                 fs::OpenOptions::new()
                     .write(true)
                     .create_new(true)
                     .open(destination)
                     .map_err(|e| NativeError::from_io(&e, "Unable to create destination file"))?,
-            )
+            ))
         };
-        std::io::copy(&mut reader, &mut writer)
-            .map_err(|e| NativeError::from_io(&e, "The file transfer failed"))?;
+        if let Err(error) = copy_stream(reader, writer) {
+            // The destination was created by this copy (create-new above),
+            // so a partial file is removed. Best effort: the original error
+            // is reported either way.
+            if let Some(remote) = target_remote {
+                let _ = remote.remove(destination);
+            } else {
+                let _ = fs::remove_file(destination);
+            }
+            return Err(if error.path.is_none() {
+                error.with_path(destination)
+            } else {
+                error
+            });
+        }
     }
     Ok(())
 }
@@ -379,6 +487,38 @@ mod tests {
         }
         fn flush(&mut self) -> std::io::Result<()> {
             Ok(())
+        }
+    }
+    // A destination named `*.reject` is refused by the "server" only after it
+    // received every byte, like an FTP 451/552 final reply.
+    impl TransferWrite for Sink {
+        fn finish(self: Box<Self>) -> Result<(), NativeError> {
+            if self.1.ends_with(".reject") {
+                Err(NativeError::new(
+                    "EFTP_TRANSFER",
+                    "rejected after all bytes",
+                ))
+            } else {
+                Ok(())
+            }
+        }
+    }
+    struct Source(std::io::Cursor<Vec<u8>>, String);
+    impl Read for Source {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            self.0.read(buffer)
+        }
+    }
+    impl TransferRead for Source {
+        fn finish(self: Box<Self>) -> Result<(), NativeError> {
+            if self.1.contains("reject-read") {
+                Err(NativeError::new(
+                    "EFTP_TRANSFER",
+                    "download rejected at the end",
+                ))
+            } else {
+                Ok(())
+            }
         }
     }
 
@@ -412,13 +552,16 @@ mod tests {
                 .map(str::to_string)
                 .collect())
         }
-        fn open_read(&self, path: &str) -> Result<Box<dyn Read + '_>, NativeError> {
+        fn open_read(&self, path: &str) -> Result<Box<dyn TransferRead + '_>, NativeError> {
             match self.0.borrow().get(path) {
-                Some(Some(content)) => Ok(Box::new(std::io::Cursor::new(content.clone()))),
+                Some(Some(content)) => Ok(Box::new(Source(
+                    std::io::Cursor::new(content.clone()),
+                    path.into(),
+                ))),
                 _ => Err(missing(path)),
             }
         }
-        fn create_new(&self, path: &str) -> Result<Box<dyn Write + '_>, NativeError> {
+        fn create_new(&self, path: &str) -> Result<Box<dyn TransferWrite + '_>, NativeError> {
             let mut entries = self.0.borrow_mut();
             if entries.contains_key(path) {
                 return Err(NativeError::new("ESFTP", "The SFTP operation failed"));
@@ -649,7 +792,7 @@ mod tests {
         )
         .unwrap();
         assert!(!a.borrow().contains_key("/new"));
-        for (source, target) in [("ftp:a", "local"), ("sftp:a", "smb:x")] {
+        for (source, target) in [("webdav:a", "local"), ("sftp:a", "smb:x")] {
             assert_eq!(
                 operate(
                     &filesystem,
@@ -675,6 +818,64 @@ mod tests {
             .code,
             "ESSH_DISCONNECTED"
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn transfers_succeed_only_after_both_sides_confirm_completion() {
+        let (root, filesystem) = local_root("finish");
+        let payload: Vec<u8> = (0..(TRANSFER_CHUNK * 3 + 17)).map(|i| i as u8).collect();
+        let a = store(&[
+            ("/", None),
+            ("/data.bin", Some(payload.as_slice())),
+            ("/reject-read.bin", Some(b"abc")),
+        ]);
+        let mut sessions = Sessions::default();
+        sessions
+            .0
+            .insert("sftp:a".into(), Arc::new(Shared(Rc::clone(&a), false)));
+        fs::write(root.join("data.reject"), &payload).unwrap();
+        // Upload rejected after every byte: an error, and no partial file.
+        let error = operate(&filesystem, &sessions, request(serde_json::json!({
+            "action":"copy","filesystemId":"local","sourcePath":root.join("data.reject").to_string_lossy(),
+            "targetFilesystemId":"sftp:a","targetDirectory":"/"})))
+        .unwrap_err();
+        assert_eq!(error.code, "EFTP_TRANSFER");
+        assert!(!a.borrow().contains_key("/data.reject"));
+        // Download refused at the end: no local file remains.
+        let error = operate(
+            &filesystem,
+            &sessions,
+            request(serde_json::json!({
+            "action":"copy","filesystemId":"sftp:a","sourcePath":"/reject-read.bin",
+            "targetFilesystemId":"local","targetDirectory":root.to_string_lossy()})),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "EFTP_TRANSFER");
+        assert!(!root.join("reject-read.bin").exists());
+        // A multi-chunk file arrives intact.
+        operate(
+            &filesystem,
+            &sessions,
+            request(serde_json::json!({
+            "action":"copy","filesystemId":"sftp:a","sourcePath":"/data.bin",
+            "targetFilesystemId":"local","targetDirectory":root.to_string_lossy()})),
+        )
+        .unwrap();
+        assert_eq!(fs::read(root.join("data.bin")).unwrap(), payload);
+        // An expired deadline stops a copy between chunks and cleans up.
+        crate::filesystem::jobs::set_test_deadline(Some(std::time::Instant::now()));
+        let error = operate(
+            &filesystem,
+            &sessions,
+            request(serde_json::json!({
+            "action":"copy","name":"again.bin","filesystemId":"sftp:a","sourcePath":"/data.bin",
+            "targetFilesystemId":"sftp:a","targetDirectory":"/"})),
+        )
+        .unwrap_err();
+        crate::filesystem::jobs::set_test_deadline(None);
+        assert_eq!(error.code, "ETIMEDOUT");
+        assert!(!a.borrow().contains_key("/again.bin"));
         fs::remove_dir_all(root).unwrap();
     }
 }
