@@ -117,7 +117,7 @@ const selectCreate = (kind) => {
 			Remote
 		</button>
 
-		<div v-if="workspaceMode === 'files'" class="btn-group btn-group-sm" role="group" aria-label="Panel visibility">
+		<div v-if="workspaceMode === 'files'" class="btn-group btn-group-sm ms-1" role="group" aria-label="Panel visibility">
 			<button
 				class="btn toolbar-button toolbar-toggle"
 				:class="visibilityButtonClass(layout.leftVisible)"
