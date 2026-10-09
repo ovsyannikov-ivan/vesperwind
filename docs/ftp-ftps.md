@@ -40,8 +40,8 @@ A profile without `protocol` is a legacy SFTP profile. A valid version-8 SFTP
 profile is unchanged, including id, name, endpoint, authentication mode, SSH
 config alias, fingerprint and both save flags. Migration only rewrites JSON and
 never reads or changes Keychain/Credential Manager entries. A profile with an
-unknown protocol (including `SFTP` or an empty string) is dropped, never read as
-SFTP.
+unknown protocol (including `SFTP`) is never read as SFTP; see
+[Settings compatibility](#settings-compatibility).
 
 The same rules are implemented in `shared/defaultSettings.js` (frontend and
 Node/SEA) and `src-tauri/src/settings/mod.rs` (Tauri).
@@ -52,11 +52,32 @@ Strings are trimmed with JavaScript `trim` semantics and bounded by code points
 to 120 code points; an over-long host, username or id rejects the profile, and
 an over-long or control-character optional field becomes empty.
 
+### Settings compatibility
+
+- **Newer settings:** when `settings.json` has a higher version than the build
+  supports, loading, saving and resetting settings fail with
+  `ESETTINGS_NEWER_VERSION` ("These settings were saved by a newer version of
+  Vesperwind…"). The file is neither normalized nor rewritten, and saved
+  credentials are not touched. The app starts with default settings in memory
+  and shows the message. Both the native backend and Node/SEA apply this.
+- **Unknown protocols:** a profile whose `protocol` is a string this build does
+  not know is kept as it is, provided it is small and flat (at most 64 fields,
+  each null, boolean, safe integer or string of up to 4096 code points; keys up
+  to 64 characters; protocol up to 32 code points). Non-boolean fields whose
+  names look like secrets (`pass`, `secret`, `token`, `credential`, `key`,
+  `privateKey`, `keyContents`, `apiKey`) are removed. Such a profile is not
+  listed, connected, matched with credentials or given trust resets. Larger or
+  nested profiles, an empty or non-string protocol and an invalid id are dropped.
+- **Rule for future protocols:** adding a connection protocol always raises the
+  settings version, so builds from this version on refuse such settings instead
+  of rewriting them.
+
 **Older builds:** a Vesperwind build that knows only settings version 8 reads
 FTP/FTPS profiles as SFTP and rewrites them when it saves. Opening version-9
 settings with an older build is not supported. Their saved FTP/FTPS passwords are
 not exposed by that, because the credential identity includes the protocol, but
-they become orphaned until the profile is deleted in a current build.
+they become orphaned until the profile is deleted in a current build. The
+version guard above protects only builds that include it.
 
 ### Endpoint trust
 
@@ -102,8 +123,8 @@ FTP/FTPS have no sessions yet; their manager plugs in at the same place.
 - `connections:capabilities` reports `protocols: ["sftp"]`, the protocols that
   can connect in this build.
 - The Remote Connections form, Save As and the terminal menu list SFTP profiles
-  only. The form keeps FTP/FTPS profiles unchanged when it saves or deletes an
-  SFTP profile and says that they will be editable once FTP support is added.
+  only. The form keeps FTP/FTPS and preserved profiles unchanged when it saves
+  or deletes an SFTP profile and says that they cannot be edited yet.
 
 ## Not implemented yet
 

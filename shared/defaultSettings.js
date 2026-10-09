@@ -162,12 +162,44 @@ export const normalizeCertificatePin = (value) => {
   return /^[0-9a-f]{64}$/.test(pin) ? pin : ''
 }
 
+// Settings written by a newer Vesperwind are never normalized or rewritten.
+export const SETTINGS_NEWER_VERSION_ERROR = Object.freeze({
+  code: 'ESETTINGS_NEWER_VERSION',
+  message: 'These settings were saved by a newer version of Vesperwind. Update Vesperwind to use them; the settings file was not changed.',
+})
+export const isNewerSettingsVersion = (value) =>
+  Number.isInteger(value?.version) && value.version > SETTINGS_VERSION
+
+// Key names that may hold a secret are never kept, even in a preserved profile.
+const SECRET_KEY = /pass|secret|token|credential/i
+const SECRET_KEYS = new Set(['key', 'privatekey', 'keycontents', 'apikey'])
+
+// A profile of a protocol this build does not know (a manual edit, or a future
+// protocol) is kept as it is instead of disappearing on the next save, when it
+// is small and flat. It is never listed, connected or matched with credentials.
+const preservedProfile = (value, id) => {
+  const protocol = value.protocol
+  if (typeof protocol !== 'string' || !protocol || [...protocol].length > 32 || CONTROL_CHARACTER.test(protocol)) return null
+  const entries = Object.entries(value)
+  if (entries.length > 64) return null
+  const profile = {}
+  for (const [key, item] of entries) {
+    if (key.length > 64 || !(item === null || typeof item === 'boolean' || Number.isSafeInteger(item)
+      || (typeof item === 'string' && [...item].length <= 4096))) return null
+    // Booleans are flags (for example savePassword); other values under a
+    // secret-like name are dropped.
+    if (typeof item === 'boolean' || (!SECRET_KEY.test(key) && !SECRET_KEYS.has(key.toLowerCase()))) profile[key] = item
+  }
+  return { ...profile, id }
+}
+
 const normalizeConnectionProfile = (value) => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const id = typeof value.id === 'string' ? value.id.trim() : ''
   // A missing protocol is a legacy SFTP profile; an unknown one is never SFTP.
   const protocol = value.protocol === undefined || value.protocol === null ? 'sftp' : value.protocol
-  if (!PROFILE_ID.test(id) || !CONNECTION_PROTOCOLS.includes(protocol)) return null
+  if (!PROFILE_ID.test(id)) return null
+  if (!CONNECTION_PROTOCOLS.includes(protocol)) return preservedProfile(value, id)
   const name = typeof value.name === 'string' ? [...value.name.trim()].slice(0, 120).join('') : ''
   const host = boundedText(value.host, 255)
   const port = normalizePort(value.port)
@@ -238,7 +270,7 @@ export const resetChangedConnectionTrust = (previous, next) => {
   const before = new Map((Array.isArray(previous) ? previous : []).map(profile => [profile.id, profile]))
   return next.map((profile) => {
     const old = before.get(profile.id)
-    if (!old || profile.protocol === 'sftp') return profile
+    if (!old || !['ftp', 'ftps'].includes(profile.protocol)) return profile
     const endpointChanged = old.protocol !== profile.protocol || old.host !== profile.host || old.port !== profile.port
     if (profile.protocol === 'ftp' && endpointChanged && profile.plaintextAcknowledged) {
       return { ...profile, plaintextAcknowledged: false }
