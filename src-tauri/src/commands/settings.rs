@@ -2,7 +2,10 @@ use super::failure;
 use crate::{
     connections::ConnectionProfile,
     remote::RemoteProviders,
-    settings::{normalize_settings, reset_changed_connection_trust, SettingsStore},
+    settings::{
+        is_known_connection_protocol, normalize_settings, reset_changed_connection_trust,
+        SettingsStore,
+    },
     AppState,
 };
 use serde::Deserialize;
@@ -66,10 +69,18 @@ fn save_reconciled(
     next: &Value,
     commit: impl FnOnce() -> Result<Value, crate::error::NativeError>,
 ) -> Result<Value, crate::error::NativeError> {
+    // Preserved profiles of unknown protocols have no credentials or sessions.
     let decode = |value: &Value| {
-        serde_json::from_value::<Vec<ConnectionProfile>>(value["connections"].clone()).map_err(
-            |_| crate::error::NativeError::new("ESETTINGS", "Invalid saved connection profiles"),
-        )
+        let known: Vec<Value> = value["connections"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|profile| is_known_connection_protocol(profile))
+            .cloned()
+            .collect();
+        serde_json::from_value::<Vec<ConnectionProfile>>(Value::Array(known)).map_err(|_| {
+            crate::error::NativeError::new("ESETTINGS", "Invalid saved connection profiles")
+        })
     };
     let previous_profiles = decode(previous)?;
     let next_profiles = decode(next)?;
@@ -282,6 +293,56 @@ mod tests {
         assert!(!std::fs::read_to_string(root.join("settings.json"))
             .unwrap()
             .contains("synthetic"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn newer_settings_are_never_rewritten_and_unknown_profiles_survive_updates() {
+        let root =
+            std::env::temp_dir().join(format!("vesper-newer-settings-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("settings.json");
+        let newer =
+            r#"{"version":99,"connections":[{"id":"x","protocol":"webdav"}],"future":true}"#;
+        std::fs::write(&path, newer).unwrap();
+        let settings = Arc::new(SettingsStore::at_path(path.clone()));
+        let mut ssh = SshManager::with_settings(settings.clone());
+        Arc::get_mut(&mut ssh).unwrap().credentials =
+            CredentialStore::with_backend(Arc::new(MemoryBackend::default()));
+        let remote = RemoteProviders::new(Arc::clone(&ssh));
+        let mut profile = test_profile("password");
+        profile.save_password = true;
+        ssh.credentials
+            .set(&profile, CredentialKind::Password, "synthetic")
+            .unwrap();
+        assert_eq!(settings.load().unwrap_err().code, "ESETTINGS_NEWER_VERSION");
+        for value in [json!({"connections": []}), Value::Null] {
+            assert_eq!(
+                update(&settings, &remote, &value).unwrap_err().code,
+                "ESETTINGS_NEWER_VERSION"
+            );
+        }
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), newer);
+        assert!(ssh
+            .credentials
+            .exists(&profile, CredentialKind::Password)
+            .unwrap());
+
+        // A preserved profile of an unknown protocol is ignored by credential
+        // reconciliation and kept through an unrelated update.
+        std::fs::remove_file(&path).unwrap();
+        let settings = Arc::new(SettingsStore::at_path(path.clone()));
+        let unknown =
+            json!({"id":"dav","protocol":"webdav","host":"dav.invalid","savePassword":true});
+        let saved = update(
+            &settings,
+            &remote,
+            &json!({"connections":[unknown.clone(), profile]}),
+        )
+        .unwrap();
+        let mut next = saved.clone();
+        next["appearance"]["theme"] = json!("dark");
+        let saved = update(&settings, &remote, &next).unwrap();
+        assert_eq!(saved["connections"][0], unknown);
         std::fs::remove_dir_all(root).unwrap();
     }
 }

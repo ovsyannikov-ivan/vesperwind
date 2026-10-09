@@ -148,6 +148,11 @@ impl SettingsStore {
                 let stored: Value = serde_json::from_str(&content).map_err(|_| {
                     NativeError::new("ESETTINGS", "The settings file contains invalid JSON")
                 })?;
+                // Settings from a newer Vesperwind are neither normalized nor
+                // rewritten; every update and reset starts from this load.
+                if is_newer_settings_version(&stored) {
+                    return Err(newer_settings_version_error());
+                }
                 let normalized = normalize_settings(&stored);
                 if stored != normalized {
                     self.persist(&normalized)?;
@@ -236,6 +241,19 @@ fn default_settings_path() -> PathBuf {
         .unwrap_or_else(|| home.join(".config"))
         .join("vesperwind")
         .join("settings.json");
+}
+
+pub(crate) fn is_newer_settings_version(value: &Value) -> bool {
+    value
+        .get("version")
+        .and_then(Value::as_u64)
+        .is_some_and(|version| version > SETTINGS_VERSION)
+}
+pub(crate) fn newer_settings_version_error() -> NativeError {
+    NativeError::new(
+        "ESETTINGS_NEWER_VERSION",
+        "These settings were saved by a newer version of Vesperwind. Update Vesperwind to use them; the settings file was not changed.",
+    )
 }
 
 fn default_settings() -> Value {
@@ -436,22 +454,77 @@ pub(crate) fn normalize_certificate_pin(value: Option<&Value>) -> String {
     }
 }
 
+pub(crate) fn is_known_connection_protocol(profile: &Value) -> bool {
+    profile["protocol"]
+        .as_str()
+        .is_some_and(|protocol| CONNECTION_PROTOCOLS.contains(&protocol))
+}
+
+/// Key names that may hold a secret are never kept, even in a preserved profile.
+fn is_secret_key(key: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    ["pass", "secret", "token", "credential"]
+        .iter()
+        .any(|part| key.contains(part))
+        || ["key", "privatekey", "keycontents", "apikey"].contains(&key.as_str())
+}
+
+/// A profile of a protocol this build does not know (a manual edit, or a
+/// future protocol) is kept as it is instead of disappearing on the next save,
+/// when it is small and flat. It is never listed, connected or matched with
+/// credentials.
+fn preserved_profile(item: &serde_json::Map<String, Value>, id: &str) -> Option<Value> {
+    let protocol = item.get("protocol")?.as_str()?;
+    if protocol.is_empty()
+        || protocol.chars().count() > 32
+        || protocol.chars().any(|c| c <= '\u{1f}' || c == '\u{7f}')
+        || item.len() > 64
+    {
+        return None;
+    }
+    const SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
+    let mut profile = serde_json::Map::new();
+    for (key, value) in item {
+        let supported = match value {
+            Value::Null | Value::Bool(_) => true,
+            Value::Number(number) => number
+                .as_f64()
+                .is_some_and(|v| v.fract() == 0.0 && v.abs() <= SAFE_INTEGER),
+            Value::String(text) => text.chars().count() <= 4096,
+            _ => false,
+        };
+        // UTF-16 length, like JavaScript's `key.length`.
+        if key.encode_utf16().count() > 64 || !supported {
+            return None;
+        }
+        // Booleans are flags (for example savePassword); other values under a
+        // secret-like name are dropped.
+        if value.is_boolean() || !is_secret_key(key) {
+            profile.insert(key.clone(), value.clone());
+        }
+    }
+    profile.insert("id".into(), json!(id));
+    Some(Value::Object(profile))
+}
+
 fn normalize_connection(item: &Value) -> Option<Value> {
     let item = item.as_object()?;
     let id = js_trim(item.get("id")?.as_str()?);
     // A missing protocol is a legacy SFTP profile; an unknown one is never SFTP.
     let protocol = match item.get("protocol") {
         None | Some(Value::Null) => "sftp",
-        Some(value) => value.as_str()?,
+        Some(value) => value.as_str().unwrap_or(""),
     };
     if id.is_empty()
         || id.len() > 80
         || !id
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))
-        || !CONNECTION_PROTOCOLS.contains(&protocol)
     {
         return None;
+    }
+    if !CONNECTION_PROTOCOLS.contains(&protocol) {
+        return preserved_profile(item, id);
     }
     let name: String = item
         .get("name")
@@ -558,6 +631,9 @@ pub(crate) fn reset_changed_connection_trust(previous: &Value, next: &mut Value)
         return;
     };
     for profile in profiles {
+        if !(profile["protocol"] == "ftp" || profile["protocol"] == "ftps") {
+            continue;
+        }
         let Some(old) = before.iter().find(|old| old["id"] == profile["id"]) else {
             continue;
         };

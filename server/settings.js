@@ -4,7 +4,9 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import {
+  SETTINGS_NEWER_VERSION_ERROR,
   createDefaultSettings,
+  isNewerSettingsVersion,
   normalizeSettings,
   resetChangedConnectionTrust,
 } from '../shared/defaultSettings.js'
@@ -65,6 +67,10 @@ export const loadSettings = async () => {
 
   try {
     const storedSettings = JSON.parse(await fs.readFile(settingsFilePath, 'utf8'))
+    // Settings from a newer Vesperwind are neither normalized nor rewritten.
+    if (isNewerSettingsVersion(storedSettings)) {
+      throw Object.assign(new Error(SETTINGS_NEWER_VERSION_ERROR.message), { code: SETTINGS_NEWER_VERSION_ERROR.code })
+    }
     cachedSettings = normalizeSettings(storedSettings)
 
     if (JSON.stringify(storedSettings) !== JSON.stringify(cachedSettings)) {
@@ -83,8 +89,12 @@ export const loadSettings = async () => {
 }
 
 export const saveSettings = async (value) => {
-  // An unreadable previous file must not block saving or resetting settings.
-  const previousSettings = await loadSettings().catch(() => null)
+  // An unreadable previous file must not block saving or resetting settings,
+  // but settings from a newer Vesperwind are never overwritten.
+  const previousSettings = await loadSettings().catch((error) => {
+    if (error?.code === SETTINGS_NEWER_VERSION_ERROR.code) throw error
+    return null
+  })
   const nextSettings = normalizeSettings(value)
   // Same endpoint-trust rule as the native settings update.
   nextSettings.connections = resetChangedConnectionTrust(previousSettings?.connections, nextSettings.connections)
@@ -99,7 +109,9 @@ const serializeSettingsError = (error) => ({
   code: error?.code || 'ESETTINGS',
   message: error instanceof SyntaxError
     ? 'The settings file contains invalid JSON'
-    : 'Unable to read or save settings',
+    : error?.code === SETTINGS_NEWER_VERSION_ERROR.code
+      ? SETTINGS_NEWER_VERSION_ERROR.message
+      : 'Unable to read or save settings',
 })
 
 const createSuccessResponse = (settings) => ({

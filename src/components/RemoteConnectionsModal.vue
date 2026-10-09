@@ -22,7 +22,7 @@ const credentials = ref({ password: false, keyPassphrase: false })
 let modal, selectionGeneration = 0, showGeneration = 0
 const emptyProfile = () => ({ id: '', protocol: 'sftp', name: '', host: '', port: 22, username: '', authType: 'auto', privateKeyPath: '', initialPath: '', trustedFingerprint: '', savePassword: false, saveKeyPassphrase: false, sshConfigHost: '' })
 const draft = reactive(emptyProfile())
-// This form edits SFTP profiles only. FTP/FTPS profiles stay in settings
+// This form edits SFTP profiles only. FTP/FTPS and preserved profiles stay in settings
 // untouched: every save and delete writes the complete list.
 const allProfiles = computed(() => settings.value.connections || [])
 const profiles = computed(() => allProfiles.value.filter(isSftpProfile))
@@ -199,7 +199,7 @@ onBeforeUnmount(() => {
                   </button>
                 </div>
                 <div v-if="!profiles.length" class="text-body-secondary small mb-2">No saved connections.</div>
-                <div v-if="otherProfileCount" class="text-body-secondary small mb-2" role="note">{{ otherProfileCount }} FTP/FTPS {{ otherProfileCount === 1 ? 'connection is' : 'connections are' }} saved. Editing and connecting will be available when FTP support is added.</div>
+                <div v-if="otherProfileCount" class="text-body-secondary small mb-2" role="note">{{ otherProfileCount }} FTP/FTPS or unsupported {{ otherProfileCount === 1 ? 'connection is' : 'connections are' }} saved. Editing and connecting them is not available in this version yet.</div>
                 <template v-if="capabilities.sshConfig">
                   <h2 class="h6 mt-3 mb-2">SSH config</h2>
                   <div class="list-group mb-2">

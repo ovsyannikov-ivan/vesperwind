@@ -1100,7 +1100,10 @@ const handleCommanderKeydown = (event) => {
 }
 
 onMounted(() => {
-  loadSettings()
+  loadSettings().then((response) => {
+    // The app keeps working with defaults; the newer file stays unchanged.
+    if (response?.error?.code === 'ESETTINGS_NEWER_VERSION') showNotice('Update Vesperwind', response.error)
+  })
   unsubscribeNativeSettings = onNativeOpenSettings(openSettings)
   shellSubscriptions.push(installNativeEditHistory())
   unsubscribeConnection = connection.onStatusChange((isConnected) => {
