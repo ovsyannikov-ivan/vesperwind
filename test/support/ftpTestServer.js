@@ -290,7 +290,7 @@ export const startFtpTestServer = async (root, options = {}) => {
   // Implicit FTPS wraps the accepted socket with the same secure context as
   // the data connections, so data connections can resume the control session.
   const server = net.createServer(handle)
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  await new Promise((resolve) => server.listen(settings.port || 0, '127.0.0.1', resolve))
   return {
     port: server.address().port, root, log,
     sent: (prefix) => log.commands.some((line) => line.startsWith(prefix)),

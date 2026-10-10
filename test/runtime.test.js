@@ -78,7 +78,7 @@ test('renders Remote as a command rather than a state toggle', async () => {
     'utf8',
   )
   const remoteButton = toolbar.match(
-    /<button class="([^"]+)"[^>]+title="Manage SSH\/SFTP connections"/,
+    /<button class="([^"]+)"[^>]+title="Manage remote connections \(SFTP, FTP, FTPS\)"/,
   )
 
   assert.ok(remoteButton)

@@ -12,7 +12,7 @@ const saveFailed = ref(false)
 const steps = [
   { id: 'desktop', name: 'Desktop', description: 'Browse and manage files in your Desktop folder.' },
   { id: 'documents', name: 'Documents', description: 'Browse and manage files in your Documents folder.' },
-  { id: 'network', name: 'Local network', description: 'Connect to SSH/SFTP servers on your local network.' },
+  { id: 'network', name: 'Local network', description: 'Connect to SFTP, FTP and FTPS servers on your local network.' },
 ]
 const current = computed(() => steps[step.value])
 let modal, controller, generation = 0
