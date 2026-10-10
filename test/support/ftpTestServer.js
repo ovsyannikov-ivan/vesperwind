@@ -30,10 +30,17 @@ export const createTestPki = async (directory) => {
   const ca = await fs.readFile(path.join(directory, 'ca.pem'), 'utf8')
   const valid = await leaf('localhost', 'DNS:localhost,IP:127.0.0.1', ['-days', '30'])
   const wrongHost = await leaf('other', 'DNS:other.invalid', ['-days', '30'])
-  // Expired: valid for one day, starting 30 days ago (OpenSSL 3 `-not_before`/`-not_after`).
+  // Expired: valid for one day, 30 days ago. `openssl ca` sets explicit
+  // dates in every OpenSSL version CI uses (x509 -not_before needs 3.4+).
+  const stamp = (ms) => new Date(ms).toISOString().replace(/[-:T]/g, '').slice(2, 14) + 'Z'
+  await fs.writeFile(path.join(directory, 'index.txt'), '')
+  await fs.writeFile(path.join(directory, 'serial'), '1000\n')
+  await fs.writeFile(path.join(directory, 'expired-ca.cnf'), `[ca]\ndefault_ca=test\n[test]\ndir=.\ndatabase=index.txt\nserial=serial\nnew_certs_dir=.\ncertificate=ca.pem\nprivate_key=ca.key\ndefault_md=sha256\npolicy=any\ncopy_extensions=none\nunique_subject=no\n[any]\ncommonName=supplied\norganizationName=optional\n[leaf]\nbasicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:localhost,IP:127.0.0.1\n`)
+  await exec(['req', '-newkey', 'rsa:2048', '-nodes', '-keyout', 'expired.key', '-out', 'expired.csr', '-subj', '/CN=expired/O=Vesperwind Test'])
   const now = Date.now()
-  const stamp = (ms) => new Date(ms).toISOString().replace(/[-:T]/g, '').slice(0, 14) + 'Z'
-  const expired = await leaf('expired', 'DNS:localhost,IP:127.0.0.1', ['-not_before', stamp(now - 30 * 86400000), '-not_after', stamp(now - 29 * 86400000)])
+  await exec(['ca', '-batch', '-config', 'expired-ca.cnf', '-extensions', 'leaf', '-in', 'expired.csr', '-out', 'expired.pem', '-notext',
+    '-startdate', stamp(now - 30 * 86400000), '-enddate', stamp(now - 29 * 86400000)])
+  const expired = { cert: await fs.readFile(path.join(directory, 'expired.pem'), 'utf8'), key: await fs.readFile(path.join(directory, 'expired.key'), 'utf8') }
   await exec(['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', 'self.key', '-out', 'self.pem', '-days', '30',
     '-subj', '/CN=localhost/O=Vesperwind Self-signed', '-config', 'ca.cnf', '-addext', 'basicConstraints=CA:FALSE',
     '-addext', 'extendedKeyUsage=serverAuth', '-addext', 'subjectAltName=DNS:localhost,IP:127.0.0.1'])

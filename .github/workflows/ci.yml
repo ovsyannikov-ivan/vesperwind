@@ -35,8 +35,34 @@ jobs:
             - name: Build frontend
               run: npm run build
 
+            # npm test already runs the Node FTP/FTPS acceptance against local
+            # servers; this drives a real backend process over Socket.IO.
+            - name: Node backend FTP/FTPS runtime smoke
+              run: node scripts/ftp-runtime-smoke.js
+
             - name: Check whitespace errors
               run: git diff --check
+
+    node-sea-macos:
+        name: Node SEA / macOS (FTP/FTPS)
+        runs-on: macos-14
+        steps:
+            - uses: actions/checkout@v7
+            - uses: actions/setup-node@v7
+              with:
+                  # The SEA builder needs Node.js 25.5 or newer.
+                  node-version: 26
+                  cache: npm
+            - uses: dtolnay/rust-toolchain@1.99.0
+            - run: npm ci
+            - name: Build bundled archive worker
+              run: npm run build:archives
+            - name: Build the SEA executable
+              run: npm run build:sea
+            - name: FTP/FTPS smoke of the Node runtime
+              run: node scripts/ftp-runtime-smoke.js
+            - name: FTP/FTPS smoke of the SEA executable
+              run: node scripts/ftp-runtime-smoke.js --sea staging/vesperwind
 
     archive-linux:
         name: Archive worker / Linux

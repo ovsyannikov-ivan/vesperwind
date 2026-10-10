@@ -1,9 +1,10 @@
 # FTP and FTPS connections
 
-Status: profiles, the credential lifecycle and the native (Tauri) FTP/FTPS
-backend exist. There is no FTP/FTPS form in the Remote Connections window yet
-(stage D) and no Node/SEA backend (stage E); until then FTP/FTPS profiles are
-connected through the native `ftp:connect` command only.
+Status: profiles, the credential lifecycle, the native (Tauri) backend, the
+Node/SEA backend and the SFTP | FTP | FTPS tabs of the Remote Connections
+window exist. Both backends accept the same `ftp:connect` request (a saved
+profile id and an optional typed password) and use the same provider ids,
+error codes and certificate details.
 
 ## Implemented
 
@@ -120,12 +121,116 @@ FTP/FTPS profiles close all their pooled sessions.
 ### Isolation from SFTP
 
 - SSH commands, the native helper and Node/SEA `validateConnectionProfile`
-  accept SFTP profiles only; FTP never runs through `SshManager`.
+  accept SFTP profiles only; FTP never runs through `SshManager` or the Node
+  `SshConnectionManager`.
 - `connections:capabilities` lists the protocols that can connect: the native
-  app reports `sftp`, `ftp` and `ftps`; Node/SEA reports `sftp`.
-- The Remote Connections form, Save As and the terminal menu list SFTP profiles
-  only. The form keeps FTP/FTPS and preserved profiles unchanged when it saves
-  or deletes an SFTP profile and says that they cannot be edited yet.
+  app and Node/SEA both report `sftp`, `ftp` and `ftps` (each is covered by a
+  real-server acceptance). Node/SEA reports `credentialStore: false`.
+- The terminal menu lists SFTP profiles only (FTP has no terminal). Save As
+  lists SFTP, FTP and FTPS connections. The Remote Connections window shows
+  each protocol in its own tab and keeps every other profile, including
+  preserved profiles of unknown protocols, unchanged when it saves or deletes.
+
+## Remote Connections window
+
+`src/components/RemoteConnectionsModal.vue` shows SFTP | FTP | FTPS tabs
+(Bootstrap `nav-tabs` styling; Vue owns the active tab, no Bootstrap Tab
+JavaScript). `src/components/remoteConnectionProtocols.js` is the declarative
+registry: label, icon, profile fields with their defaults, authentication
+methods, default port and the form sections each protocol uses. A further
+protocol is a new registry entry plus its backend; tabs appear only for
+protocols in `connections:capabilities.protocols`.
+
+- Each tab lists only its own profiles; Add creates a profile of the tab's
+  protocol with its default port: SFTP 22, FTP 21, FTPS explicit 21 and
+  implicit 990. Switching explicit ↔ implicit changes 21 ↔ 990 only for a new
+  profile whose port was not typed; a saved profile keeps its port.
+- Typed passwords and passphrases are cleared on every tab or profile switch.
+  Unsaved profile edits are never dropped silently: switching tab or profile,
+  Add, Cancel, the close button and Escape ask "Discard unsaved changes?".
+- Tabs are ARIA tabs (`tablist`/`tab`/`tabpanel`, roving `tabindex`) with
+  ←/→/Home/End; the list and the form stack below 576 px.
+- SFTP keeps Auto/Password/Private key/SSH Agent, SSH config hosts (only on
+  this tab), passphrases, host key trust (a changed host key blocks the
+  connection), saved credentials and Forget.
+- FTP offers Password and Anonymous. Anonymous fills the user name
+  `anonymous`, hides the password field and never saves a password. Before
+  the first connection of a profile a confirmation reads "This connection is
+  not encrypted. Your password and files may be visible to others on the
+  network." with Cancel and Connect without encryption; only after consent is
+  `plaintextAcknowledged` saved and the connection made. There is no automatic
+  FTPS → FTP fallback.
+- FTPS offers Explicit/Implicit TLS, shows whether the certificate is verified
+  by the system or pinned (with its SHA-256) and Remove trusted certificate.
+  Passive mode and UTF-8 are shown read-only.
+- An untrusted, wrong-host or expired certificate opens a trust dialog with
+  endpoint, reason, SHA-256, subject, issuer, validity and SAN names. It says
+  that a pin accepts exactly this certificate without checking issuer, host
+  name or expiry. Only Trust certificate and connect saves
+  `tlsTrustedCertificate` (as its own settings change, after any endpoint
+  edit) and connects again. `ETLS_CERTIFICATE_CHANGED` shows a blocking
+  warning with the trusted and presented fingerprints and no trust button:
+  the pin is never replaced automatically and nothing is retried.
+- "Save password securely" appears only when the runtime has a credential
+  store.
+
+## Node/SEA backend
+
+Code: `server/ftp.js` (connections, TLS, pooling, transfers, listings),
+`server/connections.js` (Socket.IO events and capabilities),
+`server/remoteProviders.js` (one dispatch for `local`, `sftp:`, `ftp:` and
+`ftps:` used by listing, text/binary files, properties, size, search, media
+and file operations; any other provider is `EFILESYSTEM_ID`). The FTP client
+is [basic-ftp](https://github.com/patrickjuchli/basic-ftp) 6.2.3 (pinned);
+`test/ftpLibraryContract.test.js` checks the library behaviour this relies on.
+
+- `ftp:connect { profileId, password }` connects a **saved** profile, like the
+  native command; endpoint, TLS mode, pin and plaintext acknowledgement come
+  from the settings file. Plain FTP without `plaintextAcknowledged` is
+  refused before any network access.
+- TLS without a pin: Node verifies the chain against its bundled roots, the
+  operating system store and `NODE_EXTRA_CA_CERTS`, and the host name
+  (`rejectUnauthorized` stays on). With a pin: exactly that certificate is
+  accepted, chain, name and validity are not checked (as in the native
+  verifier); `rejectUnauthorized` is off only in this mode, and every socket is
+  checked against the pin instead.
+- Order: TCP (or the implicit TLS handshake), `AUTH TLS`, verification of the
+  control connection, `PBSZ 0`, `PROT P`, and only then `USER`/`PASS`. A
+  refused `AUTH TLS` or `PROT P` ends the attempt
+  (`EFTPS_AUTH_TLS_REJECTED`, `EFTPS_PROT_P_REJECTED`).
+- Data connections: every TLS data socket is verified when its handshake
+  completes, before basic-ftp may use it; basic-ftp starts uploads only after
+  that. A data connection that resumes the session of this FTP session is
+  accepted (Node reports no certificate for it); a full handshake must pass
+  the same checks as the control connection. A refused data connection ends
+  the whole FTP session.
+- On a certificate failure the details for the dialog come from a separate
+  handshake that sends no credentials (`AUTH TLS` only for explicit TLS).
+- Sessions are pooled per profile (at most four); listings and metadata are
+  repeated once on a fresh session after a lost connection, `STOR`, `DELE`,
+  `RMD`, `RNFR`/`RNTO` and `MKD` never are. `NOOP` keeps idle sessions alive.
+- Transfers stream with backpressure and succeed only after the final reply
+  (a 451/552 after all bytes fails them). A transfer without progress for
+  120 s fails (`ETIMEDOUT`), a transfer is bounded at 24 hours, and file
+  operations carry an id: `filesystem:operation-cancel`, the UI deadline or a
+  closed socket stops them. Partial destinations created by a failed or
+  cancelled copy are removed. Copies and moves with an FTP side therefore use
+  the long UI deadline in this runtime too.
+- Listings are parsed per line (MLSD, Unix and DOS `LIST`). Names that are not
+  one safe component (`/`, `\`, control characters, `.`/`..`) are hidden;
+  recursive copy, delete and size refuse a listing that contained one
+  (`EUNSAFE_NAME`) before creating or deleting anything. Local destinations
+  also refuse names that are unsafe on the local platform (on Windows `C:x`,
+  `name:stream`, reserved characters, trailing dots and spaces). The same
+  checks now apply to SFTP listings in Node.
+- Media and content requests read byte ranges with `REST` when the server
+  supports it.
+- Passwords are held in memory for the life of the connection only (there is
+  no secure credential store in this runtime); they are never written to the
+  settings file, logs, Socket.IO events or errors. Sessions end when the last
+  browser disconnects, on `ftp:disconnect`, or when saved settings change a
+  connected profile's protocol, host, port, user, authentication, TLS mode,
+  pin or plaintext acknowledgement (the same applies to SFTP profiles).
 
 ## Native backend (Tauri)
 
@@ -284,10 +389,10 @@ a move removes its source only after the whole copy succeeded.
 
 ## Not implemented yet
 
-- FTP/FTPS form and certificate confirmation dialog (stage D).
-- Node/SEA FTP backend (stage E).
-- Active mode, legacy filename encodings, resume (`REST`), FTP terminal,
-  media streaming and thumbnails over FTP, permission changes.
+- Active mode, legacy filename encodings, FTP terminal, permission changes,
+  WebDAV and other protocols.
+- Native app: resumed reads (`REST`), media streaming and thumbnails over FTP.
+- Node/SEA: a secure credential store (passwords are session-only).
 
 ## Verification
 
@@ -305,3 +410,13 @@ transfer local → FTPS → FTP → SFTP → FTPS → local with SHA-256 checks,
 451 after all bytes, cancellation mid-file with cleanup, and a repeated
 transfer. `--long` throttles one download beyond the two-minute inactivity
 limit. It needs OpenSSL to prepare certificates.
+
+Node/SEA: `test/ftpNodeAcceptance.test.js` (part of `npm test`) runs the
+production modules against `test/support/ftpTestServer.js` (plain, explicit
+and implicit FTPS with a synthetic PKI, required session reuse, `dataCert` for
+a data connection with another certificate, final errors, stalls, throttling,
+hostile MLSD/LIST lines) and an ssh2 SFTP server
+(`test/support/sftpTestServer.js`). `scripts/ftp-runtime-smoke.js` drives a
+real backend process over Socket.IO; `--sea staging/vesperwind` runs the same
+against the SEA executable. CI runs the smoke on Linux (Node 22) and builds
+and smokes the SEA executable on macOS.
