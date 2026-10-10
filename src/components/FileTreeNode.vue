@@ -23,6 +23,7 @@ import {
 } from '../utils/terminalPath.js'
 import { LOCAL_FILESYSTEM_PROVIDER } from '../api/filesystemLocation.js'
 import { createDirectoryListing } from '../utils/directoryListing.js'
+import { cloudStatus } from '../api/cloudStatus.js'
 import { traceMedia } from '../api/mediaDiagnostics.js'
 import { directoryWatch } from '../api/directoryWatch.js'
 import { runtime } from '../api/runtime.js'
@@ -122,6 +123,9 @@ const listing = createDirectoryListing({ state: listingState,
   isActive: () => expanded.value && props.node.isDirectory,
   list: (path, options) => props.listDirectory(path, options),
   onLoaded: (payload) => emit('children-loaded', payload),
+  // Cloud status follows the rendered rows, displayed order first.
+  cloudStatus,
+  statusOrder: () => displayedChildren.value,
 })
 const refreshChildren = async (event) => {
   if (!expanded.value) return
