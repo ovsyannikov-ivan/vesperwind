@@ -120,7 +120,18 @@ const createSuccessResponse = (settings) => ({
   storagePath: settingsFilePath,
 })
 
-export const registerSettingsHandlers = (socket) => {
+/**
+ * `onSaved(previous, next)` runs after settings were written, so open remote
+ * sessions can be closed when their saved profile changed.
+ */
+export const registerSettingsHandlers = (socket, { onSaved } = {}) => {
+  const save = async (write) => {
+    const previous = await loadSettings().catch(() => null)
+    const next = await write()
+    try { onSaved?.(previous, next) } catch { /* never blocks saving */ }
+    return next
+  }
+
   socket.on('settings:get', async (_payload, acknowledge) => {
     try {
       acknowledge?.(createSuccessResponse(await loadSettings()))
@@ -131,7 +142,7 @@ export const registerSettingsHandlers = (socket) => {
 
   socket.on('settings:update', async (payload, acknowledge) => {
     try {
-      acknowledge?.(createSuccessResponse(await saveSettings(payload?.settings)))
+      acknowledge?.(createSuccessResponse(await save(() => saveSettings(payload?.settings))))
     } catch (error) {
       acknowledge?.({ ok: false, error: serializeSettingsError(error) })
     }
@@ -139,7 +150,7 @@ export const registerSettingsHandlers = (socket) => {
 
   socket.on('settings:reset', async (_payload, acknowledge) => {
     try {
-      acknowledge?.(createSuccessResponse(await resetSettings()))
+      acknowledge?.(createSuccessResponse(await save(resetSettings)))
     } catch (error) {
       acknowledge?.({ ok: false, error: serializeSettingsError(error) })
     }

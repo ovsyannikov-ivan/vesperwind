@@ -46,7 +46,7 @@ test('Quick Look reads enforce the requested bound and strict text decoding', as
 test('remote text preview forwards the same read bound and decoding policy through SFTP', async () => {
   const handlers = new Map()
   const calls = []
-  registerTextFileHandlers({ on: (event, handler) => handlers.set(event, handler) }, { ssh: {
+  registerTextFileHandlers({ on: (event, handler) => handlers.set(event, handler) }, { providers: {
     ensure: async (provider) => ({ readText: async (path, options) => {
       calls.push({ provider, path, options })
       return { content: 'remote text', modifiedAt: 'now' }

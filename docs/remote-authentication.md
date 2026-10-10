@@ -1,11 +1,17 @@
 # Remote Connections authentication
 
-Remote Connections supports SFTP profiles with `auto`, `password`, `privateKey`
-and `agent` authentication. New profiles use Auto. Existing profiles retain their
-explicit authentication method and ID when settings are migrated to version 8
-and, unchanged, to version 9. Settings version 9 can also hold FTP/FTPS profiles
-and their saved passwords; the native app connects them through its FTP/FTPS
-backend. See [FTP and FTPS connections](ftp-ftps.md).
+The Remote Connections window has SFTP, FTP and FTPS tabs. This document covers
+SFTP authentication; FTP (Password or Anonymous) and FTPS, their consent and
+certificate dialogs and both FTP backends are described in
+[FTP and FTPS connections](ftp-ftps.md).
+
+SFTP profiles use `auto`, `password`, `privateKey` or `agent` authentication.
+New profiles use Auto. Existing profiles retain their explicit authentication
+method and ID when settings are migrated to version 8 and, unchanged, to
+version 9. Settings version 9 also holds FTP/FTPS profiles and their saved
+passwords (native app only). Typed secrets are cleared whenever another tab or
+profile is selected, and "Save password securely" / "Save key passphrase
+securely" appear only when the runtime reports a credential store.
 
 ## Saved credentials
 
@@ -121,7 +127,10 @@ Normal CI uses mocked credential backends and controlled SSH servers; it does
 not access a user's real secrets. Coverage includes metadata migration, stable
 credential IDs, overwrite/delete/error handling, profile lifecycle, auth order,
 explicit-method isolation, encrypted keys, agent iteration, config aliases and
-Include semantics, unsupported MFA and the actual modal setup logic.
+Include semantics, unsupported MFA and the actual modal setup logic. The modal
+tests (`test/remoteAuthenticationModal.test.js`) also cover the tabs, keyboard
+navigation, unsaved-change prompts, secret clearing on switches, port
+defaults, the plain-FTP consent and the FTPS certificate dialogs.
 
 For opt-in macOS native acceptance, build a debug application and run:
 

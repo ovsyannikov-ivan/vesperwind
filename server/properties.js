@@ -62,11 +62,13 @@ export const calculateMetadataSize = async ({ root, children, signal, onProgress
   progress.cancelled = signal.aborted
   return progress
 }
-export const registerPropertiesHandlers = (socket, { ssh }) => {
+export const registerPropertiesHandlers = (socket, { providers }) => {
   const jobs = new Map()
   const read = async (payload) => {
     if (!payload?.filesystemId || payload.filesystemId === 'local') return readLocalProperties(payload?.path)
-    const connection = await ssh.ensure(payload.filesystemId), requested = connection.resolve(payload.path)
+    const connection = await providers.ensure(payload.filesystemId)
+    if (providers.kind(payload.filesystemId) === 'ftp') return connection.properties(payload.path)
+    const requested = connection.resolve(payload.path)
     const stat = await call(connection.sftp, 'lstat', requested)
     return remoteProperties(requested, stat, typeOf(stat.mode) === 'symlink' ? await call(connection.sftp, 'readlink', requested).catch(() => null) : null)
   }
@@ -77,7 +79,9 @@ export const registerPropertiesHandlers = (socket, { ssh }) => {
   socket.on('filesystem:update-properties', async (payload, ack) => {
     try {
       if (!payload?.filesystemId || payload.filesystemId === 'local') throw error('Extended permissions are available in the native app')
-      const connection = await ssh.ensure(payload.filesystemId), requested = connection.resolve(payload.path)
+      const connection = await providers.ensure(payload.filesystemId)
+      if (providers.kind(payload.filesystemId) === 'ftp') throw error('Permissions are not available over FTP')
+      const requested = connection.resolve(payload.path)
       const stat = await call(connection.sftp, 'lstat', requested)
       await call(connection.sftp, 'setstat', requested, sparseSftpUpdate(stat, payload.update))
       ack?.({ ok: true, properties: await read(payload) })
@@ -103,8 +107,11 @@ export const registerPropertiesHandlers = (socket, { ssh }) => {
             catch { return { path: entryPath, type: 'unknown' } }
           }))
         }
+      } else if (providers.kind(payload.filesystemId) === 'ftp') {
+        const connection = await providers.ensure(payload.filesystemId)
+        children = (directory) => connection.sizeChildren(directory, { signal: controller.signal })
       } else {
-        const connection = await ssh.ensure(payload.filesystemId)
+        const connection = await providers.ensure(payload.filesystemId)
         children = async (directory) => {
           const stat = await call(connection.sftp, 'lstat', connection.resolve(directory))
           if (typeOf(stat.mode) !== 'directory') throw error('This entry is no longer a directory')

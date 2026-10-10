@@ -112,7 +112,7 @@ const selectCreate = (kind) => {
 			</button>
 		</div>
 
-		<button class="btn btn-sm toolbar-button toolbar-command ms-1" type="button" title="Manage SSH/SFTP connections" @click="$emit('open-remote')">
+		<button class="btn btn-sm toolbar-button toolbar-command ms-1" type="button" title="Manage remote connections (SFTP, FTP, FTPS)" @click="$emit('open-remote')">
 			<i class="mdi mdi-server-network" aria-hidden="true" />
 			Remote
 		</button>

@@ -604,7 +604,7 @@ mod tests {
         fs::create_dir(&root).unwrap();
         let path = root.join("file");
         fs::write(&path, b"do not read content").unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0)).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
         let filesystem = Filesystem::from_root(&root, root.clone()).unwrap();
         let before = read(&filesystem, path.to_str().unwrap()).unwrap();
         assert!(before.created_at.is_some());

@@ -29,7 +29,12 @@ const run = (command, args, options = {}) => {
   }
 }
 
-run(process.execPath, [path.join(projectRoot, 'scripts', 'build-staging.js')])
+// The Vite build needs more than the ~2 GB default heap Node picks on 7 GB
+// machines such as the macOS CI runners.
+run(process.execPath, [
+  '--max-old-space-size=4096',
+  path.join(projectRoot, 'scripts', 'build-staging.js'),
+])
 run(process.execPath, ['--build-sea', 'sea-config.json'], {
   cwd: stagingDirectory,
 })

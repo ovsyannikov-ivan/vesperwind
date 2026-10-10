@@ -145,21 +145,21 @@ export const serializeFilesystemError = (error, requestedPath) => ({
   path: typeof requestedPath === 'string' ? requestedPath : null,
 })
 
-export const registerFilesystemHandlers = (socket, { ssh } = {}) => {
+export const registerFilesystemHandlers = (socket, { providers } = {}) => {
   socket.on('filesystem:resolve-location', async (payload, acknowledge) => {
     const providerId = payload?.filesystemId || 'local'
     try {
       if (/^smb:\/\//iu.test(payload?.path || '')) throw Object.assign(new Error('Connect this share in the native app, then use its mounted path'), { code: 'ENOTSUPPORTED' })
       let requested = providerId === 'local' && !isComputerRoot(payload?.path) ? resolveInsideRoot(payload?.path) : payload?.path
       if (providerId === 'local') await listDirectory(requested)
-      else { const provider = await ssh.ensure(providerId); requested = provider.resolve(requested); await provider.list(requested) }
+      else { const provider = await providers.ensure(providerId); requested = provider.resolve(requested); await provider.list(requested) }
       acknowledge?.({ ok: true, location: { providerId, path: requested } })
     } catch (error) { acknowledge?.({ ok: false, error: serializeFilesystemError(error, payload?.path) }) }
   })
   socket.on('filesystem:root', async (payload, acknowledge) => {
     try {
       if (payload?.filesystemId && payload.filesystemId !== 'local') {
-        const connection = await ssh.ensure(payload.filesystemId)
+        const connection = await providers.ensure(payload.filesystemId)
         acknowledge?.({ ok: true, root: connection.rootEntry(), initial: connection.initialEntry(), homePath: connection.homePath })
         return
       }
@@ -178,7 +178,7 @@ export const registerFilesystemHandlers = (socket, { ssh } = {}) => {
 
     try {
       if (payload?.filesystemId && payload.filesystemId !== 'local') {
-        const entries = await (await ssh.ensure(payload.filesystemId)).list(requestedPath)
+        const entries = await (await providers.ensure(payload.filesystemId)).list(requestedPath)
         acknowledge?.({ ok: true, path: requestedPath, entries })
         return
       }

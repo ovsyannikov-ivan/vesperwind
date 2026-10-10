@@ -48,3 +48,10 @@ test('editor tree keeps the remote provider when it lists and mutates files', as
   assert.match(tree, /useFilesystem\(props\.context\.filesystemId\)/)
   assert.match(tree, /:provider-id="context\.filesystemId"/)
 })
+
+test('a remote connection opens in the chosen panel with the provider id the backend returned', async () => {
+  const [manager, modal] = await Promise.all([read('src/components/FileManager.vue'), read('src/components/RemoteConnectionsModal.vue')])
+  assert.match(manager, /const handleRemoteConnected = \(\{ providerId, profile, targetPanel \}\) => \{\s*panelSlots\[targetPanel\] = \{\s*\.\.\.panelSlots\[targetPanel\],\s*providerId,/)
+  assert.match(manager, /@connected="handleRemoteConnected"/)
+  assert.match(modal, /emit\('connected', \{ \.\.\.response, profile, targetPanel: props\.activePanel \}\)/)
+})

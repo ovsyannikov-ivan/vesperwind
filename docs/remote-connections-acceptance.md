@@ -163,3 +163,31 @@ helper, including `--long`: an active download longer than the two-minute
 inactivity limit completed. The SFTP remote-auth acceptance and the native
 helper/deletion smoke passed on the same build. Windows and Linux were not run
 for this change.
+
+## Unified Remote Connections window and Node/SEA FTP/FTPS, 2026-10-10
+
+One window with SFTP | FTP | FTPS tabs and a Node/SEA FTP/FTPS backend
+([details](ftp-ftps.md)). macOS (Apple silicon) checks:
+
+- `npm test`: 582 tests, 581 passed, 1 skipped (UTF-8 locale; the archive tests
+  need one). The same suite passed on Node 22, the CI version. It includes the
+  basic-ftp contract tests, 26 Node FTP/FTPS acceptance scenarios against real
+  local FTP/FTPS and SFTP servers, and the dialog tests.
+- `scripts/ftp-runtime-smoke.js` passed against `node server/index.js` (Node 26
+  and 22) and against the SEA executable from `npm run build:sea`.
+- The dialog was checked in a browser against the Node backend and local
+  fixtures, in dark and light themes and at a narrow width: plain-FTP consent,
+  FTPS certificate trust through a pin, a changed certificate blocked with
+  both fingerprints, connection state with Disconnect/Reconnect, and an
+  FTPS → local copy.
+- `cargo fmt --check`, `cargo test` (237 passed, 8 ignored), `npm run build`
+  and `git diff --check` passed. `cargo clippy --all-targets` stops on an
+  existing `non_octal_unix_permissions` error in a test of
+  `src/filesystem/properties.rs`; Rust code was not changed in this stage.
+- `scripts/ftp-native-smoke.mjs` (native FTP/FTPS with the real Keychain and
+  filesystem helper) and `scripts/remote-auth-native-smoke.mjs` (SFTP
+  regression) passed on the debug build. The SFTP script needs an output path
+  short enough for an ssh-agent socket.
+
+Windows and Linux were not run for this change; CI runs the Node suite and the
+runtime smoke on Linux and builds and smokes the SEA executable on macOS.

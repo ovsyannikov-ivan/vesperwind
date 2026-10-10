@@ -106,7 +106,7 @@ export const searchRemote = async ({ connection, basePath, query, type = 'all', 
   return { count, limited, cancelled: Boolean(signal?.aborted) }
 }
 
-export const registerSearchHandlers = (socket, { ssh }) => {
+export const registerSearchHandlers = (socket, { providers }) => {
   const jobs = new Map()
   socket.on('filesystem:search', (payload, acknowledge) => {
     const { searchId, filesystemId = 'local', basePath, query, type = 'all' } = payload || {}
@@ -122,7 +122,7 @@ export const registerSearchHandlers = (socket, { ssh }) => {
         const options = { basePath, query, type, maxResults: Math.min(MAX_SEARCH_RESULTS, Math.max(1, Number(payload.maxResults) || MAX_SEARCH_RESULTS)), hiddenNameSuffixes: payload.hiddenNameSuffixes || [], signal: controller.signal, onBatch: (entries) => { if (!controller.signal.aborted) socket.emit('filesystem:search-results', { searchId, entries }) } }
         const result = filesystemId === 'local'
           ? await searchLocal(options)
-          : await searchRemote({ ...options, connection: await ssh.ensure(filesystemId) })
+          : await searchRemote({ ...options, connection: await providers.ensure(filesystemId) })
         socket.emit('filesystem:search-results', { searchId, done: true, ...result })
       } catch (error) {
         socket.emit('filesystem:search-results', { searchId, done: true, error: serializeFilesystemError(error, basePath) })

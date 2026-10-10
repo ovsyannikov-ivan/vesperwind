@@ -1,16 +1,14 @@
 import { decodeTextPreview } from '../shared/textPreview.js'
 import { createHash, randomUUID } from 'node:crypto'
-import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 import posix from 'node:path/posix'
-import { pipeline } from 'node:stream/promises'
 import ssh2 from 'ssh2'
-import { resolveInsideRoot, verifyRealPathInsideRoot } from './filesystem.js'
-import { entryNameError } from '../shared/entryName.js'
+import { unsafeEntryName } from '../shared/entryName.js'
 
 const { Client } = ssh2
+const SSH_SESSION_FIELDS = ['protocol', 'host', 'port', 'username', 'authType', 'privateKeyPath', 'sshConfigHost', 'trustedFingerprint']
 const MAX_TEXT_BYTES = 10 * 1024 * 1024
 const DIRECTORY_MODE = 0o040000
 const SYMLINK_MODE = 0o120000
@@ -292,14 +290,63 @@ class RemoteConnection {
     return { modifiedAt: stats.mtime ? new Date(stats.mtime * 1000).toISOString() : null }
   }
 
-  async remove(remotePath) {
+  async remove(remotePath, { signal } = {}) {
+    if (signal?.aborted) throw remoteError('ECANCELLED', 'The operation was cancelled')
     remotePath = this.resolve(remotePath)
     const stats = await call(this.sftp, 'lstat', remotePath)
     if (stats.isDirectory()) {
-      for (const entry of await call(this.sftp, 'readdir', remotePath)) await this.remove(posix.join(remotePath, entry.filename))
+      // The whole listing is checked before anything is deleted.
+      for (const name of await this.childNames(remotePath)) await this.remove(posix.join(remotePath, name), { signal })
       await call(this.sftp, 'rmdir', remotePath)
     } else await call(this.sftp, 'unlink', remotePath)
   }
+
+  // Common provider endpoint (see remoteProviders.js), used for transfers
+  // between any two providers.
+
+  async stat(requested) {
+    const remotePath = this.resolve(requested)
+    try {
+      const stats = await call(this.sftp, 'lstat', remotePath)
+      return { name: posix.basename(remotePath), isDirectory: stats.isDirectory(), isSymbolicLink: stats.isSymbolicLink(), size: stats.size, modifiedAt: stats.mtime ? new Date(stats.mtime * 1000).toISOString() : null }
+    } catch (error) {
+      if (error?.code === 2) return null
+      throw error
+    }
+  }
+
+  /** Child names of a directory; a listing with an unsafe name is refused as a whole. */
+  async childNames(requested) {
+    const directory = this.resolve(requested)
+    const names = (await call(this.sftp, 'readdir', directory)).map((entry) => entry.filename).filter((name) => name !== '.' && name !== '..')
+    if (names.some(unsafeEntryName)) throw remoteError('EUNSAFE_NAME', 'The server listed an unsafe file name; the operation was stopped', { path: directory })
+    return names
+  }
+
+  openRead(requested) {
+    const stream = this.sftp.createReadStream(this.resolve(requested))
+    const finish = new Promise((resolve, reject) => { stream.once('error', reject); stream.once('close', resolve) })
+    finish.catch(() => {})
+    return { stream, finish: () => finish }
+  }
+
+  async createNew(requested) {
+    const stream = this.sftp.createWriteStream(this.resolve(requested), { flags: 'wx' })
+    await new Promise((resolve, reject) => { stream.once('open', resolve); stream.once('error', reject) })
+    const closed = new Promise((resolve, reject) => { stream.once('error', reject); stream.once('close', resolve) })
+    closed.catch(() => {})
+    return {
+      stream,
+      finish: async () => { if (!stream.writableEnded) stream.end(); await closed },
+      abort: () => stream.destroy(),
+    }
+  }
+
+  async createFolder(requested) { await call(this.sftp, 'mkdir', this.resolve(requested)) }
+
+  async createEmptyFile(requested) { await call(this.sftp, 'writeFile', this.resolve(requested), Buffer.alloc(0), { flag: 'wx' }) }
+
+  async rename(from, to) { await call(this.sftp, 'rename', this.resolve(from), this.resolve(to)) }
 
   async openTerminal(id, cols, rows) {
     const channel = await call(this.client, 'shell', { term: 'xterm-256color', cols, rows })
@@ -337,89 +384,25 @@ export class SshConnectionManager {
     return { connectionId: profile.id, providerId: `sftp:${profile.id}`, status: 'connected', root, initial: connection.initialEntry(), homePath: connection.homePath }
   }
   disconnect(id) { const connection = this.connections.get(id); connection?.client?.end(); this.connections.delete(id) }
+  /**
+   * After settings were saved: a session whose saved profile was removed or
+   * changed endpoint, protocol, identity, authentication or host key trust
+   * is closed, so the next connect uses (and confirms) the new settings.
+   */
+  invalidate(previousProfiles, nextProfiles) {
+    const before = new Map((Array.isArray(previousProfiles) ? previousProfiles : []).map((profile) => [profile.id, profile]))
+    const after = new Map((Array.isArray(nextProfiles) ? nextProfiles : []).map((profile) => [profile.id, profile]))
+    for (const id of [...this.connections.keys()]) {
+      const old = before.get(id)
+      if (!old) continue
+      const next = after.get(id)
+      if (!next || SSH_SESSION_FIELDS.some((field) => (next[field] ?? null) !== (old[field] ?? null))) {
+        this.connections.get(id)?.markDisconnected?.()
+        this.disconnect(id)
+      }
+    }
+  }
   shutdown() { for (const connection of this.connections.values()) connection.client?.end(); this.connections.clear() }
-
-  async operate(payload) {
-    const sourceRemote = providerConnectionId(payload.filesystemId)
-    const targetRemote = providerConnectionId(payload.targetFilesystemId)
-    const action = payload.action
-    if (['create-file', 'create-folder'].includes(action)) {
-      const invalidName = entryNameError(payload.name)
-      if (invalidName) throw remoteError('EINVALID_NAME', invalidName)
-      const target = this.get(payload.targetFilesystemId)
-      const destination = target.resolve(posix.join(payload.targetDirectory, payload.name))
-      if (action === 'create-folder') await call(target.sftp, 'mkdir', destination)
-      else await call(target.sftp, 'writeFile', destination, Buffer.alloc(0), { flag: 'wx' })
-      return { action, sourcePath: null, targetDirectory: payload.targetDirectory, destinationPath: destination }
-    }
-    const sourceConnection = sourceRemote ? this.get(payload.filesystemId) : null
-    if (action === 'delete') {
-      await sourceConnection.remove(payload.sourcePath)
-      return { action, sourcePath: payload.sourcePath, targetDirectory: null, destinationPath: null }
-    }
-    if (action === 'rename') {
-      const invalidName = entryNameError(payload.name)
-      if (invalidName) throw remoteError('EINVALID_NAME', invalidName)
-      const source = sourceConnection.resolve(payload.sourcePath)
-      const destination = sourceConnection.resolve(posix.join(posix.dirname(source), payload.name))
-      await call(sourceConnection.sftp, 'rename', source, destination)
-      return { action, sourcePath: source, targetDirectory: posix.dirname(source), destinationPath: destination }
-    }
-    if (action === 'link') throw remoteError('ENOTSUPPORTED', 'Symbolic links are not available for cross-provider operations')
-    const targetConnection = targetRemote ? this.get(payload.targetFilesystemId) : null
-    const sourceName = sourceRemote ? posix.basename(payload.sourcePath) : path.basename(payload.sourcePath)
-    const destination = targetRemote
-      ? targetConnection.resolve(posix.join(payload.targetDirectory, sourceName))
-      : resolveInsideRoot(path.join(await verifyRealPathInsideRoot(resolveInsideRoot(payload.targetDirectory)), sourceName))
-    if (sourceRemote && targetRemote && sourceRemote === targetRemote) {
-      const resolvedSource = sourceConnection.resolve(payload.sourcePath)
-      if (resolvedSource === destination) throw remoteError('ESAMEPATH', 'The item is already in this folder')
-      const sourceStats = await call(sourceConnection.sftp, 'lstat', resolvedSource)
-      if (sourceStats.isDirectory() && destination.startsWith(`${resolvedSource.replace(/\/$/, '')}/`)) {
-        throw remoteError('ECYCLE', 'A folder cannot be copied or moved into itself')
-      }
-    }
-    if (action === 'move' && sourceRemote && targetRemote && sourceRemote === targetRemote) {
-      await call(sourceConnection.sftp, 'rename', sourceConnection.resolve(payload.sourcePath), destination)
-    } else {
-      await this.copy(sourceConnection, payload.sourcePath, targetConnection, destination)
-      if (action === 'move') {
-        try {
-          if (sourceRemote) await sourceConnection.remove(payload.sourcePath)
-          else await fsp.rm(await verifyRealPathInsideRoot(resolveInsideRoot(payload.sourcePath)), { recursive: true })
-        } catch (error) {
-          throw remoteError('EPARTIAL_MOVE', 'The copy completed, but the source could not be removed', { partialResult: { destinationPath: destination } })
-        }
-      }
-    }
-    return { action, sourcePath: payload.sourcePath, targetDirectory: payload.targetDirectory, destinationPath: destination }
-  }
-
-  async copy(sourceConnection, sourcePath, targetConnection, destination) {
-    const resolvedSource = sourceConnection
-      ? sourceConnection.resolve(sourcePath)
-      : await verifyRealPathInsideRoot(resolveInsideRoot(sourcePath))
-    const sourceStats = sourceConnection
-      ? await call(sourceConnection.sftp, 'lstat', resolvedSource)
-      : await fsp.lstat(resolvedSource)
-    if (sourceStats.isDirectory()) {
-      if (targetConnection) await call(targetConnection.sftp, 'mkdir', destination)
-      else await fsp.mkdir(destination)
-      const children = sourceConnection
-        ? await call(sourceConnection.sftp, 'readdir', resolvedSource)
-        : await fsp.readdir(resolvedSource, { withFileTypes: true })
-      for (const child of children) {
-        const name = sourceConnection ? child.filename : child.name
-        await this.copy(sourceConnection, sourceConnection ? posix.join(resolvedSource, name) : path.join(resolvedSource, name), targetConnection, targetConnection ? posix.join(destination, name) : path.join(destination, name))
-      }
-      return
-    }
-    const reader = sourceConnection
-      ? sourceConnection.sftp.createReadStream(resolvedSource)
-      : fs.createReadStream(resolvedSource)
-    const writer = targetConnection ? targetConnection.sftp.createWriteStream(destination, { flags: 'wx' }) : fs.createWriteStream(destination, { flags: 'wx' })
-    await pipeline(reader, writer)
-  }
 
   async createTerminal({ connectionId, cols, rows }) {
     let connection = this.connections.get(connectionId)
@@ -448,26 +431,11 @@ export const registerSshHandlers = (socket, { connections } = {}) => {
     const connection = manager.connections.get(payload?.connectionId)
     acknowledge?.({ ok: true, status: connection?.status || 'disconnected' })
   })
-  socket.on('connections:capabilities', (_payload, acknowledge) => acknowledge?.({ ok: true, capabilities: { credentialStore: false, sshConfig: false, auto: true, agent: true, protocols: ['sftp'] } }))
-  for (const event of ['connections:credential-status', 'connections:forget-credential']) {
-    socket.on(event, (_payload, acknowledge) => acknowledge?.({ ok: false, error: { code: 'ECREDENTIAL_UNAVAILABLE', message: 'Secure credential storage is available in the native app' } }))
-  }
   for (const event of ['ssh:config-hosts', 'ssh:config-resolve']) {
     socket.on(event, (_payload, acknowledge) => acknowledge?.({ ok: false, error: { code: 'ESSH_CONFIG_UNSUPPORTED', message: 'SSH config discovery is available in the native app' } }))
   }
   socket.on('disconnect', () => manager.shutdown())
   return manager
-}
-
-export const openSftpContentSource = async (connections, providerId, requestedPath) => {
-  const id = providerConnectionId(providerId)
-  const connection = id && connections?.get(id)
-
-  if (!connection || connection.status !== 'connected') {
-    throw remoteError('ESSH_DISCONNECTED', 'The remote connection is disconnected')
-  }
-
-  return connection.contentSource(requestedPath)
 }
 
 export { providerConnectionId, serializeSshError }

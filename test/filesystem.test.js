@@ -59,7 +59,7 @@ test('rejects paths above FILE_MANAGER_ROOT', async () => {
 test('address resolution validates folders and normalizes provider paths without mounting in browser mode', async () => {
   const handlers = new Map()
   registerFilesystemHandlers({ on: (event, handler) => handlers.set(event, handler) }, {
-    ssh: { ensure: async () => ({ resolve: () => '/home/server', list: async () => [] }) },
+    providers: { ensure: async () => ({ resolve: () => '/home/server', list: async () => [] }) },
   })
   const resolve = (payload) => new Promise((done) => handlers.get('filesystem:resolve-location')(payload, done))
   const local = await resolve({ filesystemId: 'local', path: fixtureRoot })

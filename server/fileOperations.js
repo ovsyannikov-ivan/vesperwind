@@ -264,14 +264,30 @@ export const serializeOperationError = (error) => ({
     'The file operation failed',
 })
 
-export const registerFileOperationHandlers = (socket, { ssh } = {}) => {
+export const registerFileOperationHandlers = (socket, { providers } = {}) => {
+  // Remote operations can be cancelled by id (the requester sends
+  // `filesystem:operation-cancel` on its deadline or a user cancel) and are
+  // stopped when the socket disconnects.
+  const operations = new Map()
   socket.on('filesystem:operate', async (payload, acknowledge) => {
+    const operationId = typeof payload?.operationId === 'string' && payload.operationId.length <= 100 ? payload.operationId : null
+    const controller = new AbortController()
+    if (operationId) operations.set(operationId, controller)
     try {
-      const remote = payload?.filesystemId?.startsWith('sftp:') || payload?.targetFilesystemId?.startsWith('sftp:')
-      const result = remote ? await ssh.operate(payload || {}) : await performFileOperation(payload || {})
+      const remote = [payload?.filesystemId, payload?.targetFilesystemId].some((id) => id != null && id !== 'local')
+      const result = remote
+        ? await providers.operate(payload || {}, { signal: controller.signal })
+        : await performFileOperation(payload || {})
       acknowledge?.({ ok: true, result })
     } catch (error) {
-      acknowledge?.({ ok: false, error: serializeOperationError(error) })
+      acknowledge?.({ ok: false, error: { ...serializeOperationError(error), ...(error?.partialResult ? { partialResult: error.partialResult } : {}) } })
+    } finally {
+      if (operationId && operations.get(operationId) === controller) operations.delete(operationId)
     }
   })
+  socket.on('filesystem:operation-cancel', (payload, acknowledge) => {
+    operations.get(payload?.operationId)?.abort()
+    acknowledge?.({ ok: true })
+  })
+  socket.on('disconnect', () => { for (const controller of operations.values()) controller.abort(); operations.clear() })
 }
