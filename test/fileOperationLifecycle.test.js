@@ -88,12 +88,39 @@ test('cancelling Office requests invalidates the native identity, including pre-
 
 test('socket SFTP timeout leaves the next operation usable and ignores a late acknowledgement', async () => {
   let callback, timeout
-  const request = createSocketRequester(() => ({ timeout: (ms) => { timeout = ms; return { emit: (_name, _payload, ack) => { callback = ack } } } }))
+  const cancels = []
+  const request = createSocketRequester(() => ({ emit: (name, payload) => cancels.push([name, payload]), timeout: (ms) => { timeout = ms; return { emit: (_name, _payload, ack) => { callback = ack } } } }))
   const failed = request('filesystem:operate', { filesystemId: 'sftp:test' }, { timeout: 30_000 })
   assert.equal(timeout, 30_000); const late = callback; callback(new Error('network lost'))
   assert.equal((await failed).error.code, 'ETIMEDOUT')
+  assert.equal(cancels.length, 1)
   const next = request('filesystem:operate', { filesystemId: 'sftp:test' }, { timeout: 120_000 })
   callback(null, { ok: true }); late(null, { ok: true }); assert.equal((await next).ok, true)
+})
+
+test('socket file operations send a cancel for their id on deadline or abort, never for other requests', async () => {
+  const emitted = []
+  let ack
+  const socket = { emit: (name, payload) => emitted.push([name, payload]), timeout: () => ({ emit: (name, payload, callback) => { emitted.push([name, payload]); ack = callback } }) }
+  const request = createSocketRequester(() => socket)
+  const controller = new AbortController()
+  const pending = request('filesystem:operate', { filesystemId: 'ftps:p', action: 'copy' }, { timeout: 60_000, signal: controller.signal })
+  const operationId = emitted[0][1].operationId
+  assert.equal(typeof operationId, 'string')
+  controller.abort()
+  assert.equal((await pending).error.code, 'ECANCELLED')
+  assert.deepEqual(emitted[1], ['filesystem:operation-cancel', { operationId }])
+  ack(null, { ok: true })
+  const timed = request('filesystem:operate', { filesystemId: 'ftp:p', action: 'copy' }, { timeout: 60_000 })
+  ack(new Error('timeout'))
+  assert.equal((await timed).error.code, 'ETIMEDOUT')
+  assert.equal(emitted.at(-1)[0], 'filesystem:operation-cancel')
+  const count = emitted.length
+  const listing = request('filesystem:list', { path: '/' })
+  ack(new Error('timeout'))
+  assert.equal((await listing).error.code, 'ETIMEDOUT')
+  assert.equal(emitted.length, count + 1)
+  assert.equal('operationId' in emitted.at(-1)[1], false)
 })
 
 test('native remote copy and move are bounded by inactivity, not a fixed two-minute deadline', async () => {
@@ -104,8 +131,8 @@ test('native remote copy and move are bounded by inactivity, not a fixed two-min
     for (const action of ['copy', 'move']) {
       assert.equal(operationTimeout(action, at(provider), at('local'), 'tauri'), NATIVE_TRANSFER_TIMEOUT)
       assert.equal(operationTimeout(action, at('local'), at(provider), 'tauri'), NATIVE_TRANSFER_TIMEOUT)
-      // The Socket.IO backend has no inactivity watchdog: it keeps the deadline.
-      assert.equal(operationTimeout(action, at(provider), at('local'), 'browser'), REMOTE_OPERATION_TIMEOUT)
+      // The Socket.IO backend stops idle FTP transfers itself; SFTP keeps the deadline.
+      assert.equal(operationTimeout(action, at(provider), at('local'), 'browser'), provider === 'sftp:p' ? REMOTE_OPERATION_TIMEOUT : NATIVE_TRANSFER_TIMEOUT)
     }
     assert.equal(operationTimeout('rename', at(provider), null, 'tauri'), REMOTE_OPERATION_TIMEOUT)
     assert.equal(operationTimeout('delete', at(provider), null, 'tauri'), DELETE_TIMEOUT)

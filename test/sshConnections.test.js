@@ -2,15 +2,23 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createHash } from 'node:crypto'
 import ssh2 from 'ssh2'
-import { connectionIdFromProvider, providerIdForConnection } from '../src/api/connections.js'
+import { connectionIdFromProvider, createConnectionsApi, protocolFromProvider, providerIdForConnection, providerIdForProfile } from '../src/api/connections.js'
 import { remoteInitialPath, sessionAuthOptions, SshConnectionManager, validateConnectionProfile } from '../server/ssh.js'
 import { registerConnectionHandlers } from '../server/connections.js'
 import { RemoteProviders } from '../server/remoteProviders.js'
 
-test('routes SFTP providers by connection ID', () => {
+test('routes SFTP, FTP and FTPS providers by protocol and connection ID, never by port', () => {
   assert.equal(providerIdForConnection('demo'), 'sftp:demo')
-  assert.equal(connectionIdFromProvider('sftp:demo'), 'demo')
-  assert.equal(connectionIdFromProvider('local'), null)
+  assert.equal(providerIdForConnection('demo', 'ftp'), 'ftp:demo')
+  assert.equal(providerIdForConnection('demo', 'ftps'), 'ftps:demo')
+  assert.equal(providerIdForConnection('demo', 'webdav'), null)
+  assert.equal(providerIdForProfile({ id: 'demo', protocol: 'ftps', port: 22 }), 'ftps:demo')
+  assert.equal(providerIdForProfile({ id: 'demo', protocol: 'sftp', port: 21 }), 'sftp:demo')
+  for (const [provider, id, protocol] of [['sftp:demo', 'demo', 'sftp'], ['ftp:demo', 'demo', 'ftp'], ['ftps:demo', 'demo', 'ftps']]) {
+    assert.equal(connectionIdFromProvider(provider), id)
+    assert.equal(protocolFromProvider(provider), protocol)
+  }
+  for (const provider of ['local', 'ssh:demo', 'webdav:demo', 'ftp:', 'ftp:../x', null]) assert.equal(connectionIdFromProvider(provider), null)
 })
 
 test('browser/SEA reports all three protocols but no secure credential storage or SSH config, without exposing secrets', () => {
@@ -141,4 +149,41 @@ test('rejects invalid ports and Windows-style SFTP paths', () => {
     assert.throws(() => validateConnectionProfile({ ...base, port: 21, authType: 'password', protocol }), { code: 'EINVAL' })
   }
   assert.equal(validateConnectionProfile({ ...base, port: 22, protocol: 'sftp' }).port, 22)
+})
+
+test('the connections API sends SFTP profiles to ssh:connect and FTP/FTPS profile ids to ftp:connect', async () => {
+  const calls = [], listeners = new Map()
+  const api = createConnectionsApi({
+    transport: {
+      request: async (event, payload, options) => { calls.push({ event, payload, timeout: options.timeout }); return { ok: true } },
+      subscribe: (event, callback) => { listeners.set(event, callback); return () => listeners.delete(event) },
+    },
+    prepareNetwork: async () => ({ ok: true }),
+  })
+  const sftp = { id: 's', protocol: 'sftp', host: 'h', port: 21 }
+  await api.connect(sftp, { password: 'p', keyPassphrase: 'k' })
+  assert.deepEqual(calls.at(-1).payload, { profile: sftp, secrets: { password: 'p', keyPassphrase: 'k' } })
+  assert.equal(calls.at(-1).event, 'ssh:connect')
+  for (const protocol of ['ftp', 'ftps']) {
+    await api.connect({ id: 'f', protocol, host: 'h', port: 22, tlsTrustedCertificate: 'x', plaintextAcknowledged: true }, { password: 'p', keyPassphrase: 'ignored' })
+    // Only the saved profile id and the typed password: trust comes from settings.
+    assert.deepEqual(calls.at(-1), { event: 'ftp:connect', payload: { profileId: 'f', password: 'p' }, timeout: 60_000 })
+  }
+  assert.equal((await api.connect({ id: 'w', protocol: 'webdav', host: 'h' })).error.code, 'EPROTOCOL_UNSUPPORTED')
+  assert.equal(calls.length, 3)
+  await api.disconnect('f', 'ftps')
+  assert.deepEqual(calls.at(-1).event, 'ftp:disconnect')
+  await api.status('s')
+  assert.deepEqual(calls.at(-1).event, 'ssh:status')
+  const events = []
+  const unsubscribe = api.onStatus((event) => events.push(event))
+  listeners.get('ssh:status')({ connectionId: 's', status: 'disconnected' })
+  listeners.get('ftp:status')({ connectionId: 'f', providerId: 'ftps:f', status: 'connected' })
+  listeners.get('ftp:status')({ connectionId: 'x', providerId: 'sftp:x', status: 'connected' })
+  assert.deepEqual(events, [
+    { connectionId: 's', status: 'disconnected', protocol: 'sftp', providerId: 'sftp:s' },
+    { connectionId: 'f', providerId: 'ftps:f', status: 'connected', protocol: 'ftps' },
+  ])
+  unsubscribe()
+  assert.equal(listeners.size, 0)
 })

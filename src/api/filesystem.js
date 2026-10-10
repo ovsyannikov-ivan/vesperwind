@@ -118,14 +118,16 @@ export const DELETE_TIMEOUT = 30_000
 export const REMOTE_OPERATION_TIMEOUT = 120_000
 // Native copy/move with a remote side is bounded by inactivity instead: the
 // filesystem helper reports progress and stops a transfer that makes none
-// for two minutes, so a long but active transfer is never cut off.
+// for two minutes, so a long but active transfer is never cut off. The Node
+// FTP/FTPS backend does the same for every transfer with an FTP side.
 export const NATIVE_TRANSFER_TIMEOUT = 24 * 60 * 60 * 1000
 const remoteProvider = (location) => /^(sftp|ftp|ftps):/.test(providerIdOf(location))
+const ftpProvider = (location) => /^ftps?:/.test(providerIdOf(location))
 
 export const operationTimeout = (action, source, target, runtime = backendRuntimeMode) => {
   if (action === 'delete') return DELETE_TIMEOUT
   const remote = [source, target].some(remoteProvider)
-  if (remote && runtime === 'tauri' && (action === 'copy' || action === 'move')) return NATIVE_TRANSFER_TIMEOUT
+  if (remote && (runtime === 'tauri' || [source, target].some(ftpProvider)) && (action === 'copy' || action === 'move')) return NATIVE_TRANSFER_TIMEOUT
   return remote ? REMOTE_OPERATION_TIMEOUT : OPERATION_TIMEOUT
 }
 

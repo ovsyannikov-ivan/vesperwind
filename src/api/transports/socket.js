@@ -31,25 +31,42 @@ export const createSocketRequester = (socketOf) => (eventName, payload = {}, opt
     return Promise.resolve({ ok: true, cancelled: false })
   }
 
+  // File operations carry an id; on their deadline or a user cancel the
+  // backend is told to stop the operation (remote transfers, partial files).
+  const cancellable = eventName === 'filesystem:operate'
+  const operationId = cancellable ? newOperationId() : null
+  const args = cancellable ? { ...payload, operationId } : payload
   return new Promise((resolve) => {
     const timeout = options.timeout || DEFAULT_REQUEST_TIMEOUT
+    let settled = false
+    const finish = (response) => {
+      if (settled) return
+      settled = true
+      options.signal?.removeEventListener('abort', abort)
+      resolve(response)
+    }
+    const stop = (code, message) => {
+      if (settled) return
+      if (cancellable) socketOf().emit('filesystem:operation-cancel', { operationId })
+      finish({ ok: false, error: { code, message } })
+    }
+    const abort = () => stop('ECANCELLED', 'The operation was cancelled')
+    if (options.signal?.aborted) { abort(); return }
+    options.signal?.addEventListener('abort', abort, { once: true })
 
-    socketOf().timeout(timeout).emit(eventName, payload, (timeoutError, response) => {
+    socketOf().timeout(timeout).emit(eventName, args, (timeoutError, response) => {
       if (timeoutError) {
-        resolve({
-          ok: false,
-          error: {
-            code: 'ETIMEDOUT',
-            message: 'The backend did not respond',
-          },
-        })
+        stop('ETIMEDOUT', 'The backend did not respond')
         return
       }
 
-      resolve(response)
+      finish(response)
     })
   })
 }
+
+const newOperationId = () => globalThis.crypto?.randomUUID?.()
+  || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 
 const request = createSocketRequester(getSocket)
 
