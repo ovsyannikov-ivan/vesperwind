@@ -25,6 +25,7 @@ export const DEFAULT_CAPABILITIES = Object.freeze({
   externalDragOut: false,
   mountDiskImage: false,
   diskImageExtensions: Object.freeze([]),
+  cloudStatus: false,
 })
 
 export const normalizeCapabilities = (value) => ({
@@ -32,6 +33,7 @@ export const normalizeCapabilities = (value) => ({
   externalFileDrop: value?.externalFileDrop === true,
   externalDragOut: value?.externalDragOut === true,
   mountDiskImage: value?.mountDiskImage === true,
+  cloudStatus: value?.cloudStatus === true,
   diskImageExtensions: Array.isArray(value?.diskImageExtensions)
     ? value.diskImageExtensions.filter((item) => typeof item === 'string').map((item) => item.toLowerCase())
     : [],
@@ -43,7 +45,15 @@ const state = reactive({
   capabilities: { ...DEFAULT_CAPABILITIES },
 })
 
-const getInfo = async () => {
+let infoRequest = null
+const getInfo = () => {
+  infoRequest = loadInfo()
+  return infoRequest
+}
+// Settles once the first runtime info request has completed (successfully or not).
+export const runtimeInfoReady = () => (infoRequest || getInfo()).then(() => {}, () => {})
+
+const loadInfo = async () => {
   const response = normalizeApiResponse(
     await backend.request('runtime:info'),
     'ERUNTIME_INFO',

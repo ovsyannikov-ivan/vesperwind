@@ -45,6 +45,8 @@ pub struct Capabilities {
     pub external_drag_out: bool,
     pub mount_disk_image: bool,
     pub disk_image_extensions: Vec<&'static str>,
+    /// Local listings can be followed by lazy iCloud/OneDrive status batches.
+    pub cloud_status: bool,
 }
 
 pub fn capabilities() -> Capabilities {
@@ -55,6 +57,7 @@ pub fn capabilities() -> Capabilities {
         external_file_drop: desktop,
         external_drag_out: desktop,
         mount_disk_image: platform != disk_image::ImagePlatform::Unsupported,
+        cloud_status: desktop,
         disk_image_extensions: platform.extensions().to_vec(),
     }
 }

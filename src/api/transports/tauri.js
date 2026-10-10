@@ -7,6 +7,8 @@ const requestCommands = Object.freeze({
   'archive:start': 'archive_start',
   'archive:cancel': 'archive_cancel',
   'filesystem:list': 'filesystem_list',
+  'filesystem:cloud-status': 'filesystem_cloud_status',
+  'filesystem:cloud-status-cancel': 'filesystem_cloud_status_cancel',
   'filesystem:properties': 'filesystem_properties',
   'filesystem:update-properties': 'filesystem_update_properties',
   'filesystem:calculate-size': 'filesystem_calculate_size',

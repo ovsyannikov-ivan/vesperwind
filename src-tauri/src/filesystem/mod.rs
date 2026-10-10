@@ -1,7 +1,10 @@
 pub mod alias;
 pub mod archives;
 pub mod availability;
+pub mod cloud_status;
 pub mod jobs;
+#[cfg(all(test, target_os = "macos"))]
+mod listing_profile;
 pub mod network;
 pub mod operations;
 pub mod paths;
@@ -44,6 +47,7 @@ pub struct FileEntry {
     pub size: Option<u64>,
     pub modified_at: Option<String>,
     pub metadata_error: Option<MetadataError>,
+    /// Never set by a listing; cloud status arrives later via `cloud_status`.
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_availability: Option<availability::ContentAvailability>,
@@ -268,6 +272,11 @@ fn logical_drives() -> Result<Vec<FileEntry>, NativeError> {
     ))
 }
 
+/// Build a listing entry from metadata only. `physical_path` is a child of a
+/// directory that was verified and canonicalized once, so a plain entry is
+/// already its own real path inside the root; only symlinks and Finder Aliases
+/// are resolved. Cloud status is inspected later and separately (see
+/// `cloud_status`), so listing never waits for cloud metadata.
 fn entry_from_path(
     filesystem: &Filesystem,
     physical_path: PathBuf,
@@ -275,72 +284,56 @@ fn entry_from_path(
     file_name: std::ffi::OsString,
 ) -> FileEntry {
     let name = file_name.to_string_lossy().into_owned();
-    let link_metadata = fs::symlink_metadata(&physical_path);
-    let is_finder_alias = alias::is_finder_alias(&physical_path).unwrap_or(false);
-    #[cfg(target_os = "macos")]
-    if let Some(metadata) = link_metadata
-        .as_ref()
-        .ok()
-        .filter(|metadata| is_finder_alias && availability::is_dataless(metadata))
-    {
-        // Resolving a dataless alias would read its bookmark content. Retain the
-        // alias itself until an explicit open materializes it; listing is passive.
-        return FileEntry {
-            name,
-            path: display_path.to_string_lossy().into_owned(),
-            entry_type: "file",
-            is_directory: false,
-            is_symbolic_link: true,
-            size: Some(metadata.len()),
-            modified_at: metadata.modified().ok().map(format_time),
-            metadata_error: None,
-            #[cfg(target_os = "windows")]
-            cloud_sync: None,
-            content_availability: availability::inspect_content_availability(
-                &physical_path,
-                metadata,
-            ),
-        };
-    }
-    let resolved = paths::verify_existing_inside_root(filesystem, &physical_path);
-
-    match (link_metadata, resolved) {
-        (Ok(link_metadata), Ok(real)) => match fs::metadata(&real) {
-            Ok(metadata) => {
-                let is_directory = metadata.is_dir();
-                FileEntry {
-                    name,
-                    path: display_path.to_string_lossy().into_owned(),
-                    entry_type: if is_directory { "directory" } else { "file" },
-                    is_directory,
-                    is_symbolic_link: link_metadata.file_type().is_symlink() || is_finder_alias,
-                    size: (!is_directory).then_some(metadata.len()),
-                    modified_at: metadata.modified().ok().map(format_time),
-                    metadata_error: None,
-                    #[cfg(target_os = "windows")]
-                    cloud_sync: None,
-                    #[cfg(target_os = "windows")]
-                    content_availability: None,
-                    #[cfg(target_os = "macos")]
-                    content_availability: if metadata.is_file() {
-                        availability::inspect_content_availability(&real, &metadata)
-                    } else {
-                        None
-                    },
-                }
-            }
-            Err(error) => metadata_error_entry(
+    let link_metadata = match fs::symlink_metadata(&physical_path) {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            return metadata_error_entry(
                 name,
                 display_path,
                 NativeError::from_io(&error, "Unable to read metadata"),
-            ),
-        },
-        (Err(error), _) => metadata_error_entry(
-            name,
-            display_path,
-            NativeError::from_io(&error, "Unable to read metadata"),
-        ),
-        (_, Err(error)) => metadata_error_entry(name, display_path, error),
+            )
+        }
+    };
+    // Finder Aliases are regular files; links and directories need no query.
+    let is_finder_alias =
+        link_metadata.is_file() && alias::is_finder_alias(&physical_path).unwrap_or(false);
+    if !is_finder_alias && !link_metadata.file_type().is_symlink() {
+        return metadata_entry(name, display_path, &link_metadata, false);
+    }
+    #[cfg(target_os = "macos")]
+    if is_finder_alias && availability::is_dataless(&link_metadata) {
+        // Resolving a dataless alias would read its bookmark content. Retain the
+        // alias itself until an explicit open materializes it; listing is passive.
+        return metadata_entry(name, display_path, &link_metadata, true);
+    }
+    match paths::verify_child_inside_root(filesystem, &physical_path).and_then(|real| {
+        fs::metadata(real).map_err(|error| NativeError::from_io(&error, "Unable to read metadata"))
+    }) {
+        Ok(metadata) => metadata_entry(name, display_path, &metadata, true),
+        Err(error) => metadata_error_entry(name, display_path, error),
+    }
+}
+
+fn metadata_entry(
+    name: String,
+    path: PathBuf,
+    metadata: &fs::Metadata,
+    is_symbolic_link: bool,
+) -> FileEntry {
+    let is_directory = metadata.is_dir();
+    FileEntry {
+        name,
+        path: path.to_string_lossy().into_owned(),
+        entry_type: if is_directory { "directory" } else { "file" },
+        is_directory,
+        is_symbolic_link,
+        size: (!is_directory).then_some(metadata.len()),
+        modified_at: metadata.modified().ok().map(format_time),
+        metadata_error: None,
+        #[cfg(target_os = "windows")]
+        cloud_sync: None,
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        content_availability: None,
     }
 }
 
@@ -421,9 +414,6 @@ mod desktop_tests {
                 started.elapsed().as_millis()
             );
             assert_eq!(entries.len(), 3000);
-            assert!(entries
-                .iter()
-                .all(|entry| entry.content_availability.is_none()));
         }
         fs::remove_dir_all(directory).unwrap();
     }

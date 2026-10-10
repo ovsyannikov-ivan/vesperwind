@@ -250,6 +250,12 @@ pub fn filesystem_root(state: State<'_, AppState>, payload: FilesystemRootPayloa
     result.unwrap_or_else(failure)
 }
 
+/// Opt-in timing for listing and lazy cloud status (`VESPERWIND_LISTING_TRACE=1`).
+fn listing_trace() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var_os("VESPERWIND_LISTING_TRACE").is_some_and(|v| v == "1"))
+}
+
 #[tauri::command]
 pub async fn filesystem_list(
     state: State<'_, AppState>,
@@ -257,10 +263,9 @@ pub async fn filesystem_list(
 ) -> Result<Value, String> {
     let filesystem = Arc::clone(&state.filesystem);
     let remote = state.remote.clone();
-    #[cfg(target_os = "windows")]
-    let content = Arc::clone(&state.content);
     let path = payload.path.unwrap_or_default();
-    // Cloud metadata and large directory enumeration run off the UI thread.
+    // Large directory enumeration runs off the UI thread. Local listings carry
+    // no cloud status; `filesystem_cloud_status` adds it after rendering.
     let result = tauri::async_runtime::spawn_blocking(move || {
         if let Some(provider) = payload
             .filesystem_id
@@ -271,16 +276,110 @@ pub async fn filesystem_list(
             return Ok::<_, NativeError>(json!({ "ok": true, "path": path, "entries": entries }));
         }
         filesystem::Filesystem::require_local(payload.filesystem_id.as_deref())?;
+        let started = std::time::Instant::now();
         let entries = filesystem.list_directory(&path)?;
-        #[cfg(target_os = "windows")]
-        let entries = content.annotate_listing(entries);
-        Ok::<_, NativeError>(json!({ "ok": true, "path": path, "entries": entries }))
+        let listed = started.elapsed();
+        let value = json!({ "ok": true, "path": path, "entries": entries });
+        if listing_trace() {
+            eprintln!(
+                "[listing] path={path:?} entries={} list_ms={:.1} serialize_ms={:.1}",
+                entries.len(),
+                listed.as_secs_f64() * 1000.0,
+                (started.elapsed() - listed).as_secs_f64() * 1000.0
+            );
+        }
+        Ok::<_, NativeError>(value)
     })
     .await;
     Ok(match result {
         Ok(result) => result.unwrap_or_else(failure),
         Err(error) => failure(NativeError::new("EFILESYSTEM", error.to_string())),
     })
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudStatusPayload {
+    request_id: String,
+    filesystem_id: Option<String>,
+    directory_path: String,
+    paths: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudStatusCancelPayload {
+    request_id: String,
+}
+
+/// Passive iCloud/OneDrive status for one batch of a listed local folder.
+/// Batches are cancellable between entries and limited in concurrency.
+#[tauri::command]
+pub async fn filesystem_cloud_status(
+    state: State<'_, AppState>,
+    payload: CloudStatusPayload,
+) -> Result<Value, String> {
+    if payload.request_id.is_empty() {
+        return Ok(failure(NativeError::new(
+            "EINVAL",
+            "A request id is required",
+        )));
+    }
+    if let Err(error) = filesystem::Filesystem::require_local(payload.filesystem_id.as_deref()) {
+        return Ok(failure(error));
+    }
+    let filesystem = Arc::clone(&state.filesystem);
+    let jobs = Arc::clone(&state.operation_jobs);
+    #[cfg(target_os = "windows")]
+    let content = Arc::clone(&state.content);
+    let cancelled = jobs.register(&payload.request_id);
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let started = std::time::Instant::now();
+        let result = filesystem::cloud_status::inspect_limited(
+            &filesystem,
+            &payload.directory_path,
+            &payload.paths,
+            &cancelled,
+        );
+        jobs.finish(&payload.request_id);
+        if listing_trace() {
+            eprintln!(
+                "[cloud-status] directory={:?} entries={} ms={:.1} result={}",
+                payload.directory_path,
+                payload.paths.len(),
+                started.elapsed().as_secs_f64() * 1000.0,
+                match &result {
+                    Ok(batch) if batch.complete => "complete".to_string(),
+                    Ok(_) => "ok".to_string(),
+                    Err(error) => error.code.clone(),
+                }
+            );
+        }
+        result
+    })
+    .await;
+    Ok(match result {
+        Ok(Ok(batch)) => {
+            #[cfg(target_os = "windows")]
+            let batch = {
+                let mut batch = batch;
+                content.annotate_cloud_status(&mut batch.statuses);
+                batch
+            };
+            json!({ "ok": true, "statuses": batch.statuses, "complete": batch.complete })
+        }
+        Ok(Err(error)) => failure(error),
+        Err(error) => failure(NativeError::new("EFILESYSTEM", error.to_string())),
+    })
+}
+
+#[tauri::command]
+pub fn filesystem_cloud_status_cancel(
+    state: State<'_, AppState>,
+    payload: CloudStatusCancelPayload,
+) -> Value {
+    state.operation_jobs.cancel(&payload.request_id);
+    json!({"ok": true})
 }
 
 #[derive(Debug, Deserialize)]
