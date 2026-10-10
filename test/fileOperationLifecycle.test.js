@@ -95,3 +95,20 @@ test('socket SFTP timeout leaves the next operation usable and ignores a late ac
   const next = request('filesystem:operate', { filesystemId: 'sftp:test' }, { timeout: 120_000 })
   callback(null, { ok: true }); late(null, { ok: true }); assert.equal((await next).ok, true)
 })
+
+test('native remote copy and move are bounded by inactivity, not a fixed two-minute deadline', async () => {
+  const { operationTimeout, NATIVE_TRANSFER_TIMEOUT, REMOTE_OPERATION_TIMEOUT, OPERATION_TIMEOUT, DELETE_TIMEOUT } =
+    await import('../src/api/filesystem.js')
+  const at = (providerId) => ({ providerId, path: '/a' })
+  for (const provider of ['sftp:p', 'ftp:p', 'ftps:p']) {
+    for (const action of ['copy', 'move']) {
+      assert.equal(operationTimeout(action, at(provider), at('local'), 'tauri'), NATIVE_TRANSFER_TIMEOUT)
+      assert.equal(operationTimeout(action, at('local'), at(provider), 'tauri'), NATIVE_TRANSFER_TIMEOUT)
+      // The Socket.IO backend has no inactivity watchdog: it keeps the deadline.
+      assert.equal(operationTimeout(action, at(provider), at('local'), 'browser'), REMOTE_OPERATION_TIMEOUT)
+    }
+    assert.equal(operationTimeout('rename', at(provider), null, 'tauri'), REMOTE_OPERATION_TIMEOUT)
+    assert.equal(operationTimeout('delete', at(provider), null, 'tauri'), DELETE_TIMEOUT)
+  }
+  assert.equal(operationTimeout('copy', at('local'), at('local'), 'tauri'), OPERATION_TIMEOUT)
+})

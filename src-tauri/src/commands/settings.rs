@@ -345,4 +345,56 @@ mod tests {
         assert_eq!(saved["connections"][0], unknown);
         std::fs::remove_dir_all(root).unwrap();
     }
+
+    #[test]
+    fn settings_changes_close_affected_ftp_sessions_only() {
+        use crate::ftp::{test_server::FtpTestServer, FtpManager};
+        let served =
+            std::env::temp_dir().join(format!("vesper-ftp-served-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&served).unwrap();
+        let server = FtpTestServer::start(served, Default::default()).unwrap();
+        let root = std::env::temp_dir().join(format!("vesper-ftp-update-{}", uuid::Uuid::new_v4()));
+        let settings = Arc::new(SettingsStore::at_path(root.join("settings.json")));
+        let mut ssh = SshManager::with_settings(settings.clone());
+        Arc::get_mut(&mut ssh).unwrap().credentials =
+            CredentialStore::with_backend(Arc::new(MemoryBackend::default()));
+        let ftp =
+            FtpManager::with_roots(Arc::clone(&ssh.credentials), Some(settings.clone()), vec![]);
+        let remote = RemoteProviders::with_ftp(Arc::clone(&ssh), Arc::clone(&ftp));
+        let profile = json!({"id":"ftp-one","name":"FTP","host":"127.0.0.1","port":server.addr.port(),
+            "username":"fixture","authType":"password","protocol":"ftp","plaintextAcknowledged":true});
+        let saved = update(&settings, &remote, &json!({"connections":[profile]})).unwrap();
+        let connect = || {
+            ftp.connect(
+                None,
+                "ftp-one",
+                zeroize::Zeroizing::new("fixture-password".into()),
+            )
+        };
+        connect().unwrap();
+        // An unrelated change keeps the session.
+        let mut next = saved.clone();
+        next["appearance"]["theme"] = json!("dark");
+        let saved = update(&settings, &remote, &next).unwrap();
+        assert_eq!(ftp.status("ftp-one"), "connected");
+        // Switching FTP to FTPS (a protocol change) closes it.
+        let mut next = saved.clone();
+        next["connections"][0]["protocol"] = json!("ftps");
+        update(&settings, &remote, &next).unwrap();
+        assert_eq!(ftp.status("ftp-one"), "disconnected");
+        assert!(server.wait_for_closed_controls(std::time::Duration::from_secs(5)));
+        // Back to FTP: the plaintext acknowledgement must be given again.
+        let restored = update(&settings, &remote, &saved).unwrap();
+        assert_eq!(restored["connections"][0]["plaintextAcknowledged"], false);
+        assert_eq!(
+            connect().unwrap_err().error.code,
+            "EFTP_PLAINTEXT_NOT_ACKNOWLEDGED"
+        );
+        update(&settings, &remote, &saved).unwrap();
+        // Deleting the profile closes a reconnected session as well.
+        connect().unwrap();
+        update(&settings, &remote, &json!({"connections": []})).unwrap();
+        assert_eq!(ftp.status("ftp-one"), "disconnected");
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

@@ -13,6 +13,7 @@ use crate::{
         remote_ops::{RemoteEndpoint, RemoteSessions},
         FileEntry,
     },
+    ftp::{pool::FtpConnection, FtpManager, FtpOperationConnection},
     shell_integration::transfer::RemoteStat,
     ssh::{OperationConnection, SshManager},
 };
@@ -24,14 +25,18 @@ pub const LOCAL_PROVIDER: &str = "local";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RemoteProtocol {
     Sftp,
+    Ftp,
+    Ftps,
 }
 
 impl RemoteProtocol {
-    const ALL: [Self; 1] = [Self::Sftp];
+    const ALL: [Self; 3] = [Self::Sftp, Self::Ftp, Self::Ftps];
 
     pub fn scheme(self) -> &'static str {
         match self {
             Self::Sftp => "sftp",
+            Self::Ftp => "ftp",
+            Self::Ftps => "ftps",
         }
     }
 }
@@ -99,11 +104,14 @@ pub enum SizeChildKind {
 pub struct OperationConnections {
     #[serde(rename = "remote", default)]
     pub(crate) sftp: Vec<OperationConnection>,
+    /// FTP and FTPS snapshots; absent from frames without them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) ftp: Vec<FtpOperationConnection>,
 }
 
 impl OperationConnections {
     pub fn is_empty(&self) -> bool {
-        self.sftp.is_empty()
+        self.sftp.is_empty() && self.ftp.is_empty()
     }
 
     /// Opens the helper's own sessions. Runs only inside the filesystem
@@ -111,6 +119,7 @@ impl OperationConnections {
     pub fn open(self) -> Result<HelperSessions, NativeError> {
         Ok(HelperSessions {
             ssh: SshManager::from_operation_connections(self.sftp)?,
+            ftp: FtpManager::from_operation_connections(self.ftp)?,
         })
     }
 }
@@ -118,6 +127,7 @@ impl OperationConnections {
 /// Remote connections opened by one filesystem helper.
 pub struct HelperSessions {
     ssh: Arc<SshManager>,
+    ftp: Arc<FtpManager>,
 }
 
 impl RemoteSessions for HelperSessions {
@@ -127,6 +137,7 @@ impl RemoteSessions for HelperSessions {
                 protocol: RemoteProtocol::Sftp,
                 ..
             } => self.ssh.endpoint(provider_id),
+            ProviderRef::Remote { .. } => Ok(Arc::new(self.ftp.get(provider_id)?)),
             ProviderRef::Local => Err(unavailable()),
         }
     }
@@ -136,15 +147,33 @@ impl RemoteSessions for HelperSessions {
 #[derive(Clone)]
 pub struct RemoteProviders {
     ssh: Arc<SshManager>,
+    ftp: Arc<FtpManager>,
 }
 
 enum Backend<'a> {
     Sftp(&'a Arc<SshManager>),
+    Ftp(Arc<FtpConnection>),
 }
 
 impl RemoteProviders {
+    /// FTP shares the SSH manager's CredentialStore, settings and
+    /// profile-update lock, so reconciliation covers both.
     pub fn new(ssh: Arc<SshManager>) -> Self {
-        Self { ssh }
+        let ftp = FtpManager::new(
+            Arc::clone(&ssh.credentials),
+            Arc::clone(&ssh.profile_updates),
+            ssh.settings(),
+        );
+        Self { ssh, ftp }
+    }
+
+    #[cfg(test)]
+    pub fn with_ftp(ssh: Arc<SshManager>, ftp: Arc<FtpManager>) -> Self {
+        Self { ssh, ftp }
+    }
+
+    pub fn ftp(&self) -> &Arc<FtpManager> {
+        &self.ftp
     }
 
     /// The SSH manager also owns the shared CredentialStore and the
@@ -155,11 +184,12 @@ impl RemoteProviders {
 
     /// Ends the session of a saved profile, routed by that profile's own
     /// protocol. Profile ids are unique across protocols, so an FTP/FTPS id
-    /// can never close an SFTP session. FTP/FTPS have no sessions yet; their
-    /// manager plugs in here.
+    /// can never close an SFTP session.
     pub fn disconnect_profile(&self, profile: &ConnectionProfile) {
-        if profile.is_sftp() {
-            self.ssh.disconnect(&profile.id);
+        match profile.protocol.as_str() {
+            "sftp" => self.ssh.disconnect(&profile.id),
+            "ftp" | "ftps" => self.ftp.disconnect(&profile.id),
+            _ => {}
         }
     }
 
@@ -169,6 +199,7 @@ impl RemoteProviders {
                 protocol: RemoteProtocol::Sftp,
                 ..
             } => Ok(Backend::Sftp(&self.ssh)),
+            ProviderRef::Remote { .. } => Ok(Backend::Ftp(self.ftp.get(provider_id)?)),
             ProviderRef::Local => Err(unavailable()),
         }
     }
@@ -176,18 +207,21 @@ impl RemoteProviders {
     pub fn root(&self, provider: &str) -> Result<(FileEntry, FileEntry, String), NativeError> {
         match self.backend(provider)? {
             Backend::Sftp(ssh) => ssh.root(provider),
+            Backend::Ftp(ftp) => Ok(ftp.root_entries()),
         }
     }
 
     pub fn list(&self, provider: &str, path: &str) -> Result<Vec<FileEntry>, NativeError> {
         match self.backend(provider)? {
             Backend::Sftp(ssh) => ssh.list(provider, path),
+            Backend::Ftp(ftp) => ftp.list(path),
         }
     }
 
     pub fn resolve_path(&self, provider: &str, path: &str) -> Result<String, NativeError> {
         match self.backend(provider)? {
             Backend::Sftp(ssh) => ssh.resolve_path(provider, path),
+            Backend::Ftp(ftp) => ftp.resolve(path),
         }
     }
 
@@ -200,6 +234,7 @@ impl RemoteProviders {
     ) -> Result<(String, Option<String>), NativeError> {
         match self.backend(provider)? {
             Backend::Sftp(ssh) => ssh.read_text(provider, path, max_bytes, strict_text),
+            Backend::Ftp(ftp) => ftp.read_text(path, max_bytes, strict_text),
         }
     }
 
@@ -211,6 +246,7 @@ impl RemoteProviders {
     ) -> Result<Option<String>, NativeError> {
         match self.backend(provider)? {
             Backend::Sftp(ssh) => ssh.write_text(provider, path, content),
+            Backend::Ftp(ftp) => ftp.write_text(path, content),
         }
     }
 
@@ -221,6 +257,7 @@ impl RemoteProviders {
     ) -> Result<(Vec<u8>, Option<String>), NativeError> {
         match self.backend(provider)? {
             Backend::Sftp(ssh) => ssh.read_binary(provider, path),
+            Backend::Ftp(ftp) => ftp.read_binary(path),
         }
     }
 
@@ -232,12 +269,14 @@ impl RemoteProviders {
     ) -> Result<Option<String>, NativeError> {
         match self.backend(provider)? {
             Backend::Sftp(ssh) => ssh.write_binary(provider, path, bytes),
+            Backend::Ftp(ftp) => ftp.write_binary(path, bytes),
         }
     }
 
     pub fn properties(&self, provider: &str, path: &str) -> Result<Properties, NativeError> {
         match self.backend(provider)? {
             Backend::Sftp(ssh) => ssh.properties(provider, path),
+            Backend::Ftp(ftp) => ftp.properties(path),
         }
     }
 
@@ -249,6 +288,10 @@ impl RemoteProviders {
     ) -> Result<Properties, NativeError> {
         match self.backend(provider)? {
             Backend::Sftp(ssh) => ssh.update_properties(provider, path, update),
+            Backend::Ftp(_) => Err(NativeError::new(
+                "ENOTSUPPORTED",
+                "Permissions cannot be changed over FTP",
+            )),
         }
     }
 
@@ -271,18 +314,21 @@ impl RemoteProviders {
                     size: stat.size,
                 })
                 .collect()),
+            Backend::Ftp(ftp) => ftp.size_children(directory),
         }
     }
 
     pub fn stat(&self, provider: &str, path: &str) -> Result<RemoteStat, NativeError> {
         match self.backend(provider)? {
             Backend::Sftp(ssh) => ssh.remote_stat(provider, path),
+            Backend::Ftp(ftp) => ftp.remote_stat(path),
         }
     }
 
     pub fn children(&self, provider: &str, path: &str) -> Result<Vec<RemoteStat>, NativeError> {
         match self.backend(provider)? {
             Backend::Sftp(ssh) => ssh.remote_children(provider, path),
+            Backend::Ftp(ftp) => ftp.remote_children(path),
         }
     }
 
@@ -293,6 +339,7 @@ impl RemoteProviders {
     ) -> Result<Box<dyn Read + Send>, NativeError> {
         match self.backend(provider)? {
             Backend::Sftp(ssh) => Ok(Box::new(ssh.open_content_stream(provider, path)?)),
+            Backend::Ftp(ftp) => Ok(Box::new(ftp.open_reader(path)?)),
         }
     }
 
@@ -304,8 +351,23 @@ impl RemoteProviders {
     ) -> Result<OperationConnections, NativeError> {
         parse_provider(request.filesystem_id.as_deref())?;
         parse_provider(request.target_filesystem_id.as_deref())?;
+        let ftp_providers: Vec<&str> = [&request.filesystem_id, &request.target_filesystem_id]
+            .into_iter()
+            .flatten()
+            .map(String::as_str)
+            .filter(|provider| {
+                matches!(
+                    parse_provider(Some(provider)),
+                    Ok(ProviderRef::Remote {
+                        protocol: RemoteProtocol::Ftp | RemoteProtocol::Ftps,
+                        ..
+                    })
+                )
+            })
+            .collect();
         Ok(OperationConnections {
             sftp: self.ssh.operation_connections(request)?,
+            ftp: self.ftp.operation_connections(&ftp_providers)?,
         })
     }
 }
@@ -318,6 +380,22 @@ mod tests {
     fn local_and_missing_ids_route_to_the_local_provider() {
         assert_eq!(parse_provider(None).unwrap(), ProviderRef::Local);
         assert_eq!(parse_provider(Some("local")).unwrap(), ProviderRef::Local);
+    }
+
+    #[test]
+    fn ftp_and_ftps_ids_are_separate_protocols() {
+        for (id, protocol) in [
+            ("ftp:demo", RemoteProtocol::Ftp),
+            ("ftps:demo", RemoteProtocol::Ftps),
+        ] {
+            assert_eq!(
+                parse_provider(Some(id)).unwrap(),
+                ProviderRef::Remote {
+                    protocol,
+                    connection_id: "demo"
+                }
+            );
+        }
     }
 
     #[test]
@@ -341,8 +419,9 @@ mod tests {
             "sftp:../x",
             "sftp:a/b",
             "sftp:a:b",
-            "ftp:demo",
-            "ftps:demo",
+            "ftp:",
+            "ftps:../x",
+            "FTP:demo",
             "smb:demo",
             "SFTP:demo",
         ] {
@@ -359,7 +438,7 @@ mod tests {
     fn dispatcher_rejects_local_and_unknown_ids_and_leaves_connections_untouched() {
         let ssh = SshManager::new();
         let providers = RemoteProviders::new(Arc::clone(&ssh));
-        for id in ["local", "ftp:demo", "unknown"] {
+        for id in ["local", "smb:demo", "unknown"] {
             assert_eq!(providers.list(id, "/").unwrap_err().code, "EFILESYSTEM_ID");
             assert_eq!(
                 providers.read_text(id, "/a", None, false).unwrap_err().code,
@@ -371,6 +450,10 @@ mod tests {
         assert_eq!(
             providers.list("sftp:demo", "/").unwrap_err().code,
             "ESSH_DISCONNECTED"
+        );
+        assert_eq!(
+            providers.list("ftp:demo", "/").unwrap_err().code,
+            "EFTP_DISCONNECTED"
         );
         assert_eq!(ssh.status("demo"), "disconnected");
     }
@@ -391,7 +474,7 @@ mod tests {
             .is_empty());
         assert_eq!(
             providers
-                .operation_connections(&request("local", Some("ftp:x")))
+                .operation_connections(&request("local", Some("smb:x")))
                 .err()
                 .unwrap()
                 .code,

@@ -1,4 +1,4 @@
-import { backend } from './backend.js'
+import { backend, backendRuntimeMode } from './backend.js'
 import { startFilesystemSearch } from './filesystemSearch.js'
 import { content } from './content.js'
 import { calculateSize } from './filesystemSize.js'
@@ -116,6 +116,18 @@ const writeBinary = async (location, bytes, options) => {
 export const OPERATION_TIMEOUT = 10 * 60 * 1000
 export const DELETE_TIMEOUT = 30_000
 export const REMOTE_OPERATION_TIMEOUT = 120_000
+// Native copy/move with a remote side is bounded by inactivity instead: the
+// filesystem helper reports progress and stops a transfer that makes none
+// for two minutes, so a long but active transfer is never cut off.
+export const NATIVE_TRANSFER_TIMEOUT = 24 * 60 * 60 * 1000
+const remoteProvider = (location) => /^(sftp|ftp|ftps):/.test(providerIdOf(location))
+
+export const operationTimeout = (action, source, target, runtime = backendRuntimeMode) => {
+  if (action === 'delete') return DELETE_TIMEOUT
+  const remote = [source, target].some(remoteProvider)
+  if (remote && runtime === 'tauri' && (action === 'copy' || action === 'move')) return NATIVE_TRANSFER_TIMEOUT
+  return remote ? REMOTE_OPERATION_TIMEOUT : OPERATION_TIMEOUT
+}
 
 const operate = async ({ action, source, target = null, name, options = {} }) => {
   for (const location of [source, target].filter(Boolean)) {
@@ -138,8 +150,7 @@ const operate = async ({ action, source, target = null, name, options = {} }) =>
         targetFilesystemId: target ? providerIdOf(target) : null,
         targetDirectory: target?.path,
       },
-      { ...options, timeout: action === 'delete' ? DELETE_TIMEOUT
-        : [source, target].some((value) => providerIdOf(value).startsWith('sftp:')) ? REMOTE_OPERATION_TIMEOUT : OPERATION_TIMEOUT },
+      { ...options, timeout: operationTimeout(action, source, target) },
     ),
     'EFILE_OPERATION',
     'The file operation failed',

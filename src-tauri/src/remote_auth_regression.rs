@@ -9,7 +9,11 @@ use std::{fs, path::PathBuf};
 use tauri::{AppHandle, Manager};
 
 pub fn fixture_root() -> Option<PathBuf> {
-    let root = if std::env::args().nth(1).as_deref() == Some("--remote-auth-regression") {
+    // The FTP acceptance uses the same isolated application identity.
+    let root = if matches!(
+        std::env::args().nth(1).as_deref(),
+        Some("--remote-auth-regression" | "--ftp-regression")
+    ) {
         PathBuf::from(std::env::args().nth(2)?)
     } else {
         PathBuf::from(std::env::var_os("VESPERWIND_REMOTE_ACCEPTANCE_ROOT")?)

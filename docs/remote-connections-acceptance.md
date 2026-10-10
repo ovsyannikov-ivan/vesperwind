@@ -145,3 +145,21 @@ tests need one); `cargo test` 201 passed, 8 ignored; `npm run build`,
 acceptance passed every SFTP phase with settings version 9 and cleaned its
 synthetic Keychain entries; the native helper/deletion smoke passed. Windows and
 Linux were not run for this change.
+
+## Native FTP/FTPS backend, 2026-10-09
+
+macOS (Apple silicon) checks of the native FTP/FTPS backend
+([details](ftp-ftps.md)): `cargo test` 232 passed, 8 ignored, including the
+suppaftp contract tests and FtpManager tests against the local test server
+(plain FTP, explicit and implicit FTPS, untrusted, wrong-host, expired and
+pinned certificates, refused `AUTH TLS`/`PROT P`, required TLS session reuse,
+final 451/552 replies, MLSD and Unix/DOS `LIST`, cancellation, stalled
+transfers, pooling and reconnect). `npm test` 535 passed (UTF-8 locale),
+`npm run build`, `cargo fmt --check` and `git diff --check` passed; clippy
+reports no warnings in the new code.
+
+`scripts/ftp-native-smoke.mjs` passed with the real Keychain and filesystem
+helper, including `--long`: an active download longer than the two-minute
+inactivity limit completed. The SFTP remote-auth acceptance and the native
+helper/deletion smoke passed on the same build. Windows and Linux were not run
+for this change.

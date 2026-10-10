@@ -4,8 +4,8 @@ Remote Connections supports SFTP profiles with `auto`, `password`, `privateKey`
 and `agent` authentication. New profiles use Auto. Existing profiles retain their
 explicit authentication method and ID when settings are migrated to version 8
 and, unchanged, to version 9. Settings version 9 can also hold FTP/FTPS profiles
-and their saved passwords; FTP/FTPS cannot connect yet. See
-[FTP and FTPS connections](ftp-ftps.md).
+and their saved passwords; the native app connects them through its FTP/FTPS
+backend. See [FTP and FTPS connections](ftp-ftps.md).
 
 ## Saved credentials
 
