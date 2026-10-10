@@ -10,7 +10,7 @@ const source = (await fs.readFile(new URL('../src/components/RemoteConnectionsMo
   .split('<script setup>')[1].split('</script>')[0].replace(/^import .*$/gm, '')
 const profile = { id: 'existing', name: 'Saved', protocol: 'sftp', host: 'fixture.invalid', port: 22, username: 'fixture',
   authType: 'password', privateKeyPath: '', sshConfigHost: '', savePassword: true, saveKeyPassphrase: false, trustedFingerprint: '', initialPath: '' }
-const fixture = ({ supported = true, response = { ok: true, connectionId: 'existing' }, config = [], extra = [], protocols = ['sftp', 'ftp', 'ftps'], registry = CONNECTION_PROTOCOLS, connectGate = null, status = 'disconnected' } = {}) => {
+const fixture = ({ supported = true, response = { ok: true, connectionId: 'existing' }, config = [], extra = [], protocols = ['sftp', 'ftp', 'ftps'], registry = CONNECTION_PROTOCOLS, connectGate = null, status = 'disconnected', cancelSupported = true, uuid = () => 'new-stable-id' } = {}) => {
   const settings = ref(createDefaultSettings()), saved = [], requests = [], events = [], forgotten = [], cancelled = []
   const scope = effectScope()
   settings.value.connections = normalizeSettings({ connections: [...extra, profile] }).connections
@@ -25,7 +25,7 @@ const fixture = ({ supported = true, response = { ok: true, connectionId: 'exist
     profileFields: registry === CONNECTION_PROTOCOLS ? profileFields : fieldsFor,
     protocolDefinition: registry === CONNECTION_PROTOCOLS ? protocolDefinition : protocolDefinitionFor,
     defineProps: () => reactive({ open: true, activePanel: 'left' }), defineEmits: () => (...args) => events.push(args),
-    crypto: { randomUUID: () => 'new-stable-id' },
+    crypto: { randomUUID: uuid },
     useSettings: () => ({ settings, loadSettings: async () => ({ ok: true }),
       saveSettings: async value => { const clean = normalizeSettings(value); saved.push(clean); settings.value = clean; return { ok: true, settings: clean } } }),
     connectionsApi: {
@@ -35,7 +35,7 @@ const fixture = ({ supported = true, response = { ok: true, connectionId: 'exist
       resolveSshHost: async alias => ({ ok: true, host: config.find(host => host.alias === alias) }),
       forgetCredential: async (...args) => { forgotten.push(args); return { ok: true } },
       connect: async (...args) => { requests.push(structuredClone(args.slice(0, 2))); if (connectGate) await connectGate; return responses ? responses.shift() : response },
-      cancelConnect: async (...args) => { cancelled.push(args); return { ok: true, cancelled: true } },
+      cancelConnect: async (...args) => { cancelled.push(args); return cancelSupported ? { ok: true, cancelled: true } : { ok: false, error: { code: 'ENOTSUPPORTED', message: 'Unsupported' } } },
       status: async () => ({ ok: true, status }),
       disconnect: async (...args) => { disconnected.push(args); return { ok: true } },
       onStatus: (callback) => { statusListeners.push(callback); return () => {} },
@@ -342,7 +342,7 @@ test('Cancel connection stays available for the whole FTP connect and stops it o
   } finally { f.stop() }
 })
 
-test('a late SFTP connect result after Cancel opens nothing and is disconnected', async () => {
+test('Cancel stops an SFTP connect on the backend; the dialog never disconnects by id itself', async () => {
   let release
   const gate = new Promise(resolve => { release = resolve })
   const f = fixture({ connectGate: gate, response: { ok: true, connectionId: 'existing', providerId: 'sftp:existing' } })
@@ -353,10 +353,46 @@ test('a late SFTP connect result after Cancel opens nothing and is disconnected'
     f.cancelConnection()
     await pending
     assert.equal(f.busy.value, false)
+    assert.deepEqual(f.cancelled, [['sftp', 'new-stable-id']])
     release(); await new Promise(resolve => setImmediate(resolve)); await new Promise(resolve => setImmediate(resolve))
     assert.equal(f.events.some(([name]) => name === 'connected'), false)
-    assert.deepEqual(f.disconnected.at(-1), ['existing', 'sftp'])
+    assert.deepEqual(f.disconnected, [])
   } finally { f.stop() }
+})
+
+test('without backend cancellation a late result is disconnected, but never after a newer attempt started', async () => {
+  const settle = () => new Promise(resolve => setImmediate(resolve))
+  // The native app: no cancel event, so the dialog closes the late connection itself.
+  {
+    let release
+    const gate = new Promise(resolve => { release = resolve })
+    const f = fixture({ connectGate: gate, cancelSupported: false, response: { ok: true, connectionId: 'existing', providerId: 'sftp:existing' } })
+    try {
+      await f.show()
+      const pending = f.connect(); await settle()
+      f.cancelConnection(); await pending
+      release(); await settle(); await settle()
+      assert.deepEqual(f.disconnected, [['existing', 'sftp']])
+    } finally { f.stop() }
+  }
+  // Cancel the first attempt, start a second at once, then the first answers
+  // late: disconnecting by id would close the second connection.
+  {
+    let release, serial = 0
+    const gate = new Promise(resolve => { release = resolve })
+    const f = fixture({ connectGate: gate, cancelSupported: false, uuid: () => `id-${++serial}`,
+      response: [{ ok: true, connectionId: 'existing', providerId: 'sftp:existing' }, { ok: true, connectionId: 'existing', providerId: 'sftp:existing' }] })
+    try {
+      await f.show()
+      const first = f.connect(); await settle()
+      f.cancelConnection(); await first
+      const second = f.connect(); await settle()
+      release(); await second; await settle(); await settle()
+      assert.deepEqual(f.disconnected, [])
+      assert.equal(f.events.filter(([name]) => name === 'connected').length, 1)
+      assert.equal(f.connectionState.value, 'connected')
+    } finally { f.stop() }
+  }
 })
 
 test('the dialog source shows Cancel connection for the whole connect, not only the permission wait', async () => {

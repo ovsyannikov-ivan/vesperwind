@@ -8,9 +8,9 @@ export { isSftpProfile } from '../../shared/defaultSettings.js'
 // and FTPS through ftp:*. A protocol missing here (a preserved or future
 // profile) is never connected.
 const BACKENDS = Object.freeze({
-  sftp: Object.freeze({ connect: 'ssh:connect', disconnect: 'ssh:disconnect', status: 'ssh:status' }),
-  ftp: Object.freeze({ connect: 'ftp:connect', disconnect: 'ftp:disconnect', status: 'ftp:status' }),
-  ftps: Object.freeze({ connect: 'ftp:connect', disconnect: 'ftp:disconnect', status: 'ftp:status' }),
+  sftp: Object.freeze({ connect: 'ssh:connect', cancelConnect: 'ssh:cancel-connect', disconnect: 'ssh:disconnect', status: 'ssh:status' }),
+  ftp: Object.freeze({ connect: 'ftp:connect', cancelConnect: 'ftp:cancel-connect', disconnect: 'ftp:disconnect', status: 'ftp:status' }),
+  ftps: Object.freeze({ connect: 'ftp:connect', cancelConnect: 'ftp:cancel-connect', disconnect: 'ftp:disconnect', status: 'ftp:status' }),
 })
 const PROVIDER = /^(sftp|ftp|ftps):([A-Za-z0-9._-]{1,80})$/
 
@@ -40,20 +40,21 @@ export const createConnectionsApi = ({ transport, prepareNetwork }) => {
       const access = await prepareNetwork(profile.host, options)
       if (!access.ok) return access
       if (options.signal?.aborted) return { ok: false, error: { code: 'ECANCELLED', message: 'Connection was cancelled' } }
+      const attempt = options.attemptId ? { attemptId: options.attemptId } : {}
       if (profile.protocol === 'sftp') {
-        return request(events.connect, typeof secrets === 'string' ? { profile, secret: secrets } : { profile, secrets }, 'Unable to connect to the remote host')
+        return request(events.connect, { ...(typeof secrets === 'string' ? { profile, secret: secrets } : { profile, secrets }), ...attempt }, 'Unable to connect to the remote host')
       }
       const password = typeof secrets === 'string' ? secrets : secrets?.password || ''
-      return request(events.connect, { profileId: profile.id, password, ...(options.attemptId ? { attemptId: options.attemptId } : {}) }, 'Unable to connect to the FTP server', 60_000)
+      return request(events.connect, { profileId: profile.id, password, ...attempt }, 'Unable to connect to the FTP server', 60_000)
     },
     /**
-     * Stops the FTP/FTPS connect sent with `attemptId` on the backend (or
-     * closes it if it already connected). SFTP attempts have no backend
-     * cancellation; the caller ignores their late result instead.
+     * Stops the connect sent with `attemptId` on the backend, or closes it if
+     * it already connected. `ok: false` (a backend without cancellation, such
+     * as the native app) leaves a late result to the caller.
      */
-    cancelConnect: (protocol, attemptId) => (protocol === 'ftp' || protocol === 'ftps') && attemptId
-      ? request('ftp:cancel-connect', { attemptId }, 'Unable to cancel the connection')
-      : Promise.resolve({ ok: true, cancelled: false }),
+    cancelConnect: (protocol, attemptId) => BACKENDS[protocol] && attemptId
+      ? request(BACKENDS[protocol].cancelConnect, { attemptId }, 'Unable to cancel the connection')
+      : Promise.resolve(unsupported()),
     capabilities: () => request('connections:capabilities', {}, 'Unable to read connection capabilities'),
     sshConfigHosts: () => request('ssh:config-hosts', {}, 'Unable to read SSH configuration'),
     resolveSshHost: (alias) => request('ssh:config-resolve', { alias }, 'Unable to resolve SSH configuration'),

@@ -14,6 +14,10 @@ const DIRECTORY_MODE = 0o040000
 const SYMLINK_MODE = 0o120000
 
 const remoteError = (code, message, details = {}) => Object.assign(new Error(message), { code, ...details })
+const cancelled = () => remoteError('ECANCELLED', 'The operation was cancelled')
+const profileChanged = () => remoteError('ESSH_PROFILE_CHANGED', 'The connection settings changed while connecting. Connect again to use the new settings.')
+/** The error an aborted connect ends with (cancelled unless a reason was given). */
+const abortReason = (signal) => (signal.reason?.code ? signal.reason : cancelled())
 const call = (target, method, ...args) => new Promise((resolve, reject) => {
   target[method](...args, (error, ...values) => error ? reject(error) : resolve(values.length > 1 ? values : values[0]))
 })
@@ -103,12 +107,16 @@ class RemoteConnection {
     this.terminals = new Map()
   }
 
-  async connect() {
+  /** Connects; aborting `signal` closes the SSH connection at once and rejects. */
+  async connect(signal) {
+    if (signal?.aborted) throw abortReason(signal)
     const client = new Client()
     let verificationError = null
     let settled = false
     const auth = await sessionAuthOptions(this.profile, this.secret)
+    if (signal?.aborted) throw abortReason(signal)
     const ready = new Promise((resolve, reject) => {
+      signal?.addEventListener('abort', () => { if (!settled) reject(abortReason(signal)) }, { once: true })
       client.once('ready', () => {
         if (auth.failure().needs === 'interaction') {
           reject(remoteError('EAUTHENTICATION_REQUIRED', 'This server requires unsupported keyboard-interactive/MFA authentication', { auth: auth.failure() }))
@@ -117,7 +125,9 @@ class RemoteConnection {
         settled = true
         resolve()
       })
-      client.once('error', (error) => { if (!settled) reject(verificationError || error) })
+      // Kept for the life of the client: closing a cancelled handshake can
+      // still report an error after the attempt has already failed.
+      client.on('error', (error) => { if (!settled) reject(verificationError || error) })
     })
     const options = {
       host: this.profile.host,
@@ -146,6 +156,7 @@ class RemoteConnection {
     client.connect(options)
     await ready.catch((error) => {
       client.end()
+      if (signal?.aborted) throw abortReason(signal)
       if (!verificationError && /authentication/i.test(error.message || '')) {
         const details = auth.failure()
         throw remoteError('EAUTHENTICATION_REQUIRED', details.needs === 'keyPassphrase' ? 'A key passphrase is required' : details.needs === 'agent' ? 'No usable identities were found in SSH Agent' : details.needs === 'interaction' ? 'This server requires unsupported keyboard-interactive/MFA authentication' : 'SSH authentication required', { auth: details })
@@ -153,12 +164,23 @@ class RemoteConnection {
       throw error
     })
     this.client = client
-    this.sftp = await call(client, 'sftp')
-    this.homePath = await call(this.sftp, 'realpath', '.')
-    this.rootPath = '/'
-    this.initialPath = posix.normalize(remoteInitialPath(this.profile))
-    const initialStats = await call(this.sftp, 'stat', this.initialPath)
-    if (!initialStats.isDirectory()) throw remoteError('ENOTDIR', 'Initial remote path is not a folder')
+    const closeOnAbort = () => client.end()
+    signal?.addEventListener('abort', closeOnAbort, { once: true })
+    try {
+      if (signal?.aborted) throw abortReason(signal)
+      this.sftp = await call(client, 'sftp')
+      this.homePath = await call(this.sftp, 'realpath', '.')
+      this.rootPath = '/'
+      this.initialPath = posix.normalize(remoteInitialPath(this.profile))
+      const initialStats = await call(this.sftp, 'stat', this.initialPath)
+      if (!initialStats.isDirectory()) throw remoteError('ENOTDIR', 'Initial remote path is not a folder')
+      if (signal?.aborted) throw abortReason(signal)
+    } catch (error) {
+      client.end()
+      throw signal?.aborted ? abortReason(signal) : error
+    } finally {
+      signal?.removeEventListener('abort', closeOnAbort)
+    }
     this.status = 'connected'
     client.on('close', () => this.markDisconnected())
     client.on('end', () => this.markDisconnected())
@@ -360,8 +382,27 @@ class RemoteConnection {
   }
 }
 
+const ATTEMPT_ID = /^[A-Za-z0-9-]{1,80}$/
+// A finished attempt stays cancellable this long, so a cancel that crosses
+// the successful answer still closes the connection the UI never opened.
+const FINISHED_ATTEMPT_GRACE = 30_000
+// Attempts are shared by every manager (one per socket) of one connection map.
+const attemptState = new WeakMap()
+const attemptsOf = (connections) => {
+  if (!attemptState.has(connections)) attemptState.set(connections, { pending: new Map(), byId: new Map() })
+  return attemptState.get(connections)
+}
+
 export class SshConnectionManager {
-  constructor(socket, connections = new Map()) { this.socket = socket; this.connections = connections }
+  constructor(socket, connections = new Map()) {
+    this.socket = socket
+    this.connections = connections
+    const { pending, byId } = attemptsOf(connections)
+    // The newest attempt per profile id; an older one is aborted when a newer starts.
+    this.pending = pending
+    // Attempts by the id the client chose, for `cancel`.
+    this.attempts = byId
+  }
   get(providerId) {
     const id = providerConnectionId(providerId)
     const connection = id && this.connections.get(id)
@@ -371,19 +412,70 @@ export class SshConnectionManager {
   async ensure(providerId) {
     const id = providerConnectionId(providerId)
     const existing = id && this.connections.get(id)
-    if (existing?.status === 'disconnected') await this.connect(existing.profile, existing.secret)
+    if (existing?.status === 'disconnected') await this.reconnect(existing)
     return this.get(providerId)
   }
-  async connect(profileValue, secret = '') {
-    const profile = validateConnectionProfile(profileValue)
-    this.connections.get(profile.id)?.client?.end()
-    const connection = new RemoteConnection(profile, secret, this.socket)
-    const root = await connection.connect()
-    this.connections.set(profile.id, connection)
-    this.socket.emit('ssh:status', { connectionId: profile.id, status: 'connected' })
-    return { connectionId: profile.id, providerId: `sftp:${profile.id}`, status: 'connected', root, initial: connection.initialEntry(), homePath: connection.homePath }
+  /** Reconnects a lost connection, joining an attempt already running for it instead of superseding it. */
+  async reconnect(existing) {
+    const running = this.pending.get(existing.profile.id)
+    if (running) await running.done
+    else await this.connect(existing.profile, existing.secret)
   }
-  disconnect(id) { const connection = this.connections.get(id); connection?.client?.end(); this.connections.delete(id) }
+  /**
+   * Only the newest attempt for a profile registers: a newer connect, a
+   * `cancel`, a disconnect or a saved settings change aborts an attempt that
+   * is still connecting, so a late answer never replaces a newer session.
+   */
+  async connect(profileValue, secret = '', { attemptId } = {}) {
+    const profile = validateConnectionProfile(profileValue)
+    if (attemptId !== undefined && (typeof attemptId !== 'string' || !ATTEMPT_ID.test(attemptId) || this.attempts.has(attemptId))) {
+      throw remoteError('EINVAL', 'Invalid connection attempt ID')
+    }
+    let finished
+    const attempt = { id: attemptId, profileId: profile.id, controller: new AbortController(), connection: null, done: new Promise((resolve) => { finished = resolve }) }
+    this.pending.get(profile.id)?.controller.abort(cancelled())
+    this.pending.set(profile.id, attempt)
+    if (attemptId) this.attempts.set(attemptId, attempt)
+    this.connections.get(profile.id)?.client?.end()
+    try {
+      const connection = new RemoteConnection(profile, secret, this.socket)
+      const root = await connection.connect(attempt.controller.signal)
+      attempt.connection = connection
+      this.connections.set(profile.id, connection)
+      this.socket?.emit('ssh:status', { connectionId: profile.id, status: 'connected' })
+      return { connectionId: profile.id, providerId: `sftp:${profile.id}`, status: 'connected', root, initial: connection.initialEntry(), homePath: connection.homePath }
+    } finally {
+      finished()
+      if (this.pending.get(profile.id) === attempt) this.pending.delete(profile.id)
+      if (attemptId) {
+        if (attempt.connection) setTimeout(() => this.attempts.delete(attemptId), FINISHED_ATTEMPT_GRACE).unref?.()
+        else this.attempts.delete(attemptId)
+      }
+    }
+  }
+  /**
+   * Cancels the attempt `attemptId`: a running one is aborted; one that
+   * already connected is closed while it is still its profile's connection.
+   */
+  cancel(attemptId) {
+    const attempt = typeof attemptId === 'string' ? this.attempts.get(attemptId) : undefined
+    if (!attempt) return false
+    this.attempts.delete(attemptId)
+    if (!attempt.connection) {
+      attempt.controller.abort(cancelled())
+      return true
+    }
+    if (this.connections.get(attempt.profileId) !== attempt.connection) return false
+    // Not `disconnect`: a newer attempt for this profile keeps running.
+    attempt.connection.client?.end()
+    this.connections.delete(attempt.profileId)
+    return true
+  }
+  /** Ends the connection and any attempt for `id`. */
+  disconnect(id) {
+    this.pending.get(id)?.controller.abort(cancelled())
+    const connection = this.connections.get(id); connection?.client?.end(); this.connections.delete(id)
+  }
   /**
    * After settings were saved: a session whose saved profile was removed or
    * changed endpoint, protocol, identity, authentication or host key trust
@@ -392,22 +484,33 @@ export class SshConnectionManager {
   invalidate(previousProfiles, nextProfiles) {
     const before = new Map((Array.isArray(previousProfiles) ? previousProfiles : []).map((profile) => [profile.id, profile]))
     const after = new Map((Array.isArray(nextProfiles) ? nextProfiles : []).map((profile) => [profile.id, profile]))
-    for (const id of [...this.connections.keys()]) {
+    const changed = (id) => {
       const old = before.get(id)
-      if (!old) continue
+      if (!old) return false
       const next = after.get(id)
-      if (!next || SSH_SESSION_FIELDS.some((field) => (next[field] ?? null) !== (old[field] ?? null))) {
+      return !next || SSH_SESSION_FIELDS.some((field) => (next[field] ?? null) !== (old[field] ?? null))
+    }
+    // An attempt still connecting with the old settings stops as well.
+    for (const [id, attempt] of [...this.pending]) {
+      if (changed(id)) attempt.controller.abort(profileChanged())
+    }
+    for (const id of [...this.connections.keys()]) {
+      if (changed(id)) {
         this.connections.get(id)?.markDisconnected?.()
         this.disconnect(id)
       }
     }
   }
-  shutdown() { for (const connection of this.connections.values()) connection.client?.end(); this.connections.clear() }
+  shutdown() {
+    for (const attempt of [...this.pending.values()]) attempt.controller.abort(cancelled())
+    for (const connection of this.connections.values()) connection.client?.end()
+    this.connections.clear()
+  }
 
   async createTerminal({ connectionId, cols, rows }) {
     let connection = this.connections.get(connectionId)
     if (connection?.status === 'disconnected') {
-      await this.connect(connection.profile, connection.secret)
+      await this.reconnect(connection)
       connection = this.connections.get(connectionId)
     }
     if (!connection || connection.status !== 'connected') throw remoteError('ESSH_DISCONNECTED', 'Connect to this remote host before opening a terminal')
@@ -423,9 +526,11 @@ export class SshConnectionManager {
 export const registerSshHandlers = (socket, { connections } = {}) => {
   const manager = new SshConnectionManager(socket, connections)
   socket.on('ssh:connect', async (payload, acknowledge) => {
-    try { acknowledge?.({ ok: true, ...(await manager.connect(payload?.profile, payload?.secrets || payload?.secret)) }) }
+    try { acknowledge?.({ ok: true, ...(await manager.connect(payload?.profile, payload?.secrets || payload?.secret, { attemptId: payload?.attemptId })) }) }
     catch (error) { acknowledge?.({ ok: false, error: serializeSshError(error), hostKey: error?.hostKey, auth: error?.auth }) }
   })
+  // Cancels one `ssh:connect` by the attemptId it was sent with.
+  socket.on('ssh:cancel-connect', (payload, acknowledge) => acknowledge?.({ ok: true, cancelled: manager.cancel(payload?.attemptId) }))
   socket.on('ssh:disconnect', (payload, acknowledge) => { manager.disconnect(payload?.connectionId); acknowledge?.({ ok: true }) })
   socket.on('ssh:status', (payload, acknowledge) => {
     const connection = manager.connections.get(payload?.connectionId)

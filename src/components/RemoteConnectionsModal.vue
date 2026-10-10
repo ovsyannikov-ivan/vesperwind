@@ -20,6 +20,8 @@ const permissionPending = ref(false)
 // handshake and the login alike.
 const connecting = ref(false)
 let permissionController, activeAttempt = null
+// The newest attempt id per `protocol:id`, so a late result never closes a newer connection.
+const latestAttempts = new Map()
 const error = ref(''), warning = ref(''), configError = ref(''), credentialError = ref('')
 const hostKey = ref(null), hostKeyErrorCode = ref('')
 const authNeeds = ref('')
@@ -226,12 +228,14 @@ const connect = async ({ trust = false, acknowledgePlaintext = false, certificat
       if (certificate.endpoint !== `${profile.host}:${profile.port}`) throw Error('The connection changed; connect again to review its certificate')
       profile = await saveProfile({ ...profile, tlsTrustedCertificate: certificate.sha256 })
     }
-    const attempt = { protocol: profile.protocol, attemptId: crypto.randomUUID() }
+    const attempt = { protocol: profile.protocol, attemptId: crypto.randomUUID(), cancel: null }
+    const attemptKey = `${profile.protocol}:${profile.id}`
+    latestAttempts.set(attemptKey, attempt.attemptId)
     if (generation === connectGeneration) activeAttempt = attempt
     const request = connectionsApi.connect(profile, { password: password.value, keyPassphrase: keyPassphrase.value }, {
       signal: controller.signal, attemptId: attempt.attemptId, onPermissionWait: value => { permissionPending.value = value },
     })
-    // Cancel answers at once; the backend stops an FTP/FTPS attempt itself.
+    // Cancel answers at once; the backend stops the attempt itself.
     const cancelled = new Promise(resolve => {
       const stop = () => resolve({ ok: false, error: { code: 'ECANCELLED', message: 'Connection was cancelled' } })
       if (controller.signal.aborted) stop()
@@ -241,8 +245,13 @@ const connect = async ({ trust = false, acknowledgePlaintext = false, certificat
     if (generation !== connectGeneration) {
       // The dialog was closed or the attempt cancelled meanwhile: never open
       // the result in a panel, and leave no connection the UI does not know.
-      // SFTP has no backend cancellation, so its late success is closed here.
-      if (profile.protocol === 'sftp') void request.then(late => { if (late?.ok) void connectionsApi.disconnect(profile.id, profile.protocol) })
+      // The backend closes a cancelled attempt that won the race. Without
+      // backend cancellation (the native app) the dialog closes it, unless a
+      // newer attempt for this connection started: disconnecting by id would
+      // end that newer connection, which replaces this one anyway.
+      void Promise.all([request, attempt.cancel]).then(([late, cancel]) => {
+        if (late?.ok && !cancel?.ok && latestAttempts.get(attemptKey) === attempt.attemptId) void connectionsApi.disconnect(profile.id, profile.protocol)
+      })
       return
     }
     if (!response?.ok) {
@@ -291,7 +300,7 @@ const disconnect = async () => {
 const cancelConnection = () => {
   connectGeneration++
   permissionController?.abort()
-  if (activeAttempt) void connectionsApi.cancelConnect(activeAttempt.protocol, activeAttempt.attemptId)
+  if (activeAttempt) activeAttempt.cancel = connectionsApi.cancelConnect(activeAttempt.protocol, activeAttempt.attemptId).catch(() => null)
   activeAttempt = null
 }
 const show = async () => {
