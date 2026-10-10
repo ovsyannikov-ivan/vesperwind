@@ -176,9 +176,15 @@ test('the connections API sends SFTP profiles to ssh:connect and FTP/FTPS profil
   assert.deepEqual(calls.at(-1).payload, { profileId: 'f', password: 'p', attemptId: 'a-1' })
   await api.cancelConnect('ftps', 'a-1')
   assert.deepEqual(calls.at(-1), { event: 'ftp:cancel-connect', payload: { attemptId: 'a-1' }, timeout: 30_000 })
-  // SFTP has no backend cancellation: nothing is sent.
+  // SFTP sends its attempt id too and is cancelled through ssh:cancel-connect.
+  await api.connect(sftp, 'p', { attemptId: 'a-2' })
+  assert.deepEqual(calls.at(-1).payload, { profile: sftp, secret: 'p', attemptId: 'a-2' })
+  await api.cancelConnect('sftp', 'a-2')
+  assert.deepEqual(calls.at(-1), { event: 'ssh:cancel-connect', payload: { attemptId: 'a-2' }, timeout: 30_000 })
+  // Unknown protocols and missing ids send nothing.
   const sent = calls.length
-  assert.deepEqual(await api.cancelConnect('sftp', 'a-2'), { ok: true, cancelled: false })
+  assert.equal((await api.cancelConnect('webdav', 'a-3')).ok, false)
+  assert.equal((await api.cancelConnect('sftp')).ok, false)
   assert.equal(calls.length, sent)
   await api.disconnect('f', 'ftps')
   assert.deepEqual(calls.at(-1).event, 'ftp:disconnect')
