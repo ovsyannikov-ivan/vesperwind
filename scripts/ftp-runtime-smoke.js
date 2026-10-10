@@ -2,7 +2,8 @@
 // (default) or a Node SEA executable (`--sea staging/vesperwind`). It starts
 // local FTP, explicit FTPS and implicit FTPS fixture servers, writes an
 // isolated settings file, and drives the backend over Socket.IO like the UI:
-// capabilities, connect (with certificate trust through a pin), list, read,
+// capabilities, connect (with certificate trust through a pin), reconnect
+// without retyping the password, cancelling a hanging connect, list, read,
 // transfers, the media endpoint, settings invalidation and secret hygiene.
 // Nothing outside a temporary directory is read or written.
 import { spawn } from 'node:child_process'
@@ -43,13 +44,19 @@ try {
   const plain = await startFtpTestServer(remote, { tls: 'none', users })
   const explicit = await startFtpTestServer(remote, { tls: 'explicit', users, ...pki.selfSigned, requireSessionReuse: true })
   const implicit = await startFtpTestServer(remote, { tls: 'implicit', users, ...pki.valid, requireSessionReuse: true })
-  servers.push(plain, explicit, implicit)
+  // Accepts TCP and never answers, so a connect hangs until it is cancelled.
+  const silentSockets = new Set()
+  const silentServer = net.createServer((client) => { silentSockets.add(client); client.resume(); client.on('error', () => {}); client.on('close', () => silentSockets.delete(client)) })
+  await new Promise((resolve) => silentServer.listen(0, '127.0.0.1', resolve))
+  const silent = { port: silentServer.address().port, close: () => { for (const client of silentSockets) client.destroy(); return new Promise((resolve) => silentServer.close(resolve)) } }
+  servers.push(plain, explicit, implicit, silent)
   const profile = (id, protocol, port, extra) => ({ id, name: id, protocol, host: 'localhost', port, username: 'smoke', authType: 'password', initialPath: '', ...extra })
   const settingsPath = path.join(workspace, 'settings.json')
   await fs.writeFile(settingsPath, JSON.stringify({ version: 9, connections: [
     profile('plain', 'ftp', plain.port, { plaintextAcknowledged: true }),
     profile('explicit', 'ftps', explicit.port, { ftpTls: 'explicit' }),
     profile('implicit', 'ftps', implicit.port, { ftpTls: 'implicit' }),
+    profile('silent', 'ftp', silent.port, { host: '127.0.0.1', plaintextAcknowledged: true }),
   ] }))
   const local = path.join(workspace, 'local')
   await fs.mkdir(local)
@@ -97,15 +104,26 @@ try {
   check((await ask('settings:update', { settings: pinned })).ok, 'saving the pin failed')
   const trusted = await ask('ftp:connect', { profileId: 'explicit', password: PASSWORD })
   check(trusted.ok, `pinned explicit FTPS: ${JSON.stringify(trusted.error)}`)
+  // Reconnect reuses this session's password while the profile is unchanged.
+  const reconnected = await ask('ftp:connect', { profileId: 'explicit', password: '' })
+  check(reconnected.ok, `reconnect without a typed password: ${JSON.stringify(reconnected.error)}`)
 
-  // Transfers: FTP → FTPS (both remote) and, outside SEA, FTPS → local.
+  // A connect that hangs in its handshake is cancelled on the backend at once.
+  const started = Date.now()
+  const hanging = ask('ftp:connect', { profileId: 'silent', password: PASSWORD, attemptId: 'smoke-cancel' })
+  for (let attempt = 0; silentSockets.size === 0 && attempt < 100; attempt++) await new Promise((resolve) => setTimeout(resolve, 20))
+  const cancelled = await ask('ftp:cancel-connect', { attemptId: 'smoke-cancel' })
+  check(cancelled.ok && cancelled.cancelled === true, `cancel-connect: ${JSON.stringify(cancelled)}`)
+  const stopped = await hanging
+  check(!stopped.ok && stopped.error.code === 'ECANCELLED' && Date.now() - started < 10_000, `cancelled connect: ${JSON.stringify(stopped)}`)
+
+  // Transfers: FTP → FTPS (both remote) and FTPS → local disk, in both runtimes.
   const copied = await ask('filesystem:operate', { action: 'copy', filesystemId: 'ftp:plain', sourcePath: '/docs', targetFilesystemId: 'ftps:explicit', targetDirectory: '/docs', operationId: 'smoke-copy' })
   check(copied.ok, `FTP → FTPS copy: ${JSON.stringify(copied.error)}`)
   check(await fs.readFile(path.join(remote, 'docs', 'docs', 'readme.txt'), 'utf8') === 'hello from the smoke fixture', 'copied file differs')
-  if (!seaExecutable) {
-    const downloaded = await ask('filesystem:operate', { action: 'copy', filesystemId: 'ftps:implicit', sourcePath: '/docs/readme.txt', targetFilesystemId: 'local', targetDirectory: local })
-    check(downloaded.ok && await fs.readFile(path.join(local, 'readme.txt'), 'utf8') === 'hello from the smoke fixture', 'FTPS → local copy failed')
-  }
+  const downloaded = await ask('filesystem:operate', { action: 'copy', filesystemId: 'ftps:implicit', sourcePath: '/docs/readme.txt', targetFilesystemId: 'local', targetDirectory: local })
+  check(downloaded.ok, `FTPS → local copy: ${JSON.stringify(downloaded.error)}`)
+  check(await fs.readFile(path.join(local, 'readme.txt'), 'utf8') === 'hello from the smoke fixture', 'FTPS → local copy differs')
 
   // Media endpoint with a byte range over FTPS (REST).
   const media = await fetch(`${url}/api/media?filesystemId=ftps:implicit&path=${encodeURIComponent('/clip.mp4')}`, { headers: { range: 'bytes=100-199' } })

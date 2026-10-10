@@ -191,3 +191,29 @@ One window with SFTP | FTP | FTPS tabs and a Node/SEA FTP/FTPS backend
 
 Windows and Linux were not run for this change; CI runs the Node suite and the
 runtime smoke on Linux and builds and smokes the SEA executable on macOS.
+
+## FTP/FTPS connect race, Cancel and Reconnect in Node/SEA, 2026-10-10
+
+Follow-up to the review of the unified window ([details](ftp-ftps.md)).
+macOS (Apple silicon), Node 26:
+
+- `npm test` with a UTF-8 locale: 589 tests, 588 passed, 1 skipped (optional
+  LibreOffice). New Node acceptance scenarios: a connect hanging in its
+  handshake is cancelled at once and its socket closed; a cancel that crosses
+  a successful answer closes that connection; a profile removed during the
+  handshake stops the attempt; a profile changed where `invalidate()` cannot
+  see it is caught by the re-read before registering; of two attempts for one
+  profile only the newest registers; Reconnect reuses the session password
+  only while the session settings are unchanged and not after Disconnect.
+- `scripts/ftp-runtime-smoke.js` passed against `node server/index.js` and
+  against the SEA executable from `npm run build:sea`. It now also copies
+  FTPS → local disk in the SEA run, reconnects without a typed password and
+  cancels a hanging connect through `ftp:cancel-connect`.
+- The dialog was checked in a browser against the Node backend: while a
+  connect to a server that never answers is running, Cancel connection is
+  shown next to the disabled Connecting… button; it frees the dialog at once
+  and the backend leaves no open socket to that server.
+
+The SEA build (`scripts/build-staging.js`) supports macOS targets only, so
+SEA FTP/FTPS is not verified on Windows or Linux; those platforms run the
+Node suite and, on Linux, the Node runtime smoke.
