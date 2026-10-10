@@ -746,3 +746,114 @@ fn profile_changes_and_forget_close_ftp_sessions_through_remote_providers() {
     providers.disconnect_profile(&crate::connections::test_profile("auto"));
     assert!(providers.list("ftp:life", "/").is_ok());
 }
+
+#[test]
+fn hostile_listings_cannot_copy_or_delete_outside_the_selected_folder() {
+    let (root, filesystem) = local();
+    let line =
+        |name: &str| format!("-rw-r--r--    1 owner    group           5 Jan 02 15:04 {name}");
+    for (mlsd, extra) in [
+        (
+            false,
+            vec![line("../outside.txt"), line("../../escape.txt")],
+        ),
+        (
+            false,
+            vec![line("..\\..\\escape.txt"), line("C:\\escape.txt")],
+        ),
+        (true, vec!["type=file;size=5; ../outside.txt".to_string()]),
+        (
+            true,
+            vec!["type=file;size=5; sub/../../outside.txt".to_string()],
+        ),
+    ] {
+        let hostile = server(ServerOptions {
+            mlsd,
+            extra_mlsd: if mlsd { extra.clone() } else { vec![] },
+            extra_list: if mlsd { vec![] } else { extra.clone() },
+            ..Default::default()
+        });
+        // The served tree: /tree with a real file, and a sibling outside it.
+        fs::create_dir(hostile.root.join("tree")).unwrap();
+        fs::write(hostile.root.join("tree/inside.txt"), "safe").unwrap();
+        fs::write(hostile.root.join("outside.txt"), "keep").unwrap();
+        let connection = connected(&hostile, "hostile");
+        let sessions = Sessions(HashMap::from([(
+            "ftp:hostile".to_string(),
+            Arc::clone(&connection),
+        )]));
+        // Browsing hides the unsafe entries; the safe one stays visible.
+        let names: Vec<_> = connection
+            .list("/tree")
+            .unwrap()
+            .into_iter()
+            .map(|e| e.name)
+            .collect();
+        assert_eq!(names, ["inside.txt"]);
+        // Recursive copy to a local folder refuses the listing and creates
+        // nothing, neither in the target nor above it.
+        let target = root.join(format!("target-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(target.join("deeper")).unwrap();
+        let before: Vec<_> = fs::read_dir(&root)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        let error = operate(&filesystem, &sessions, json!({"action":"copy","filesystemId":"ftp:hostile","sourcePath":"/tree",
+            "targetFilesystemId":"local","targetDirectory":target.join("deeper").to_string_lossy()})).unwrap_err();
+        assert_eq!(error.code, "EUNSAFE_NAME", "{extra:?}");
+        assert!(!target.join("deeper/tree").exists());
+        assert!(!target.join("outside.txt").exists() && !target.join("escape.txt").exists());
+        let after: Vec<_> = fs::read_dir(&root)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(before, after);
+        // Recursive delete refuses the listing before deleting anything.
+        let error = operate(
+            &filesystem,
+            &sessions,
+            json!({"action":"delete","filesystemId":"ftp:hostile","sourcePath":"/tree"}),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "EUNSAFE_NAME");
+        assert_eq!(
+            fs::read_to_string(hostile.root.join("outside.txt")).unwrap(),
+            "keep"
+        );
+        assert_eq!(
+            fs::read_to_string(hostile.root.join("tree/inside.txt")).unwrap(),
+            "safe"
+        );
+        // FTP -> FTP and the clipboard/drag tree walk refuse it as well.
+        let other = server(Default::default());
+        let sessions = Sessions(HashMap::from([
+            ("ftp:hostile".to_string(), Arc::clone(&connection)),
+            ("ftp:other".to_string(), connected(&other, "other")),
+        ]));
+        let error = operate(
+            &filesystem,
+            &sessions,
+            json!({"action":"copy","filesystemId":"ftp:hostile","sourcePath":"/tree",
+            "targetFilesystemId":"ftp:other","targetDirectory":"/"}),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "EUNSAFE_NAME");
+        assert!(!other.root.join("tree").exists() && !other.root.join("outside.txt").exists());
+        assert_eq!(
+            connection.remote_children("/tree").unwrap_err().code,
+            "EUNSAFE_NAME"
+        );
+        // A single selected file still transfers normally.
+        operate(
+            &filesystem,
+            &sessions,
+            json!({"action":"copy","filesystemId":"ftp:hostile","sourcePath":"/tree/inside.txt",
+            "targetFilesystemId":"local","targetDirectory":target.to_string_lossy()}),
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read_to_string(target.join("inside.txt")).unwrap(),
+            "safe"
+        );
+    }
+}

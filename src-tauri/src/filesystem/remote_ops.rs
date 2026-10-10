@@ -164,6 +164,46 @@ pub(crate) fn remote_name(value: &str) -> &str {
         .filter(|v| !v.is_empty())
         .unwrap_or("/")
 }
+/// A directory entry name reported by a remote server (MLSD, LIST, SFTP
+/// readdir) or the local filesystem. It names one item and is never a path:
+/// empty names, `.`, `..`, `/`, `\`, NUL and other control characters are
+/// refused. Unicode and spaces are kept as they are.
+pub fn validate_entry_name(name: &str) -> Result<(), NativeError> {
+    if name.is_empty()
+        || name == "."
+        || name == ".."
+        || name.len() > 1024
+        || name
+            .chars()
+            .any(|c| c == '/' || c == '\\' || c.is_control())
+    {
+        return Err(NativeError::new(
+            "EUNSAFE_NAME",
+            "The server listed an unsafe file name; the operation was stopped",
+        ));
+    }
+    Ok(())
+}
+
+/// The local path of one child of `directory`. Beyond `validate_entry_name`
+/// it applies the local platform's rules (on Windows: drive and stream
+/// separators, reserved characters, trailing dots and spaces) and checks
+/// that the result is a direct child of `directory`.
+fn local_child(directory: &str, name: &str) -> Result<String, NativeError> {
+    validate_entry_name(name)?;
+    crate::shell_integration::transfer::safe_component(name)?;
+    let child = Path::new(directory).join(name);
+    if child.parent() != Some(Path::new(directory))
+        || child.file_name() != Some(std::ffi::OsStr::new(name))
+    {
+        return Err(NativeError::new(
+            "EUNSAFE_NAME",
+            "The server listed an unsafe file name; the operation was stopped",
+        ));
+    }
+    Ok(child.to_string_lossy().into_owned())
+}
+
 pub(crate) fn validate_name(value: Option<&str>) -> Result<(), NativeError> {
     let value = value.unwrap_or("");
     if value.trim().is_empty()
@@ -384,12 +424,6 @@ pub fn copy_entry(
         Path::new(&resolved_source).is_dir()
     };
     if directory {
-        if let Some(remote) = target_remote {
-            remote.create_folder(destination)?;
-        } else {
-            fs::create_dir(destination)
-                .map_err(|e| NativeError::from_io(&e, "Unable to create destination folder"))?;
-        }
         let names: Vec<String> = if let Some(remote) = source_remote {
             remote.child_names(&resolved_source)?
         } else {
@@ -399,6 +433,20 @@ pub fn copy_entry(
                 .map(|e| e.file_name().to_string_lossy().into_owned())
                 .collect()
         };
+        // Every name is checked before anything is created, so a server
+        // cannot steer a copy outside the destination folder.
+        for name in &names {
+            validate_entry_name(name).map_err(|e| e.with_path(&resolved_source))?;
+            if target_remote.is_none() {
+                local_child(destination, name).map_err(|e| e.with_path(&resolved_source))?;
+            }
+        }
+        if let Some(remote) = target_remote {
+            remote.create_folder(destination)?;
+        } else {
+            fs::create_dir(destination)
+                .map_err(|e| NativeError::from_io(&e, "Unable to create destination folder"))?;
+        }
         for name in names {
             let child_source = if source_remote.is_some() {
                 remote_join(&resolved_source, &name)
@@ -411,10 +459,7 @@ pub fn copy_entry(
             let child_destination = if target_remote.is_some() {
                 remote_join(destination, &name)
             } else {
-                Path::new(destination)
-                    .join(&name)
-                    .to_string_lossy()
-                    .into_owned()
+                local_child(destination, &name)?
             };
             copy_entry(
                 filesystem,
@@ -876,6 +921,76 @@ mod tests {
         crate::filesystem::jobs::set_test_deadline(None);
         assert_eq!(error.code, "ETIMEDOUT");
         assert!(!a.borrow().contains_key("/again.bin"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn entry_names_from_any_endpoint_are_single_safe_components() {
+        for name in [
+            "",
+            ".",
+            "..",
+            "../x",
+            "a/b",
+            "a\\b",
+            "..\\x",
+            "/abs",
+            "nul\0",
+            "bell\u{7}",
+            "c1\u{85}",
+        ] {
+            assert_eq!(
+                validate_entry_name(name).unwrap_err().code,
+                "EUNSAFE_NAME",
+                "{name:?}"
+            );
+        }
+        for name in [
+            "файл с пробелами.txt",
+            " leading",
+            "trailing ",
+            "漢字",
+            "a.b.c",
+            "...",
+            "-rf",
+        ] {
+            assert!(validate_entry_name(name).is_ok(), "{name:?}");
+        }
+        let (root, _filesystem) = local_root("child");
+        let directory = root.to_string_lossy().into_owned();
+        assert_eq!(
+            local_child(&directory, "plain.txt").unwrap(),
+            root.join("plain.txt").to_string_lossy()
+        );
+        #[cfg(windows)]
+        for name in ["C:escape", "x:stream", "trailing.", "trailing ", "a?b"] {
+            assert!(local_child(&directory, name).is_err(), "{name:?}");
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_hostile_child_name_stops_copy_before_creating_the_destination() {
+        let (root, filesystem) = local_root("hostile");
+        let a = store(&[("/", None), ("/tree", None), ("/tree/ok.txt", Some(b"ok"))]);
+        // A child that is not a single component, as a hostile server could list it.
+        a.borrow_mut()
+            .insert("/tree/..".into(), Some(b"x".to_vec()));
+        let mut sessions = Sessions::default();
+        sessions
+            .0
+            .insert("sftp:a".into(), Arc::new(Shared(Rc::clone(&a), false)));
+        fs::create_dir(root.join("target")).unwrap();
+        let error = operate(
+            &filesystem,
+            &sessions,
+            request(serde_json::json!({
+            "action":"copy","filesystemId":"sftp:a","sourcePath":"/tree",
+            "targetFilesystemId":"local","targetDirectory":root.join("target").to_string_lossy()})),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "EUNSAFE_NAME");
+        assert!(!root.join("target/tree").exists());
         fs::remove_dir_all(root).unwrap();
     }
 }

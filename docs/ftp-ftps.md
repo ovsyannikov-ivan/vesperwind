@@ -227,6 +227,15 @@ provider APIs.
   unknown; permission facts are never shown as POSIX modes, and permissions
   cannot be changed. `LIST` times follow the server's (sometimes year-less)
   format. Names are UTF-8; legacy encodings are not supported yet.
+- **Unsafe names**: an entry name from `MLSD`/`LIST` must be one path
+  component. Names that are empty, `.`, `..`, or contain `/`, `\`, NUL or
+  control characters are not shown; a recursive copy, delete, size or
+  clipboard/drag tree refuses such a listing as a whole (`EUNSAFE_NAME`)
+  before creating or deleting anything. Local destinations additionally
+  follow the platform's rules (on Windows no drive or stream `:`, reserved
+  characters, trailing dots or spaces) and must stay direct children of the
+  target folder. The same check applies to every remote and local source in
+  `remote_ops::copy_entry`.
 - **Links** reported by the server are deleted or copied as entries, never
   followed by recursive operations, so a link cycle cannot cause recursion.
   Entries whose type the server does not report are treated as files.

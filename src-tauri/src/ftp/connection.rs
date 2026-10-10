@@ -7,7 +7,7 @@
 //! TLS sessions resume. There is no fallback to a clear data channel.
 use super::{
     errors::{ftp_error, io_error, is_connection_lost, reply_code},
-    listing::{parse_list, parse_mlsx, FtpEntry},
+    listing::{parse_listing, parse_mlst_fact, FtpEntry, Listing},
     tls::{client_config, CertificateDetails, TlsPolicy},
 };
 use crate::error::NativeError;
@@ -322,10 +322,10 @@ impl FtpSession {
         self.stream.pwd().map_err(|e| ftp_error(&e, None))
     }
 
-    pub fn list(&mut self, path: &str) -> Result<Vec<FtpEntry>, (NativeError, bool)> {
+    pub fn list(&mut self, path: &str) -> Result<Listing, (NativeError, bool)> {
         if self.capabilities.mlsd {
             match self.with_passive_fallback(|stream| stream.mlsd(Some(path))) {
-                Ok(lines) => return Ok(lines.iter().filter_map(|l| parse_mlsx(l)).collect()),
+                Ok(lines) => return Ok(parse_listing(&lines, true)),
                 Err(error) if matches!(reply_code(&error), Some(500..=502)) => {
                     self.capabilities.mlsd = false;
                 }
@@ -335,7 +335,7 @@ impl FtpSession {
             }
         }
         self.with_passive_fallback(|stream| stream.list(Some(path)))
-            .map(|lines| lines.iter().filter_map(|l| parse_list(l)).collect())
+            .map(|lines| parse_listing(&lines, false))
             .map_err(|error| (ftp_error(&error, Some(path)), is_connection_lost(&error)))
     }
 
@@ -347,7 +347,7 @@ impl FtpSession {
         if self.capabilities.mlst {
             match self.stream.mlst(Some(path)) {
                 Ok(fact) => {
-                    if let Some(mut entry) = parse_mlsx(fact.trim()) {
+                    if let Some(mut entry) = parse_mlst_fact(fact.trim()) {
                         entry.name = super::remote_name(path).to_string();
                         return Ok(Some(entry));
                     }
@@ -364,7 +364,7 @@ impl FtpSession {
         // Without MLST, look the name up in its parent's listing.
         let name = super::remote_name(path);
         match self.list(&super::remote_parent(path)) {
-            Ok(entries) => Ok(entries.into_iter().find(|entry| entry.name == name)),
+            Ok(listing) => Ok(listing.entries.into_iter().find(|entry| entry.name == name)),
             Err((error, lost)) if !lost && error.code == "EFTP_UNAVAILABLE" => Ok(None),
             Err(error) => Err(error),
         }

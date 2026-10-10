@@ -55,6 +55,9 @@ pub struct ServerOptions {
     pub stall_retr_after: Option<usize>,
     /// Bytes per second for downloads and uploads (0 = unlimited).
     pub throttle: usize,
+    /// Raw lines appended to every MLSD and LIST reply, for hostile servers.
+    pub extra_mlsd: Vec<String>,
+    pub extra_list: Vec<String>,
 }
 
 impl Default for ServerOptions {
@@ -73,6 +76,8 @@ impl Default for ServerOptions {
             retr_final_error: None,
             stall_retr_after: None,
             throttle: 0,
+            extra_mlsd: vec![],
+            extra_list: vec![],
         }
     }
 }
@@ -486,6 +491,12 @@ impl<'a> Session<'a> {
                         }
                     })
                     .collect();
+                let mut lines = lines;
+                match verb {
+                    "MLSD" => lines.extend(self.options.extra_mlsd.iter().cloned()),
+                    "LIST" => lines.extend(self.options.extra_list.iter().cloned()),
+                    _ => {}
+                }
                 let mut bytes = lines.join("\r\n").into_bytes();
                 if !lines.is_empty() {
                     bytes.extend_from_slice(b"\r\n");

@@ -528,7 +528,8 @@ impl FtpConnection {
 
     pub fn list(self: &Arc<Self>, requested: &str) -> Result<Vec<FileEntry>, NativeError> {
         let directory = self.resolve(requested)?;
-        let entries = self.repeatable(|session| session.list(&directory))?;
+        // Entries with unsafe names are not shown, so nothing can address them.
+        let entries = self.repeatable(|session| session.list(&directory))?.entries;
         Ok(entries
             .iter()
             .map(|entry| file_entry(&directory, entry))
@@ -684,7 +685,7 @@ impl FtpConnection {
 
     pub fn size_children(self: &Arc<Self>, requested: &str) -> Result<Vec<SizeChild>, NativeError> {
         let directory = self.resolve(requested)?;
-        let entries = self.repeatable(|session| session.list(&directory))?;
+        let entries = self.complete_listing(&directory)?;
         Ok(entries
             .into_iter()
             .map(|entry| SizeChild {
@@ -711,11 +712,29 @@ impl FtpConnection {
         requested: &str,
     ) -> Result<Vec<RemoteStat>, NativeError> {
         let directory = self.resolve(requested)?;
-        let entries = self.repeatable(|session| session.list(&directory))?;
+        let entries = self.complete_listing(&directory)?;
         Ok(entries
             .iter()
             .map(|entry| remote_stat(&remote_join(&directory, &entry.name), entry))
             .collect())
+    }
+
+    /// The entries of a directory for recursive operations (copy, delete,
+    /// size, clipboard and drag-and-drop trees). A listing that contained an
+    /// unsafe name is refused as a whole instead of being processed in part.
+    pub fn complete_listing(
+        self: &Arc<Self>,
+        directory: &str,
+    ) -> Result<Vec<FtpEntry>, NativeError> {
+        let listing = self.repeatable(|session| session.list(directory))?;
+        if listing.rejected > 0 {
+            return Err(NativeError::new(
+                "EUNSAFE_NAME",
+                "The server listed an unsafe file name; the operation was stopped",
+            )
+            .with_path(directory));
+        }
+        Ok(listing.entries)
     }
 
     /// A download for plain `Read` consumers (clipboard, drag-and-drop):
@@ -761,7 +780,7 @@ impl RemoteEndpoint for Arc<FtpConnection> {
     }
     fn child_names(&self, path: &str) -> Result<Vec<String>, NativeError> {
         Ok(self
-            .repeatable(|session| session.list(path))?
+            .complete_listing(path)?
             .into_iter()
             .map(|entry| entry.name)
             .collect())
@@ -807,8 +826,10 @@ impl RemoteEndpoint for Arc<FtpConnection> {
         }
         let entry = self.require(&path)?;
         if entry.kind == EntryKind::Directory {
-            // Links and unknown entries are deleted, never followed.
-            for child in self.repeatable(|session| session.list(&path))? {
+            // The whole listing is checked before anything is deleted, so an
+            // unsafe name cannot point a deletion outside this folder. Links
+            // and unknown entries are deleted, never followed.
+            for child in self.complete_listing(&path)? {
                 self.remove(&remote_join(&path, &child.name))?;
             }
             self.once(|session| session.rmdir(&path))
