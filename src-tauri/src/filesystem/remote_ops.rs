@@ -334,7 +334,11 @@ pub fn operate(
     } else {
         let target = paths::resolve_inside_root(filesystem, target_directory)?;
         let target = paths::verify_existing_inside_root(filesystem, &target)?;
-        paths::resolve_inside_root(filesystem, &target.join(source_name).to_string_lossy())?
+        // The selected item (or its Copy As name) follows the same local
+        // name rules as recursive children: on Windows a drive-relative
+        // `C:name` or an NTFS stream `name:stream` is refused.
+        let child = local_child(&target.to_string_lossy(), source_name)?;
+        paths::resolve_inside_root(filesystem, &child)?
             .to_string_lossy()
             .into_owned()
     };
@@ -991,6 +995,60 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.code, "EUNSAFE_NAME");
         assert!(!root.join("target/tree").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn the_selected_item_and_copy_as_names_follow_local_name_rules() {
+        let (root, filesystem) = local_root("top-level");
+        let names: &[&str] = if cfg!(windows) {
+            &["C:escape", "file.txt:stream", "trailing.", "a?b"]
+        } else {
+            &[]
+        };
+        let mut entries: Vec<(String, Option<&[u8]>)> =
+            vec![("/".into(), None), ("/ok.txt".into(), Some(b"ok"))];
+        entries.extend(
+            names
+                .iter()
+                .map(|name| (format!("/{name}"), Some(b"x" as &[u8]))),
+        );
+        let a = Rc::new(RefCell::new(
+            entries
+                .into_iter()
+                .map(|(path, content)| (path, content.map(<[u8]>::to_vec)))
+                .collect::<BTreeMap<_, _>>(),
+        ));
+        let mut sessions = Sessions::default();
+        sessions
+            .0
+            .insert("sftp:a".into(), Arc::new(Shared(Rc::clone(&a), false)));
+        let target = root.join("target");
+        fs::create_dir(&target).unwrap();
+        let copy = |source: &str, name: Option<&str>| {
+            let mut value = serde_json::json!({"action":"copy","filesystemId":"sftp:a","sourcePath":source,
+                "targetFilesystemId":"local","targetDirectory":target.to_string_lossy()});
+            if let Some(name) = name {
+                value["name"] = serde_json::json!(name);
+            }
+            operate(&filesystem, &sessions, request(value))
+        };
+        // Selected items and Copy As names with a drive prefix, a stream or
+        // other Windows-invalid forms are refused before anything is written.
+        for name in names {
+            let error = copy(&format!("/{name}"), None).unwrap_err();
+            assert_eq!(error.code, "EINVALID_NAME", "{name}");
+            let error = copy("/ok.txt", Some(name)).unwrap_err();
+            assert_eq!(error.code, "EINVALID_NAME", "Copy As {name}");
+        }
+        assert_eq!(fs::read_dir(&target).unwrap().count(), 0);
+        if let Some(parent) = root.parent() {
+            assert!(!parent.join("escape").exists());
+        }
+        // Ordinary names, including Copy As with Unicode and spaces, work.
+        copy("/ok.txt", None).unwrap();
+        copy("/ok.txt", Some("копия файла.txt")).unwrap();
+        assert_eq!(fs::read(target.join("копия файла.txt")).unwrap(), b"ok");
         fs::remove_dir_all(root).unwrap();
     }
 }
