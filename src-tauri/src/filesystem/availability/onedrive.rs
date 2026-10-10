@@ -61,6 +61,7 @@ pub(crate) fn classify(
     membership: Membership,
     facts: &Facts,
 ) -> (Option<ContentAvailability>, Option<CloudSync>) {
+    super::count_passive_inspection();
     if matches!(membership, Membership::Unsupported | Membership::Unknown) {
         return (None, None);
     }
@@ -323,28 +324,21 @@ pub(crate) mod native {
         }
     }
 
-    pub(crate) fn list_directory(
-        filesystem: &Filesystem,
+    /// Enumerate one directory with `FindFirstFileW`, passing each entry's
+    /// Unicode name and its enumeration metadata. Placeholder facts come from
+    /// this data, so no entry needs its own handle or query.
+    fn enumerate(
         real: &Path,
         logical: &Path,
-    ) -> Result<Vec<FileEntry>, NativeError> {
-        let _exposure = PlaceholderExposure::enter().map_err(|e| error(real, e))?;
-        // One registration snapshot and one root query per listing. There is
-        // no provider process, per-entry handle, background timer or root cache.
-        let membership = match registered_roots() {
-            Ok(roots) => membership(real, &roots),
-            Err(_) => Membership::Unknown,
-        };
+        mut visit: impl FnMut(OsString, &WIN32_FIND_DATAW) -> Result<(), NativeError>,
+    ) -> Result<(), NativeError> {
         let pattern = wide(&real.join("*"));
         let mut data = WIN32_FIND_DATAW::default();
         let handle = match unsafe { FindFirstFileW(PCWSTR(pattern.as_ptr()), &mut data) } {
             Ok(handle) => FindHandle(handle),
-            Err(e) if e.code() == HRESULT::from_win32(ERROR_FILE_NOT_FOUND.0) => {
-                return Ok(Vec::new())
-            }
+            Err(e) if e.code() == HRESULT::from_win32(ERROR_FILE_NOT_FOUND.0) => return Ok(()),
             Err(e) => return Err(directory_error(logical, e)),
         };
-        let mut entries = Vec::new();
         loop {
             let length = data
                 .cFileName
@@ -353,19 +347,7 @@ pub(crate) mod native {
                 .unwrap_or(data.cFileName.len());
             let name = OsString::from_wide(&data.cFileName[..length]);
             if name != "." && name != ".." {
-                let mut entry = crate::filesystem::entry_from_path(
-                    filesystem,
-                    real.join(&name),
-                    logical.join(&name),
-                    name,
-                );
-                if !entry.is_directory && !entry.is_symbolic_link && entry.metadata_error.is_none()
-                {
-                    let (availability, sync) = classify(membership, &facts(&data));
-                    entry.content_availability = availability;
-                    entry.cloud_sync = sync;
-                }
-                entries.push(entry);
+                visit(name, &data)?;
             }
             match unsafe { FindNextFileW(handle.0, &mut data) } {
                 Ok(()) => {}
@@ -373,7 +355,128 @@ pub(crate) mod native {
                 Err(e) => return Err(directory_error(logical, e)),
             }
         }
+        Ok(())
+    }
+
+    /// Fast listing: entries only. OneDrive membership and classification run
+    /// later in `cloud_status`, so registration lookups never delay a folder.
+    pub(crate) fn list_directory(
+        filesystem: &Filesystem,
+        real: &Path,
+        logical: &Path,
+    ) -> Result<Vec<FileEntry>, NativeError> {
+        let _exposure = PlaceholderExposure::enter().map_err(|e| error(real, e))?;
+        let mut entries = Vec::new();
+        enumerate(real, logical, |name, _| {
+            entries.push(crate::filesystem::entry_from_path(
+                filesystem,
+                real.join(&name),
+                logical.join(&name),
+                name,
+            ));
+            Ok(())
+        })?;
         Ok(entries)
+    }
+
+    // Registration changes are rare; one snapshot serves a folder's batches.
+    const ROOTS_TTL: std::time::Duration = std::time::Duration::from_secs(10);
+    static ROOTS: Mutex<Option<(std::time::Instant, Vec<PathBuf>)>> = Mutex::new(None);
+
+    fn recent_registered_roots() -> windows::core::Result<Vec<PathBuf>> {
+        let mut cached = ROOTS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some((taken, roots)) = cached.as_ref() {
+            if taken.elapsed() < ROOTS_TTL {
+                return Ok(roots.clone());
+            }
+        }
+        let roots = registered_roots()?;
+        *cached = Some((std::time::Instant::now(), roots.clone()));
+        Ok(roots)
+    }
+
+    fn is_name_surrogate(data: &WIN32_FIND_DATAW) -> bool {
+        // The same rule std uses for `is_symlink`: symlinks and junctions are
+        // name surrogates; cloud placeholders are not.
+        data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0
+            && data.dwReserved0 & 0x2000_0000 != 0
+    }
+
+    /// Lazy OneDrive status for one batch of a listed folder: one registration
+    /// snapshot and sync-root query per batch, one enumeration for its facts.
+    pub(crate) fn cloud_status(
+        real: &Path,
+        logical: &Path,
+        children: Vec<(String, Result<PathBuf, NativeError>)>,
+        cancelled: &std::sync::atomic::AtomicBool,
+    ) -> Result<crate::filesystem::cloud_status::CloudStatusBatch, NativeError> {
+        use crate::filesystem::cloud_status::{cancelled_error, CloudStatus, CloudStatusBatch};
+        use std::{collections::HashMap, sync::atomic::Ordering};
+        let _exposure = PlaceholderExposure::enter().map_err(|e| error(real, e))?;
+        let membership = match recent_registered_roots() {
+            Ok(roots) => membership(real, &roots),
+            Err(_) => Membership::Unknown,
+        };
+        let plain = |path: String| CloudStatus {
+            path,
+            ..CloudStatus::default()
+        };
+        if matches!(membership, Membership::Unsupported | Membership::Unknown) {
+            return Ok(CloudStatusBatch {
+                statuses: children.into_iter().map(|(path, _)| plain(path)).collect(),
+                complete: true,
+            });
+        }
+        let mut wanted = HashMap::new();
+        for (_, physical) in &children {
+            if let Some(name) = physical.as_ref().ok().and_then(|path| path.file_name()) {
+                wanted.insert(name.to_os_string(), None);
+            }
+        }
+        enumerate(real, logical, |name, data| {
+            if cancelled.load(Ordering::Acquire) {
+                return Err(cancelled_error());
+            }
+            if let Some(slot) = wanted.get_mut(&name) {
+                let skip = data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY.0 != 0
+                    || is_name_surrogate(data);
+                *slot = Some((!skip).then(|| facts(data)));
+            }
+            Ok(())
+        })?;
+        let mut statuses = Vec::with_capacity(children.len());
+        for (path, physical) in children {
+            if cancelled.load(Ordering::Acquire) {
+                return Err(cancelled_error());
+            }
+            let mut status = plain(path);
+            let name = physical.as_ref().ok().and_then(|path| path.file_name());
+            match (physical.as_ref(), name.and_then(|name| wanted.get(name))) {
+                (Err(error), _) => {
+                    status.error = Some(crate::filesystem::MetadataError {
+                        code: error.code.clone(),
+                    })
+                }
+                (Ok(_), None | Some(None)) => {
+                    status.error = Some(crate::filesystem::MetadataError {
+                        code: "ENOENT".into(),
+                    })
+                }
+                (Ok(_), Some(Some(None))) => {}
+                (Ok(_), Some(Some(Some(facts)))) => {
+                    let (availability, sync) = classify(membership, facts);
+                    status.content_availability = availability;
+                    status.cloud_sync = sync;
+                }
+            }
+            statuses.push(status);
+        }
+        Ok(CloudStatusBatch {
+            statuses,
+            complete: false,
+        })
     }
 
     pub(crate) fn inspect_passive(
@@ -594,6 +697,46 @@ pub(crate) mod native {
             }
         }
         #[test]
+        fn name_surrogates_are_links_but_cloud_placeholders_are_not() {
+            let data = |attributes: u32, tag: u32| WIN32_FIND_DATAW {
+                dwFileAttributes: attributes,
+                dwReserved0: tag,
+                ..Default::default()
+            };
+            let reparse = FILE_ATTRIBUTE_REPARSE_POINT.0;
+            assert!(is_name_surrogate(&data(reparse, 0xA000_000C))); // symlink
+            assert!(is_name_surrogate(&data(reparse, 0xA000_0003))); // junction
+            assert!(!is_name_surrogate(&data(reparse, 0x9000_601A))); // cloud placeholder
+            assert!(!is_name_surrogate(&data(0, 0xA000_000C)));
+        }
+        #[test]
+        fn ordinary_folder_status_is_complete_without_cloud_states() {
+            let directory = std::env::temp_dir().join(format!(
+                "vesperwind-onedrive-status-{}",
+                uuid::Uuid::new_v4()
+            ));
+            fs::create_dir(&directory).unwrap();
+            fs::write(directory.join("local.txt"), b"local").unwrap();
+            let real = fs::canonicalize(&directory).unwrap();
+            let batch = cloud_status(
+                &real,
+                &directory,
+                vec![(
+                    directory.join("local.txt").to_string_lossy().into_owned(),
+                    Ok(real.join("local.txt")),
+                )],
+                &std::sync::atomic::AtomicBool::new(false),
+            )
+            .unwrap();
+            fs::remove_dir_all(&directory).unwrap();
+            assert!(batch.complete);
+            assert_eq!(batch.statuses.len(), 1);
+            let status = &batch.statuses[0];
+            assert!(status.content_availability.is_none());
+            assert!(status.cloud_sync.is_none());
+            assert!(status.error.is_none());
+        }
+        #[test]
         fn placeholder_exposure_is_scoped_to_the_worker_and_restored() {
             let before = unsafe { RtlSetThreadPlaceholderCompatibilityMode(0) };
             assert!(before >= 0);
@@ -607,6 +750,25 @@ pub(crate) mod native {
             assert_eq!(after, before);
         }
 
+        /// Listing plus its lazy cloud status, as the frontend combines them.
+        fn listing_with_status(filesystem: &Filesystem, directory: &Path) -> String {
+            let entries = filesystem
+                .list_directory(&directory.to_string_lossy())
+                .unwrap();
+            let paths = entries
+                .iter()
+                .filter(|entry| !entry.is_directory)
+                .map(|entry| entry.path.clone())
+                .collect::<Vec<_>>();
+            let statuses = crate::filesystem::cloud_status::inspect(
+                filesystem,
+                &directory.to_string_lossy(),
+                &paths,
+                &std::sync::atomic::AtomicBool::new(false),
+            )
+            .unwrap();
+            serde_json::json!({"entries": entries, "cloudStatus": statuses}).to_string()
+        }
         #[test]
         #[ignore = "opt-in explicit hydration of disposable OneDrive fixtures only"]
         fn diagnose_synthetic_preparation() {
@@ -657,16 +819,17 @@ pub(crate) mod native {
                 "initial_preparation={}",
                 serde_json::to_string(&preparation).unwrap()
             );
+            let mut active = crate::filesystem::cloud_status::inspect(
+                &filesystem,
+                &directory.to_string_lossy(),
+                &[path.to_string_lossy().into_owned()],
+                &std::sync::atomic::AtomicBool::new(false),
+            )
+            .unwrap();
+            manager.annotate_cloud_status(&mut active.statuses);
             eprintln!(
-                "active_listing={}",
-                serde_json::to_string(
-                    &manager.annotate_listing(
-                        filesystem
-                            .list_directory(&directory.to_string_lossy())
-                            .unwrap()
-                    )
-                )
-                .unwrap()
+                "active_cloud_status={}",
+                serde_json::to_string(&active).unwrap()
             );
             while preparation.state == AvailabilityState::Materializing {
                 assert!(
@@ -694,12 +857,7 @@ pub(crate) mod native {
             );
             eprintln!(
                 "final_listing={}",
-                serde_json::to_string(
-                    &filesystem
-                        .list_directory(&directory.to_string_lossy())
-                        .unwrap()
-                )
-                .unwrap()
+                listing_with_status(&filesystem, directory)
             );
             if std::env::var_os("VESPERWIND_ONEDRIVE_MODIFY_FIXTURE").is_some() {
                 assert_eq!(path.file_name().unwrap(), "small.txt");
@@ -710,12 +868,7 @@ pub(crate) mod native {
                 .unwrap();
                 eprintln!(
                     "modified_listing={}",
-                    serde_json::to_string(
-                        &filesystem
-                            .list_directory(&directory.to_string_lossy())
-                            .unwrap()
-                    )
-                    .unwrap()
+                    listing_with_status(&filesystem, directory)
                 );
             }
         }
@@ -766,10 +919,15 @@ pub(crate) mod native {
                     facts(&data)
                 );
             }
+            let listed = started.elapsed();
             eprintln!(
-                "entries={} elapsed_ms={} metadata={}",
+                "entries={} listing_ms={} total_with_cloud_status_ms={} metadata={}",
                 entries.len(),
-                started.elapsed().as_millis(),
+                listed.as_millis(),
+                {
+                    let _ = listing_with_status(&filesystem, Path::new(&directory));
+                    started.elapsed().as_millis()
+                },
                 serde_json::to_string(&entries).unwrap()
             );
             let after = fs::read_dir(&directory)

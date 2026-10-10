@@ -69,6 +69,22 @@ pub fn verify_existing_inside_root(
     Ok(physical)
 }
 
+/// Resolve one entry of a directory that `verify_existing_inside_root` already
+/// returned. Its ancestors are canonical, so only the entry itself (a symlink
+/// or Finder Alias) is resolved, with the same root containment rule.
+pub fn verify_child_inside_root(
+    filesystem: &Filesystem,
+    child: &Path,
+) -> Result<PathBuf, NativeError> {
+    let target = alias::resolve_finder_alias(child)?;
+    let real = fs::canonicalize(&target)
+        .map_err(|error| NativeError::from_io(&error, "The requested path is unavailable"))?;
+    if !filesystem.is_desktop() && !real.starts_with(filesystem.real_root()) {
+        return Err(outside_root());
+    }
+    Ok(real)
+}
+
 pub fn outside_root() -> NativeError {
     NativeError::new("EOUTSIDE_ROOT", "Path is outside the configured root")
 }

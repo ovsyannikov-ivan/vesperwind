@@ -50,29 +50,29 @@ impl ContentManager {
         Arc::new(Self::default())
     }
 
-    /// Add only activity known to this existing manager, without starting I/O
-    /// or interpreting provider PARTIAL metadata as an active download.
+    /// Add only activity known to this existing manager to lazily inspected
+    /// cloud statuses, without starting I/O or interpreting provider PARTIAL
+    /// metadata as an active download.
     #[cfg(target_os = "windows")]
-    pub(crate) fn annotate_listing(
+    pub(crate) fn annotate_cloud_status(
         &self,
-        mut entries: Vec<crate::filesystem::FileEntry>,
-    ) -> Vec<crate::filesystem::FileEntry> {
+        statuses: &mut [crate::filesystem::cloud_status::CloudStatus],
+    ) {
         let operations = self
             .operations
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        for entry in &mut entries {
+        for status in statuses {
             if let Some(operation) = operations.values().find(|operation| {
                 operation.filesystem_id == "local"
                     && operation.hydration.is_some()
-                    && operation.path.eq_ignore_ascii_case(&entry.path)
+                    && operation.path.eq_ignore_ascii_case(&status.path)
             }) {
-                if let Some(availability) = &mut entry.content_availability {
+                if let Some(availability) = &mut status.content_availability {
                     availability.mark_onedrive_materializing(operation.last_progress);
                 }
             }
         }
-        entries
     }
 
     pub fn prepare(

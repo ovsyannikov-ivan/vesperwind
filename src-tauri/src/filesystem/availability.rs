@@ -57,6 +57,35 @@ impl ContentAvailability {
     }
 }
 
+#[cfg(test)]
+impl ContentAvailability {
+    pub(crate) fn test_cloud() -> Option<Self> {
+        Some(Self {
+            status: ContentAvailabilityStatus::Cloud,
+            provider: None,
+        })
+    }
+}
+
+// Counts passive cloud inspections on this thread, so tests can prove that a
+// listing performs none.
+#[cfg(test)]
+thread_local! {
+    static PASSIVE_INSPECTIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+#[cfg(test)]
+pub(crate) fn passive_inspections() -> usize {
+    PASSIVE_INSPECTIONS.with(std::cell::Cell::get)
+}
+#[cfg_attr(
+    not(any(target_os = "macos", target_os = "windows", test)),
+    allow(dead_code)
+)]
+pub(crate) fn count_passive_inspection() {
+    #[cfg(test)]
+    PASSIVE_INSPECTIONS.with(|count| count.set(count.get() + 1));
+}
+
 #[cfg(any(target_os = "macos", test))]
 impl ContentAvailability {
     fn from_inspection(inspection: Inspection) -> Option<Self> {
@@ -149,6 +178,7 @@ pub(crate) fn inspect_content_availability(
     path: &Path,
     metadata: &fs::Metadata,
 ) -> Option<ContentAvailability> {
+    count_passive_inspection();
     ContentAvailability::from_inspection(macos::inspect(path, metadata, InspectionMode::Passive))
 }
 
@@ -418,8 +448,8 @@ mod macos {
     use crate::error::NativeError;
     use objc2::{rc::autoreleasepool, runtime::AnyObject};
     use objc2_foundation::{
-        NSError, NSFileCoordinator, NSFileCoordinatorReadingOptions, NSFileManager, NSNumber,
-        NSString, NSURLUbiquitousItemDownloadingErrorKey,
+        NSArray, NSError, NSFileCoordinator, NSFileCoordinatorReadingOptions, NSFileManager,
+        NSNumber, NSString, NSURLUbiquitousItemDownloadingErrorKey,
         NSURLUbiquitousItemDownloadingStatusCurrent,
         NSURLUbiquitousItemDownloadingStatusDownloaded, NSURLUbiquitousItemDownloadingStatusKey,
         NSURLUbiquitousItemDownloadingStatusNotDownloaded, NSURLUbiquitousItemIsDownloadingKey,
@@ -493,29 +523,123 @@ mod macos {
                 ..CloudMetadata::default()
             };
             // Only cloud candidates need the additional NSURL resource values.
-            // Keep partial evidence when a key fails, especially SF_DATALESS.
-            let resources = (|| -> Result<(), NativeError> {
-                // SAFETY: Immutable public Foundation keys exist on supported macOS versions.
-                unsafe {
-                    facts.downloading =
-                        resource_bool(&url, NSURLUbiquitousItemIsDownloadingKey, path)?
-                            .unwrap_or(false);
-                    let status =
-                        resource_string(&url, NSURLUbiquitousItemDownloadingStatusKey, path)?;
-                    facts.status = download_status(status.as_deref());
-                    if facts.downloading || facts.coordinator_active {
-                        facts.progress =
-                            resource_number(&url, NSURLUbiquitousItemPercentDownloadedKey, path)?
-                                .map(|value| value / 100.0);
-                    }
-                }
-                if let Some(error) = resource_error(&url, path)? {
-                    facts.download_error = Some(cloud_download_error(path, &error));
-                }
-                Ok(())
-            })();
+            // Passive listings fetch them in one Foundation request; on failure,
+            // and for preparation, query key by key to keep partial evidence,
+            // especially SF_DATALESS.
+            let resources = match mode {
+                InspectionMode::Passive => passive_resources(&url, &mut facts, path)
+                    .or_else(|_| resources_by_key(&url, &mut facts, path)),
+                InspectionMode::Preparing => resources_by_key(&url, &mut facts, path),
+            };
             facts.inspection_error = resources.err();
             classify_metadata(facts)
+        })
+    }
+
+    fn resources_by_key(
+        url: &NSURL,
+        facts: &mut CloudMetadata,
+        path: &Path,
+    ) -> Result<(), NativeError> {
+        // SAFETY: Immutable public Foundation keys exist on supported macOS versions.
+        unsafe {
+            facts.downloading =
+                resource_bool(url, NSURLUbiquitousItemIsDownloadingKey, path)?.unwrap_or(false);
+            let status = resource_string(url, NSURLUbiquitousItemDownloadingStatusKey, path)?;
+            facts.status = download_status(status.as_deref());
+            if facts.downloading || facts.coordinator_active {
+                facts.progress =
+                    resource_number(url, NSURLUbiquitousItemPercentDownloadedKey, path)?
+                        .map(|value| value / 100.0);
+            }
+        }
+        if let Some(error) = resource_error(url, path)? {
+            facts.download_error = Some(cloud_download_error(path, &error));
+        }
+        Ok(())
+    }
+
+    /// The same facts as `resources_by_key` from a single Foundation request.
+    /// Each separate key is another round trip to the iCloud daemon, which
+    /// measured about 0.7 ms per key and file in a cloud-only folder.
+    fn passive_resources(
+        url: &NSURL,
+        facts: &mut CloudMetadata,
+        path: &Path,
+    ) -> Result<(), NativeError> {
+        // SAFETY: Immutable public Foundation keys exist on supported macOS versions.
+        let [downloading, status, percent, error] = unsafe {
+            [
+                NSURLUbiquitousItemIsDownloadingKey,
+                NSURLUbiquitousItemDownloadingStatusKey,
+                NSURLUbiquitousItemPercentDownloadedKey,
+                NSURLUbiquitousItemDownloadingErrorKey,
+            ]
+        };
+        let values = url
+            .resourceValuesForKeys_error(&NSArray::from_slice(&[
+                downloading,
+                status,
+                percent,
+                error,
+            ]))
+            .map_err(|error| {
+                cloud_error(
+                    "ECLOUD_DOWNLOAD_FAILED",
+                    "Unable to inspect this cloud file",
+                    path,
+                    &error,
+                )
+            })?;
+        let number = |key| {
+            values
+                .objectForKey(key)
+                .and_then(|value| value.downcast::<NSNumber>().ok())
+        };
+        facts.downloading = number(downloading).is_some_and(|value| value.boolValue());
+        facts.status = download_status(
+            values
+                .objectForKey(status)
+                .and_then(|value| value.downcast::<NSString>().ok())
+                .map(|value| value.to_string())
+                .as_deref(),
+        );
+        if facts.downloading || facts.coordinator_active {
+            facts.progress = number(percent).map(|value| value.as_f64() / 100.0);
+        }
+        if let Some(native) = values
+            .objectForKey(error)
+            .and_then(|value| value.downcast::<NSError>().ok())
+        {
+            facts.download_error = Some(cloud_download_error(path, &native));
+        }
+        Ok(())
+    }
+
+    /// Passive facts from the batched request and key by key, for comparing
+    /// both on real cloud files.
+    #[cfg(test)]
+    pub(super) fn passive_variants(path: &Path) -> (String, String) {
+        autoreleasepool(|_| {
+            let url = file_url(path);
+            let render = |facts: CloudMetadata, result: Result<(), NativeError>| {
+                format!(
+                    "downloading={} status={:?} progress={:?} download_error={:?} ok={}",
+                    facts.downloading,
+                    facts.status,
+                    facts.progress,
+                    facts.download_error.map(|error| error.code),
+                    result.is_ok()
+                )
+            };
+            let mut batched = CloudMetadata::default();
+            let batched_result = passive_resources(&url, &mut batched, path);
+            let mut by_key = CloudMetadata::default();
+            let by_key_result = resources_by_key(&url, &mut by_key, path);
+            (
+                render(batched, batched_result),
+                render(by_key, by_key_result),
+            )
         })
     }
 
@@ -973,23 +1097,70 @@ mod tests {
         let before = flags();
         let started = std::time::Instant::now();
         let entries = filesystem.list_directory(&directory).unwrap();
-        eprintln!(
-            "passive_listing directory={directory:?} count={} elapsed_ms={} entries={}",
-            entries.len(),
-            started.elapsed().as_millis(),
-            serde_json::to_string(&entries).unwrap()
-        );
-        assert_eq!(before, flags(), "listing must not materialize entries");
-        for entry in entries
+        let listed = started.elapsed();
+        let files = entries
             .iter()
-            .filter(|entry| !entry.is_symbolic_link && !entry.is_directory)
-        {
-            let path = Path::new(&entry.path);
-            let metadata = fs::metadata(path).unwrap();
+            .filter(|entry| !entry.is_directory)
+            .map(|entry| entry.path.clone())
+            .collect::<Vec<_>>();
+        let mut statuses = Vec::new();
+        for batch in files.chunks(crate::filesystem::cloud_status::MAX_BATCH) {
+            statuses.extend(
+                crate::filesystem::cloud_status::inspect(
+                    &filesystem,
+                    &directory,
+                    batch,
+                    &std::sync::atomic::AtomicBool::new(false),
+                )
+                .unwrap()
+                .statuses,
+            );
+        }
+        eprintln!(
+            "passive_listing directory={directory:?} count={} listing_ms={} with_cloud_status_ms={} statuses={}",
+            entries.len(),
+            listed.as_millis(),
+            started.elapsed().as_millis(),
+            serde_json::to_string(&statuses).unwrap()
+        );
+        assert_eq!(
+            before,
+            flags(),
+            "listing and status must not materialize entries"
+        );
+        for status in &statuses {
+            let entry = entries
+                .iter()
+                .find(|entry| entry.path == status.path)
+                .unwrap();
+            assert!(entry.content_availability.is_none());
+            if entry.is_symbolic_link {
+                continue;
+            }
+            let metadata = fs::metadata(Path::new(&status.path)).unwrap();
             if super::is_dataless(&metadata) {
-                assert!(entry.content_availability.is_some());
+                assert!(status.content_availability.is_some());
             }
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "opt-in comparison of batched and per-key iCloud metadata"]
+    fn batched_passive_metadata_matches_per_key_queries() {
+        let directory =
+            std::env::var("VESPERWIND_DIAGNOSE_LIST_DIRECTORY").expect("set a directory path");
+        let mut compared = 0;
+        for item in fs::read_dir(&directory).unwrap() {
+            let path = item.unwrap().path();
+            if !fs::symlink_metadata(&path).unwrap().is_file() {
+                continue;
+            }
+            let (batched, by_key) = super::macos::passive_variants(&path);
+            assert_eq!(batched, by_key, "{path:?}");
+            compared += 1;
+        }
+        eprintln!("compared_files={compared}");
     }
 
     #[test]

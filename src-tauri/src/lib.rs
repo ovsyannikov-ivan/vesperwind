@@ -313,6 +313,8 @@ pub fn run() {
                 commands::archive::archive_cancel,
                 commands::filesystem::filesystem_resolve_location,
                 commands::filesystem::filesystem_list,
+                commands::filesystem::filesystem_cloud_status,
+                commands::filesystem::filesystem_cloud_status_cancel,
                 commands::filesystem::filesystem_properties,
                 commands::filesystem::filesystem_update_properties,
                 commands::filesystem::filesystem_calculate_size,
