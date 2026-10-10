@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
+import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -470,6 +471,143 @@ test('Socket.IO handlers return safe errors and the runtime reports all three pr
     await call('ftp:disconnect', { connectionId: context.profile.id })
     assert.deepEqual(await call('ftp:status', { connectionId: context.profile.id }), { ok: true, status: 'disconnected' })
     assert.equal(JSON.stringify(context.events).includes(PASSWORD), false)
+  } finally { await context.close() }
+})
+
+// A server that accepts TCP and never answers: the attempt hangs in its
+// handshake until it is cancelled (or the 30 s connect timeout).
+const startSilentServer = async () => {
+  const sockets = new Set()
+  const server = net.createServer((socket) => { sockets.add(socket); socket.resume(); socket.on('error', () => {}); socket.on('close', () => sockets.delete(socket)) })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  return {
+    port: server.address().port,
+    accepted: () => sockets.size,
+    close: () => { for (const socket of sockets) socket.destroy(); return new Promise((resolve) => server.close(resolve)) },
+  }
+}
+const silentSetup = async () => {
+  const silent = await startSilentServer()
+  const profile = { ...profileFor(silent, 'none'), host: '127.0.0.1' }
+  const profiles = new Map([[profile.id, profile]])
+  const events = []
+  const ftp = new FtpConnectionManager({ loadProfile: async (id) => profiles.get(id), emitStatus: (event) => events.push(event) })
+  return { silent, profile, profiles, events, ftp, close: async () => { ftp.shutdown(); await silent.close() } }
+}
+const waitFor = async (condition) => {
+  for (let attempt = 0; attempt < 200 && !condition(); attempt++) await new Promise((resolve) => setTimeout(resolve, 10))
+  assert.ok(condition(), 'condition not reached')
+}
+
+test('cancel stops an attempt during its handshake and closes one that already connected', async () => {
+  const context = await silentSetup()
+  try {
+    const started = Date.now()
+    const attempt = context.ftp.connect(context.profile.id, PASSWORD, { attemptId: 'attempt-1' }).then(() => assert.fail('connected'), (error) => error)
+    await waitFor(() => context.silent.accepted() === 1)
+    assert.equal(context.ftp.cancel('attempt-1'), true)
+    assert.equal((await attempt).code, 'ECANCELLED')
+    assert.ok(Date.now() - started < 5_000, 'cancel waited for the connect timeout')
+    await waitFor(() => context.silent.accepted() === 0)
+    assert.equal(context.ftp.cancel('attempt-1'), false, 'a finished attempt is forgotten')
+    assert.equal(context.ftp.status(context.profile.id), 'disconnected')
+    assert.deepEqual(context.events, [])
+    await assert.rejects(context.ftp.connect(context.profile.id, PASSWORD, { attemptId: '../x' }), { code: 'EINVAL' })
+  } finally { await context.close() }
+
+  // A cancel that crosses the successful answer still ends that connection.
+  const connected = await setup({ tls: 'explicit' })
+  try {
+    await connected.ftp.connect(connected.profile.id, PASSWORD, { attemptId: 'attempt-2' })
+    assert.equal(connected.ftp.status(connected.profile.id), 'connected')
+    assert.equal(connected.ftp.cancel('attempt-2'), true)
+    assert.equal(connected.ftp.status(connected.profile.id), 'disconnected')
+    assert.equal(connected.events.at(-1).status, 'disconnected')
+  } finally { await connected.close() }
+})
+
+test('settings saved during a handshake stop the attempt; a stale profile never registers', async () => {
+  const context = await silentSetup()
+  try {
+    const attempt = context.ftp.connect(context.profile.id, PASSWORD).then(() => assert.fail('connected'), (error) => error)
+    await waitFor(() => context.silent.accepted() === 1)
+    // A name change keeps the attempt; a removed profile stops it.
+    context.ftp.invalidate([{ ...context.profile, name: 'Renamed' }])
+    context.ftp.invalidate([])
+    assert.equal((await attempt).code, 'EFTP_PROFILE_CHANGED')
+    assert.equal(context.ftp.status(context.profile.id), 'disconnected')
+  } finally { await context.close() }
+
+  // Settings changed where invalidate() does not see them (another window,
+  // another process): the profile is read again before the session registers.
+  for (const change of [{ tlsTrustedCertificate: validPin }, { username: 'other' }, null]) {
+    const changed = await setup({ tls: 'explicit' })
+    try {
+      let loads = 0
+      changed.ftp.loadProfile = async (id) => {
+        if (++loads === 1) return changed.profiles.get(id)
+        return change ? { ...changed.profiles.get(id), ...change } : undefined
+      }
+      await assert.rejects(changed.ftp.connect(changed.profile.id, PASSWORD), { code: 'EFTP_PROFILE_CHANGED' }, JSON.stringify(change))
+      assert.equal(changed.ftp.status(changed.profile.id), 'disconnected')
+      assert.deepEqual(changed.events, [])
+      await waitFor(() => changed.server.log.open === 0)
+    } finally { await changed.close() }
+  }
+})
+
+test('of two attempts for one connection only the newest registers', async () => {
+  const context = await setup({ tls: 'explicit' })
+  try {
+    const older = context.ftp.connect(context.profile.id, PASSWORD).then(() => 'connected', (error) => error.code)
+    const newer = context.ftp.connect(context.profile.id, PASSWORD)
+    assert.equal(await older, 'ECANCELLED')
+    const result = await newer
+    assert.equal(context.ftp.status(context.profile.id), 'connected')
+    assert.deepEqual(context.events.map((event) => event.status), ['connected'])
+    assert.deepEqual((await context.ftp.get(result.providerId).list('/')).map((entry) => entry.name), ['a.txt'])
+  } finally { await context.close() }
+})
+
+test('Reconnect reuses the session password only while the profile is unchanged', async () => {
+  const context = await setup({ tls: 'explicit' })
+  try {
+    await context.ftp.connect(context.profile.id, PASSWORD)
+    // Reconnect with an empty password field.
+    await context.ftp.connect(context.profile.id, '')
+    assert.equal(context.ftp.status(context.profile.id), 'connected')
+    // A lost connection keeps it, like SFTP.
+    context.ftp.connections.get(context.profile.id).close()
+    assert.equal(context.ftp.status(context.profile.id), 'disconnected')
+    await context.ftp.connect(context.profile.id, '')
+    // Changed identity or trust (even unseen by invalidate) needs the password again.
+    context.profiles.set(context.profile.id, { ...context.profile, tlsTrustedCertificate: validPin })
+    await assert.rejects(context.ftp.connect(context.profile.id, ''), { code: 'EAUTHENTICATION_REQUIRED' })
+    context.profiles.set(context.profile.id, context.profile)
+    await context.ftp.connect(context.profile.id, '')
+    // An explicit Disconnect forgets it.
+    context.ftp.disconnect(context.profile.id)
+    await assert.rejects(context.ftp.connect(context.profile.id, ''), (error) => error.code === 'EAUTHENTICATION_REQUIRED' && error.auth.needs === 'password')
+    // So does a saved change of the session settings.
+    await context.ftp.connect(context.profile.id, PASSWORD)
+    context.ftp.invalidate([{ ...context.profile, username: 'other' }])
+    await assert.rejects(context.ftp.connect(context.profile.id, ''), { code: 'EAUTHENTICATION_REQUIRED' })
+  } finally { await context.close() }
+})
+
+test('the Socket.IO cancel event stops a pending ftp:connect', async () => {
+  const context = await silentSetup()
+  try {
+    const handlers = new Map()
+    registerConnectionHandlers({ on: (event, handler) => handlers.set(event, handler) }, { ftp: context.ftp })
+    const call = (event, payload) => new Promise((resolve) => handlers.get(event)(payload, resolve))
+    const pending = call('ftp:connect', { profileId: context.profile.id, password: PASSWORD, attemptId: 'socket-attempt' })
+    await waitFor(() => context.silent.accepted() === 1)
+    assert.deepEqual(await call('ftp:cancel-connect', { attemptId: 'socket-attempt' }), { ok: true, cancelled: true })
+    const response = await pending
+    assert.equal(response.ok, false)
+    assert.equal(response.error.code, 'ECANCELLED')
+    assert.deepEqual(await call('ftp:cancel-connect', { attemptId: 'unknown' }), { ok: true, cancelled: false })
   } finally { await context.close() }
 })
 
