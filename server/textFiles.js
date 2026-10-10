@@ -104,11 +104,11 @@ const serializeTextFileError = (error, requestedPath) => ({
   path: typeof requestedPath === 'string' ? requestedPath : null,
 })
 
-export const registerTextFileHandlers = (socket, { ssh } = {}) => {
+export const registerTextFileHandlers = (socket, { providers } = {}) => {
   socket.on('filesystem:read-text', async (payload, acknowledge) => {
     try {
       if (payload?.filesystemId && payload.filesystemId !== 'local') {
-        acknowledge?.({ ok: true, ...(await (await ssh.ensure(payload.filesystemId)).readText(payload?.path, { maxBytes: payload?.maxBytes, strictText: payload?.strictText })) })
+        acknowledge?.({ ok: true, ...(await (await providers.ensure(payload.filesystemId)).readText(payload?.path, { maxBytes: payload?.maxBytes, strictText: payload?.strictText })) })
         return
       }
       acknowledge?.({
@@ -126,7 +126,7 @@ export const registerTextFileHandlers = (socket, { ssh } = {}) => {
   socket.on('filesystem:write-text', async (payload, acknowledge) => {
     try {
       if (payload?.filesystemId && payload.filesystemId !== 'local') {
-        acknowledge?.({ ok: true, ...(await ssh.get(payload.filesystemId).writeText(payload?.path, payload?.content)) })
+        acknowledge?.({ ok: true, ...(await providers.get(payload.filesystemId).writeText(payload?.path, payload?.content)) })
         return
       }
       acknowledge?.({

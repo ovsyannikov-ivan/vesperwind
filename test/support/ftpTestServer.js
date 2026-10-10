@@ -69,7 +69,11 @@ export const startFtpTestServer = async (root, options = {}) => {
     ...options,
   }
   const secureContext = settings.cert ? tls.createSecureContext({ cert: settings.cert, key: settings.key }) : null
-  const log = { commands: [], dataResumed: [], open: 0, peak: 0, accepted: 0 }
+  // `dataCert`: data connections present another certificate (a separate
+  // context, so the control session cannot be resumed), like an attacker
+  // that took over the data port.
+  const dataContext = settings.dataCert ? tls.createSecureContext(settings.dataCert) : secureContext
+  const log = { commands: [], dataResumed: [], open: 0, peak: 0, accepted: 0, received: 0 }
   const sockets = new Set()
   const resolvePath = (argument) => {
     const parts = []
@@ -107,9 +111,9 @@ export const startFtpTestServer = async (root, options = {}) => {
       let socket = await connection
       listener.close()
       if (!protectedData) return socket
-      const secure = new tls.TLSSocket(socket, { isServer: true, secureContext })
+      const secure = new tls.TLSSocket(socket, { isServer: true, secureContext: dataContext })
       try {
-        await new Promise((resolve, reject) => { secure.once('secure', resolve); secure.once('error', reject) })
+        await new Promise((resolve, reject) => { secure.once('secure', resolve); secure.once('error', reject); secure.once('close', () => reject(new Error('closed'))) })
       } catch { reply(425, 'TLS negotiation on the data connection failed'); return null }
       const resumed = secure.isSessionReused()
       log.dataResumed.push(resumed)
@@ -117,18 +121,25 @@ export const startFtpTestServer = async (root, options = {}) => {
       return secure
     }
     const pace = (bytes) => settings.throttle ? new Promise((r) => setTimeout(r, (bytes / settings.throttle) * 1000)) : null
-    const sendData = async (bytes, finalError) => {
+    // Sends a Buffer, or a file from an offset in chunks (large files are never held in memory).
+    const sendData = async (source, finalError) => {
       const data = await openData(); if (!data) return
-      const chunk = settings.throttle ? Math.max(1, Math.floor(settings.throttle / 10)) : 65536
+      const chunk = settings.throttle ? Math.max(1, Math.floor(settings.throttle / 10)) : 256 * 1024
+      const handle = Buffer.isBuffer(source) ? null : await fs.open(source.file, 'r')
+      const total = handle ? (await handle.stat()).size - source.offset : source.length
       let sent = 0
-      for (let offset = 0; offset < bytes.length; offset += chunk) {
-        if (settings.stallRetrAfter != null && sent >= settings.stallRetrAfter) {
-          await new Promise((resolve) => data.once('close', resolve)); return
+      try {
+        while (sent < total) {
+          if (data.destroyed) return
+          if (settings.stallRetrAfter != null && sent >= settings.stallRetrAfter) {
+            await new Promise((resolve) => data.once('close', resolve)); return
+          }
+          const length = Math.min(chunk, total - sent)
+          const part = handle ? (await handle.read(Buffer.alloc(length), 0, length, source.offset + sent)).buffer : source.subarray(sent, sent + length)
+          if (!data.write(part)) await new Promise((resolve) => { data.once('drain', resolve); data.once('close', resolve) })
+          sent += part.length; await pace(part.length)
         }
-        const part = bytes.subarray(offset, offset + chunk)
-        if (!data.write(part)) await new Promise((resolve) => data.once('drain', resolve))
-        sent += part.length; await pace(part.length)
-      }
+      } finally { await handle?.close() }
       await new Promise((resolve) => data.end(resolve))
       // The final reply follows the closed data connection, so a client has
       // received every byte before it reads a final error.
@@ -140,8 +151,8 @@ export const startFtpTestServer = async (root, options = {}) => {
       const data = await openData(); if (!data) return
       const out = createWriteStream(file)
       const ok = await new Promise((resolve) => {
-        data.on('data', async (part) => { if (!out.write(part)) { data.pause(); out.once('drain', () => data.resume()) } if (settings.throttle) { data.pause(); await pace(part.length); data.resume() } })
-        data.once('end', () => resolve(true)); data.once('error', () => resolve(false))
+        data.on('data', async (part) => { log.received += part.length; if (!out.write(part)) { data.pause(); out.once('drain', () => data.resume()) } if (settings.throttle) { data.pause(); await pace(part.length); data.resume() } })
+        data.once('end', () => resolve(true)); data.once('error', () => resolve(false)); data.once('close', () => resolve(false))
       })
       await new Promise((resolve) => out.end(resolve))
       if (!ok) return reply(426, 'Connection closed; transfer aborted')
@@ -239,7 +250,7 @@ export const startFtpTestServer = async (root, options = {}) => {
           const stat = target && await fs.stat(target).catch(() => null)
           if (!stat?.isFile()) return reply(550, 'No such file')
           const offset = restOffset; restOffset = 0
-          return sendData((await fs.readFile(target)).subarray(offset), settings.retrFinalError)
+          return sendData({ file: target, offset }, settings.retrFinalError)
         }
         case 'STOR': {
           const target = resolvePath(argument)

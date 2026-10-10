@@ -3,7 +3,9 @@ import test from 'node:test'
 import { createHash } from 'node:crypto'
 import ssh2 from 'ssh2'
 import { connectionIdFromProvider, providerIdForConnection } from '../src/api/connections.js'
-import { remoteInitialPath, sessionAuthOptions, SshConnectionManager, validateConnectionProfile, registerSshHandlers } from '../server/ssh.js'
+import { remoteInitialPath, sessionAuthOptions, SshConnectionManager, validateConnectionProfile } from '../server/ssh.js'
+import { registerConnectionHandlers } from '../server/connections.js'
+import { RemoteProviders } from '../server/remoteProviders.js'
 
 test('routes SFTP providers by connection ID', () => {
   assert.equal(providerIdForConnection('demo'), 'sftp:demo')
@@ -11,13 +13,14 @@ test('routes SFTP providers by connection ID', () => {
   assert.equal(connectionIdFromProvider('local'), null)
 })
 
-test('browser/SEA reports secure credential storage and SSH config as unavailable without exposing secrets', () => {
+test('browser/SEA reports all three protocols but no secure credential storage or SSH config, without exposing secrets', () => {
   const handlers = new Map()
-  registerSshHandlers({ on: (event, fn) => handlers.set(event, fn), emit() {} })
+  registerConnectionHandlers({ on: (event, fn) => handlers.set(event, fn), emit() {} }, { ftp: {} })
   let response
   handlers.get('connections:capabilities')({}, value => { response = value })
   assert.equal(response.capabilities.credentialStore, false)
   assert.equal(response.capabilities.sshConfig, false)
+  assert.deepEqual(response.capabilities.protocols, ['sftp', 'ftp', 'ftps'])
   handlers.get('connections:credential-status')({ profileId: 'test' }, value => { response = value })
   assert.equal(response.error.code, 'ECREDENTIAL_UNAVAILABLE')
   assert.equal('secret' in response, false)
@@ -66,59 +69,55 @@ test('rejects unsupported MFA even when a server accepts empty responses', async
   }
 })
 
+// Endpoints of the unified provider dispatch (server/remoteProviders.js).
+const endpoint = (extra = {}) => ({ resolve: (value) => value, stat: async () => ({ isDirectory: false }), ...extra })
+const providersWith = (connections) => new RemoteProviders({ ssh: { ensure: async (id) => connections[id], get: (id) => connections[id] } })
+
 test('cross-provider move deletes only after a completed copy', async () => {
-  const manager = new SshConnectionManager({ emit() {} })
   const events = []
-  manager.connections.set('a', { status: 'connected', resolve: (value) => value, remove: async () => events.push('delete'), sftp: {} })
-  manager.connections.set('b', { status: 'connected', resolve: (value) => value, sftp: {} })
-  manager.copy = async () => events.push('copy')
-  await manager.operate({ action: 'move', filesystemId: 'sftp:a', sourcePath: '/a/file.txt', targetFilesystemId: 'sftp:b', targetDirectory: '/b' })
+  const providers = providersWith({ 'sftp:a': endpoint({ remove: async () => events.push('delete') }), 'sftp:b': endpoint() })
+  providers.copy = async () => events.push('copy')
+  await providers.operate({ action: 'move', filesystemId: 'sftp:a', sourcePath: '/a/file.txt', targetFilesystemId: 'sftp:b', targetDirectory: '/b' })
   assert.deepEqual(events, ['copy', 'delete'])
 })
 
 test('cross-provider move preserves the source when copy fails', async () => {
-  const manager = new SshConnectionManager({ emit() {} })
   let removed = false
-  manager.connections.set('a', { status: 'connected', resolve: (value) => value, remove: async () => { removed = true }, sftp: {} })
-  manager.connections.set('b', { status: 'connected', resolve: (value) => value, sftp: {} })
-  manager.copy = async () => { throw Object.assign(new Error('copy failed'), { code: 'ECOPY' }) }
-  await assert.rejects(() => manager.operate({ action: 'move', filesystemId: 'sftp:a', sourcePath: '/a/file.txt', targetFilesystemId: 'sftp:b', targetDirectory: '/b' }), { code: 'ECOPY' })
+  const providers = providersWith({ 'sftp:a': endpoint({ remove: async () => { removed = true } }), 'sftp:b': endpoint() })
+  providers.copy = async () => { throw Object.assign(new Error('copy failed'), { code: 'ECOPY' }) }
+  await assert.rejects(() => providers.operate({ action: 'move', filesystemId: 'sftp:a', sourcePath: '/a/file.txt', targetFilesystemId: 'sftp:b', targetDirectory: '/b' }), { code: 'ECOPY' })
   assert.equal(removed, false)
 })
 
 test('cross-provider move reports a partial result when source cleanup fails', async () => {
-  const manager = new SshConnectionManager({ emit() {} })
-  manager.connections.set('a', {
-    status: 'connected',
-    resolve: (value) => value,
-    remove: async () => { throw Object.assign(new Error('remove failed'), { code: 'EACCES' }) },
-    sftp: {},
+  const providers = providersWith({
+    'sftp:a': endpoint({ remove: async () => { throw Object.assign(new Error('remove failed'), { code: 'EACCES' }) } }),
+    'sftp:b': endpoint(),
   })
-  manager.connections.set('b', { status: 'connected', resolve: (value) => value, sftp: {} })
-  manager.copy = async () => {}
+  providers.copy = async () => {}
   await assert.rejects(
-    () => manager.operate({ action: 'move', filesystemId: 'sftp:a', sourcePath: '/a/file.txt', targetFilesystemId: 'sftp:b', targetDirectory: '/b' }),
+    () => providers.operate({ action: 'move', filesystemId: 'sftp:a', sourcePath: '/a/file.txt', targetFilesystemId: 'sftp:b', targetDirectory: '/b' }),
     (error) => error.code === 'EPARTIAL_MOVE' && error.partialResult.destinationPath === '/b/file.txt',
   )
 })
 
 test('rejects same-path and recursive same-provider SFTP transfers', async () => {
-  const manager = new SshConnectionManager({ emit() {} })
-  manager.connections.set('a', {
-    status: 'connected',
-    resolve: (value) => value,
-    sftp: {
-      lstat(_path, callback) { callback(null, { isDirectory: () => true }) },
-    },
-  })
+  const providers = providersWith({ 'sftp:a': endpoint({ stat: async () => ({ isDirectory: true }) }) })
   await assert.rejects(
-    () => manager.operate({ action: 'copy', filesystemId: 'sftp:a', sourcePath: '/a/folder', targetFilesystemId: 'sftp:a', targetDirectory: '/a' }),
+    () => providers.operate({ action: 'copy', filesystemId: 'sftp:a', sourcePath: '/a/folder', targetFilesystemId: 'sftp:a', targetDirectory: '/a' }),
     { code: 'ESAMEPATH' },
   )
   await assert.rejects(
-    () => manager.operate({ action: 'copy', filesystemId: 'sftp:a', sourcePath: '/a/folder', targetFilesystemId: 'sftp:a', targetDirectory: '/a/folder/child' }),
+    () => providers.operate({ action: 'copy', filesystemId: 'sftp:a', sourcePath: '/a/folder', targetFilesystemId: 'sftp:a', targetDirectory: '/a/folder/child' }),
     { code: 'ECYCLE' },
   )
+})
+
+test('unknown or malformed providers are EFILESYSTEM_ID, never SFTP', async () => {
+  const providers = new RemoteProviders({ ssh: { ensure: async () => assert.fail('not SSH') }, ftp: { get: () => assert.fail('not FTP') } })
+  for (const id of ['ssh:test', 'smb:share', 'sftp:', 'ftp:../x', 'ftps:a b', 'webdav:x', ':x', 42]) {
+    await assert.rejects(() => providers.ensure(id), { code: 'EFILESYSTEM_ID' }, String(id))
+  }
 })
 
 test('accepts custom SSH ports and POSIX initial paths', () => {

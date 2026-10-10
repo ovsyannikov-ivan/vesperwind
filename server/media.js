@@ -6,7 +6,6 @@ import {
   getMediaContentType,
 } from '../shared/mediaTypes.js'
 import { resolveInsideRoot, verifyRealPathInsideRoot } from './filesystem.js'
-import { openSftpContentSource } from './ssh.js'
 
 const createMediaError = (code, message) => {
   const error = new Error(message)
@@ -141,15 +140,14 @@ const openLocalContentSource = async (requestedPath) => {
 
 export const openContentSource = async (
   { providerId = 'local', path: requestedPath },
-  { sshConnections } = {},
+  { providers } = {},
 ) => {
   if (providerId === 'local') {
     return openLocalContentSource(requestedPath)
   }
-  if (providerId.startsWith('sftp:')) {
-    return openSftpContentSource(sshConnections, providerId, requestedPath)
-  }
-  throw createMediaError('EFILESYSTEM_ID', 'This filesystem is not available')
+  if (!providers) throw createMediaError('EFILESYSTEM_ID', 'This filesystem is not available')
+  // SFTP and FTP/FTPS connections; unknown providers are EFILESYSTEM_ID.
+  return (await providers.ensure(providerId)).contentSource(requestedPath)
 }
 
 const pipeSource = (request, response, stream) => {
@@ -195,7 +193,7 @@ export const serveMedia = async (request, response, options = {}) => {
       ? await options.openSource({ providerId, path: requestedPath })
       : await openContentSource(
           { providerId, path: requestedPath },
-          { sshConnections: options.sshConnections },
+          { providers: options.providers },
         )
 
     if (!canServePreview(path.basename(source.path))) {

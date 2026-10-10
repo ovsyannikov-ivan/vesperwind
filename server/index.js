@@ -31,13 +31,15 @@ const startServer = async () => {
     { registerFileOperationHandlers },
     { serveMedia },
     { registerTerminalHandlers },
-    { registerSettingsHandlers },
+    { loadSettings, registerSettingsHandlers },
     { serveStaticAsset },
     { registerTextFileHandlers },
     { registerBinaryFileHandlers },
     { registerDocumentConversionHandlers },
     { registerRuntimeHandlers },
-    { registerSshHandlers },
+    { registerSshHandlers, SshConnectionManager },
+    { createFtpManager, registerConnectionHandlers },
+    { RemoteProviders },
     { createLocalWatchRegistry, registerDirectoryWatchHandlers },
     { registerSearchHandlers },
     { registerArchiveHandlers },
@@ -54,6 +56,8 @@ const startServer = async () => {
     import('./documentConversion.js'),
     import('./runtime.js'),
     import('./ssh.js'),
+    import('./connections.js'),
+    import('./remoteProviders.js'),
     import('./directoryWatch.js'),
     import('./search.js'),
     import('./archives.js'),
@@ -61,6 +65,13 @@ const startServer = async () => {
   ])
 
   const sshConnections = new Map()
+  // FTP/FTPS connections are shared by all sockets, like SSH connections;
+  // their status goes to every socket (`io` is created below).
+  let io = null
+  const ftp = createFtpManager({ connections: new Map(), loadSettings, broadcast: (event, payload) => io?.emit(event, payload) })
+  // HTTP media requests read from already connected providers.
+  const sshLookup = new SshConnectionManager(null, sshConnections)
+  const mediaProviders = new RemoteProviders({ ssh: { ensure: async (id) => sshLookup.get(id), get: (id) => sshLookup.get(id) }, ftp })
   const directoryWatches = createLocalWatchRegistry()
 
   const handleRequest = async (request, response) => {
@@ -70,7 +81,7 @@ const startServer = async () => {
       return
     }
 
-    if (await serveMedia(request, response, { sshConnections })) {
+    if (await serveMedia(request, response, { providers: mediaProviders })) {
       return
     }
 
@@ -95,24 +106,34 @@ const startServer = async () => {
   }
 
   const httpServer = http.createServer(requestHandler)
-  const io = new Server(httpServer, {
+  io = new Server(httpServer, {
     maxHttpBufferSize: 48 * 1024 * 1024,
   })
 
   io.on('connection', (socket) => {
     const ssh = registerSshHandlers(socket, { connections: sshConnections })
-    registerFilesystemHandlers(socket, { ssh })
-    registerSearchHandlers(socket, { ssh })
-    registerPropertiesHandlers(socket, { ssh })
+    registerConnectionHandlers(socket, { ftp })
+    const providers = new RemoteProviders({ ssh, ftp })
+    registerFilesystemHandlers(socket, { providers })
+    registerSearchHandlers(socket, { providers })
+    registerPropertiesHandlers(socket, { providers })
     registerArchiveHandlers(socket)
     registerDirectoryWatchHandlers(socket, directoryWatches)
-    registerFileOperationHandlers(socket, { ssh })
-    registerSettingsHandlers(socket)
-    registerTextFileHandlers(socket, { ssh })
-    registerBinaryFileHandlers(socket, { ssh })
+    registerFileOperationHandlers(socket, { providers })
+    // A saved change of endpoint, protocol, TLS, identity or trust ends the
+    // affected sessions.
+    registerSettingsHandlers(socket, { onSaved: (previous, next) => {
+      ftp.invalidate(next?.connections)
+      ssh.invalidate(previous?.connections, next?.connections)
+    } })
+    registerTextFileHandlers(socket, { providers })
+    registerBinaryFileHandlers(socket, { providers })
     registerDocumentConversionHandlers(socket)
     registerTerminalHandlers(socket, { cwd: fileManagerRoot, ssh })
     registerRuntimeHandlers(socket)
+    // Like SSH sessions, FTP sessions (and their in-memory passwords) end
+    // when no browser is connected any more.
+    socket.on('disconnect', () => { if (io.of('/').sockets.size === 0) ftp.shutdown() })
   })
 
   httpServer.on('error', (error) => {
@@ -132,6 +153,7 @@ const startServer = async () => {
   })
 
   const shutdown = () => {
+    ftp.shutdown()
     io.close(() => {
       httpServer.close(() => process.exit(0))
     })

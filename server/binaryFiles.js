@@ -34,11 +34,11 @@ const serialize = (error, path) => ({
   path: typeof path === 'string' ? path : null,
 })
 
-export const registerBinaryFileHandlers = (socket, { ssh }) => {
+export const registerBinaryFileHandlers = (socket, { providers }) => {
   socket.on('filesystem:read-binary', async (payload, acknowledge) => {
     try {
       const result = payload?.filesystemId && payload.filesystemId !== 'local'
-        ? await (await ssh.ensure(payload.filesystemId)).readBinary(payload?.path)
+        ? await (await providers.ensure(payload.filesystemId)).readBinary(payload?.path)
         : await readBinaryFile(payload?.path)
       acknowledge?.({ ok: true, ...result })
     } catch (error) {
@@ -48,7 +48,7 @@ export const registerBinaryFileHandlers = (socket, { ssh }) => {
   socket.on('filesystem:write-binary', async (payload, acknowledge) => {
     try {
       const result = payload?.filesystemId && payload.filesystemId !== 'local'
-        ? await ssh.get(payload.filesystemId).writeBinary(payload?.path, payload?.base64)
+        ? await providers.get(payload.filesystemId).writeBinary(payload?.path, payload?.base64)
         : await writeBinaryFile(payload?.path, payload?.base64)
       acknowledge?.({ ok: true, ...result })
     } catch (error) {

@@ -48,7 +48,7 @@ test('Socket binary handlers route SFTP paths through the same events as LocalPr
     writeBinary: async (path, value) => { calls.push(['write', path, value]); return { modifiedAt: 'now' } },
   }
   registerBinaryFileHandlers({ on: (event, callback) => handlers.set(event, callback) }, {
-    ssh: { ensure: async (id) => { assert.equal(id, 'sftp:demo'); return connection }, get: (id) => { assert.equal(id, 'sftp:demo'); return connection } },
+    providers: { ensure: async (id) => { assert.equal(id, 'sftp:demo'); return connection }, get: (id) => { assert.equal(id, 'sftp:demo'); return connection } },
   })
   const read = await new Promise((resolve) => handlers.get('filesystem:read-binary')({ filesystemId: 'sftp:demo', path: '/папка/book.xlsx' }, resolve))
   const write = await new Promise((resolve) => handlers.get('filesystem:write-binary')({ filesystemId: 'sftp:demo', path: '/папка/book.xlsx', base64: read.base64 }, resolve))
