@@ -217,3 +217,23 @@ macOS (Apple silicon), Node 26:
 The SEA build (`scripts/build-staging.js`) supports macOS targets only, so
 SEA FTP/FTPS is not verified on Windows or Linux; those platforms run the
 Node suite and, on Linux, the Node runtime smoke.
+
+## SFTP connect race and Cancel in Node/SEA, 2026-10-10
+
+Follow-up to the FTP/FTPS fix: the Node SFTP connect follows the same
+attempt rules ([details](ftp-ftps.md)). macOS (Apple silicon), Node 26:
+
+- `npm test` with a UTF-8 locale: 596 tests, 595 passed, 1 skipped (optional
+  LibreOffice). `test/sshConnectLifecycle.test.js` runs against a real ssh2
+  SFTP server and a server that never sends a banner: a cancelled attempt
+  stops at once and closes its socket; a cancelled first attempt never
+  registers or closes the second attempt started after it; a newer attempt
+  supersedes an older one; a cancel that crosses a successful answer closes
+  only that connection; a saved trust change or Disconnect stops a running
+  attempt; the cancel event works from another browser window of the same
+  backend; parallel automatic reconnects of a lost connection share one
+  attempt instead of cancelling each other. Dialog tests cover the backend cancel and the guarded late
+  disconnect for backends without a cancel event.
+- The dialog was checked in a browser against the Node backend: Cancel
+  connection during an SFTP handshake to a server that never answers frees
+  the dialog at once and leaves no open socket to that server.

@@ -178,12 +178,15 @@ protocols in `connections:capabilities.protocols`.
   Connect becomes Reconnect while connected. The unsaved-changes prompt offers
   Save changes, Discard changes and Keep editing.
 - Cancel connection is shown for the whole connect: the network permission
-  wait, the TCP/TLS handshake and the login. It frees the dialog at once. An
-  FTP/FTPS attempt is stopped on the backend (`ftp:cancel-connect`), which
-  also closes a connection that completed just before the cancel arrived. A
-  connect result that arrives after the dialog was closed or the attempt
-  cancelled is not opened in a panel; a late SFTP connection, which has no
-  backend cancellation, is disconnected by the dialog.
+  wait, the TCP/TLS handshake and the login. It frees the dialog at once. In
+  Node/SEA the attempt is stopped on the backend (`ssh:cancel-connect` or
+  `ftp:cancel-connect` with the attempt id), which also closes a connection
+  that completed just before the cancel arrived. A connect result that
+  arrives after the dialog was closed or the attempt cancelled is not opened
+  in a panel. Where the backend has no cancel event (the native app), the
+  dialog disconnects such a late connection itself, but only while no newer
+  attempt for the same connection has started: disconnecting by id would end
+  the newer connection, which replaces the late one anyway.
 
 ## Node/SEA backend
 
@@ -208,7 +211,13 @@ is [basic-ftp](https://github.com/patrickjuchli/basic-ftp) 6.2.3 (pinned);
   changed protocol, endpoint, user, authentication, TLS mode, pin or
   plaintext acknowledgement ends the attempt with `EFTP_PROFILE_CHANGED`, so
   a session is never registered with outdated settings. The native backend
-  holds its profile lock for the whole connect instead.
+  holds its profile lock for the whole connect instead. Node SFTP
+  (`server/ssh.js`) follows the same rule: `ssh:connect` takes an optional
+  `attemptId`, a newer connect for the profile, `ssh:cancel-connect`,
+  `ssh:disconnect` or a saved change of its session settings aborts a running
+  attempt (`ECANCELLED`, `ESSH_PROFILE_CHANGED`), and the attempts are shared
+  by all browser windows of one backend. An automatic reconnect of a lost
+  connection joins an attempt already running for it.
 - TLS without a pin: Node verifies the chain against its bundled roots, the
   operating system store and `NODE_EXTRA_CA_CERTS`, and the host name
   (`rejectUnauthorized` stays on). With a pin: exactly that certificate is
