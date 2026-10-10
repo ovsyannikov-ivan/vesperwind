@@ -11,10 +11,14 @@ export const CLOUD_STATUS_BATCH_SIZE = 64
 const CLOUD_STATUS_CONCURRENCY = 2
 const CLOUD_STATUS_TIMEOUT = 60_000
 
-// Let the browser paint before the next background step.
+// Let the browser paint before the next background step. A hidden or
+// occluded window gets no animation frames, so a short timer also proceeds.
+const PAINT_FALLBACK = 200
 export const afterPaint = () => new Promise((resolve) => {
-  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => setTimeout(resolve, 0))
-  else setTimeout(resolve, 0)
+  const timer = setTimeout(resolve, PAINT_FALLBACK)
+  const done = () => { clearTimeout(timer); resolve() }
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => setTimeout(done, 0))
+  else setTimeout(done, 0)
 })
 
 // At most `limit` tasks run at once. A task whose signal was aborted while it

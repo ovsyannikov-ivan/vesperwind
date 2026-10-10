@@ -262,3 +262,17 @@ test('the limiter hands slots over without exceeding its bound', async () => {
   assert.deepEqual(results, [true, true, true])
   assert.equal(peak, 1)
 })
+
+test('a window without animation frames still proceeds to the next batch', async () => {
+  const { afterPaint } = await import('../src/api/cloudStatus.js')
+  const original = globalThis.requestAnimationFrame
+  globalThis.requestAnimationFrame = () => 0 // hidden or occluded window
+  try {
+    const started = Date.now()
+    await afterPaint()
+    assert.ok(Date.now() - started < 2000)
+  } finally {
+    if (original) globalThis.requestAnimationFrame = original
+    else delete globalThis.requestAnimationFrame
+  }
+})

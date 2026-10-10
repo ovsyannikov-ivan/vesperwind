@@ -2,7 +2,9 @@
 
 ## OneDrive on native Windows
 
-Native Windows local listings keep availability separate from synchronization:
+Cloud status arrives after the listing, in background batches (see
+[directory listing](directory-listing.md)); the listing itself carries none.
+Native Windows statuses keep availability separate from synchronization:
 `contentAvailability: {state: "cloud", provider: "onedrive"}` can coexist with
 `cloudSync: {provider: "onedrive", state: "inSync", localContent: "notFullyLocal",
 inspection: "ok", pinPolicy: "unpinned"}`. Download completion removes the
@@ -34,14 +36,15 @@ Windows enumeration reuses Unicode `WIN32_FIND_DATAW` attributes and reparse tag
 with `CfGetPlaceholderStateFromAttributeTag`. Windows may disguise placeholders
 for applications: a thread-bound RAII guard temporarily uses the documented
 `RtlSetThreadPlaceholderCompatibilityMode(PHCM_EXPOSE_PLACEHOLDERS)` and restores
-the previous mode. Listing never reads content or requests hydration, and uses
-one registration snapshot/root query per directory rather than per-row handles.
+the previous mode. Status inspection never reads content or requests hydration,
+and uses one registration snapshot/root query and one enumeration per batch
+rather than per-row handles.
 
 `PARTIALLY_ON_DISK` proves content is not fully local. `PARTIAL` alone produces
 `contentAvailability.state = "notReady"` and unknown local byte availability,
 without claiming a download is active. Invalid flags or a confirmed root's
 inspection error cannot produce a synchronized check. Only an operation already
-tracked by the existing content manager may supply `materializing` in a listing.
+tracked by the existing content manager may supply `materializing` in a status.
 
 Explicit preparation requests the whole file with asynchronous
 `CfHydratePlaceholder(0, CF_EOF)`. The existing content manager owns the stable
@@ -84,28 +87,31 @@ The macOS/iCloud contract below is preserved; this Windows run is not native Mac
 
 ## iCloud badges in file panels
 
-Native macOS local listings expose optional `contentAvailability` metadata:
+Native macOS lazy cloud status (see [directory listing](directory-listing.md))
+provides optional `contentAvailability` metadata:
 `{"state":"cloud"}`, `{"state":"materializing","progress":0.42}`, or
 `{"state":"failed"}`. Ready files omit the field. A small muted cloud download
 icon in the status column means content is absent locally; cloud sync indicates an active download,
 and cloud alert indicates a download or inspection failure. Progress appears only
 when Foundation supplies a finite value. The main file-type icon stays intact.
 
-Listing is passive: it inspects filesystem metadata and public Foundation resource
+Status inspection is passive: it inspects filesystem metadata and public Foundation resource
 values, never content bytes, download requests or coordinated reads. `SF_DATALESS`
 and iCloud `NotDownloaded` provide absence evidence; iCloud membership alone does
 not. `Current` and `Downloaded` without dataless mean a local copy exists.
-Additional cloud resource lookups are limited to ubiquitous/dataless candidates;
-listing runs on the native blocking worker rather than the UI thread.
+Additional cloud resource lookups are limited to ubiquitous/dataless candidates
+and use one Foundation request per file; inspection runs on native blocking
+workers after the rows are shown, never on the UI thread.
 
-Both listing and existing content preparation share the same metadata decision
+Both status inspection and existing content preparation share the same metadata decision
 logic in `filesystem/availability.rs`. Explicit open/read/copy can still initiate
 materialization through the existing preparation flow. Dataless Finder aliases are
 listed as aliases without resolving their unavailable bookmark content; local
 aliases and symlinks keep their existing target semantics.
 
 Visible local directories already watch FSEvents metadata/content changes. A watch
-event or normal manual refresh replaces entries with newly inspected availability.
+event or normal manual refresh replaces entries and inspects their status again;
+unchanged entries keep their previous badge until the new result arrives.
 After `content.prepare` transitions from MATERIALIZING to READY, it also invalidates
 the parent through the shared directory watch registry: NSURL state may settle
 after the last FSEvents notification. This single coalesced refresh removes stale
@@ -135,9 +141,11 @@ percentage, so no percentage appeared. Row height remained 22px in both themes.
 The regression WebView used an isolated identifier/incognito profile; its theme
 was restored to System after the light-theme check.
 
-Passive listing measured 480–523ms for 3,000 ordinary local files and 669ms for
-a real iCloud directory with 427 entries (384 cloud badges). The latter check
-also verified unchanged flags/allocated blocks. Windows cross-compilation from
+Passive listing, which then included status inspection, measured 480–523ms for
+3,000 ordinary local files and 669ms for a real iCloud directory with 427 entries
+(384 cloud badges). The latter check also verified unchanged flags/allocated
+blocks. Listing no longer waits for status; current measurements are in
+[directory listing](directory-listing.md). Windows cross-compilation from
 this Mac stopped in vendored OpenSSL configuration; a native Windows build
 remains unverified. New native listing fields and Foundation helpers are gated
 by macOS `cfg`; portable synthetic decision tests do not need an iCloud account.

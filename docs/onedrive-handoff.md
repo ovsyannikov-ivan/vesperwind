@@ -27,11 +27,13 @@ following the user's established review preference.
 - `src-tauri/src/filesystem/availability.rs`: shared macOS metadata classifier,
   passive inspection, active content preparation, download/coordinator fallback.
 - `src-tauri/src/filesystem/mod.rs`: `FileEntry` and local directory listing.
-  `contentAvailability` currently exists only under macOS cfg and is omitted
-  for ready/unknown entries. States are `cloud`, `materializing`, `failed`, with
-  optional finite progress on materializing. SFTP constructors leave it absent.
-- `src-tauri/src/commands/filesystem.rs`: listing uses `spawn_blocking`, preserving
-  the JSON response contract while keeping metadata work off the UI thread.
+  Since Stage F the listing carries no cloud fields; `filesystem/cloud_status.rs`
+  and `filesystem_cloud_status` return `contentAvailability`/`cloudSync` in
+  background batches after the rows are shown (see `docs/directory-listing.md`).
+  OneDrive classification now runs in `onedrive::native::cloud_status`, still from
+  one `FindFirstFileW` enumeration and one sync-root snapshot per batch.
+- `src-tauri/src/commands/filesystem.rs`: listing and status batches use
+  `spawn_blocking`, keeping metadata work off the UI thread.
 - `src/utils/contentAvailability.js`, `src/components/FileTreeNode.vue`,
   `src/styles/main/_file-tree.scss`: small status badge beside the filename,
   preserving the main file icon, symbolic-link badge, columns and 22px row height.
