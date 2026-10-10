@@ -169,7 +169,7 @@ for this change.
 One window with SFTP | FTP | FTPS tabs and a Node/SEA FTP/FTPS backend
 ([details](ftp-ftps.md)). macOS (Apple silicon) checks:
 
-- `npm test`: 577 tests, 576 passed, 1 skipped (UTF-8 locale; the archive tests
+- `npm test`: 582 tests, 581 passed, 1 skipped (UTF-8 locale; the archive tests
   need one). The same suite passed on Node 22, the CI version. It includes the
   basic-ftp contract tests, 26 Node FTP/FTPS acceptance scenarios against real
   local FTP/FTPS and SFTP servers, and the dialog tests.
@@ -177,7 +177,9 @@ One window with SFTP | FTP | FTPS tabs and a Node/SEA FTP/FTPS backend
   and 22) and against the SEA executable from `npm run build:sea`.
 - The dialog was checked in a browser against the Node backend and local
   fixtures, in dark and light themes and at a narrow width: plain-FTP consent,
-  FTPS certificate trust through a pin, and an FTPS → local copy.
+  FTPS certificate trust through a pin, a changed certificate blocked with
+  both fingerprints, connection state with Disconnect/Reconnect, and an
+  FTPS → local copy.
 - `cargo fmt --check`, `cargo test` (237 passed, 8 ignored), `npm run build`
   and `git diff --check` passed. `cargo clippy --all-targets` stops on an
   existing `non_octal_unix_permissions` error in a test of

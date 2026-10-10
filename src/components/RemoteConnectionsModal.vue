@@ -26,7 +26,10 @@ const capabilities = ref({ credentialStore: false, sshConfig: false, auto: true,
 const configHosts = ref([])
 const credentials = ref({ password: false, keyPassphrase: false })
 const portTouched = ref(false)
-let modal, selectionGeneration = 0, showGeneration = 0
+// Connection state of the selected profile, from status requests and the
+// unified ssh:status/ftp:status stream.
+const connectionState = ref('')
+let modal, selectionGeneration = 0, showGeneration = 0, statusGeneration = 0, connectGeneration = 0, unsubscribeStatus = null
 const draft = reactive(emptyConnectionProfile('sftp'))
 const baseline = ref('')
 // Every save and delete writes the complete list: profiles of other tabs and
@@ -69,7 +72,23 @@ const guard = (proceed) => {
   void focusDialog()
 }
 const discardAndProceed = () => { const proceed = dialog.value?.proceed; dialog.value = null; proceed?.() }
-const showProfile = (profile) => { selectedId.value = profile?.id || ''; fill(profile); clearSecrets(); clearConnectionError(); void refreshCredentials() }
+const saveAndProceed = async () => {
+  const proceed = dialog.value?.proceed
+  dialog.value = null
+  busy.value = true; clearConnectionError()
+  try { await saveProfile() } catch (cause) { error.value = cause.message; return } finally { busy.value = false }
+  proceed?.()
+}
+const refreshStatus = async () => {
+  const generation = ++statusGeneration, id = draft.id, protocol = draft.protocol
+  connectionState.value = ''
+  if (!id || !profiles.value.some(profile => profile.id === id)) return
+  const response = await connectionsApi.status(id, protocol)
+  // A late answer for another profile is ignored.
+  if (generation !== statusGeneration || draft.id !== id || draft.protocol !== protocol) return
+  connectionState.value = response.ok ? response.status : ''
+}
+const showProfile = (profile) => { selectedId.value = profile?.id || ''; fill(profile); clearSecrets(); clearConnectionError(); void refreshCredentials(); void refreshStatus() }
 const select = (profile) => guard(() => showProfile(profile))
 const newProfile = () => guard(() => showProfile(null))
 const showTab = (protocol) => {
@@ -178,6 +197,7 @@ const certificateFailure = (code) => ['ETLS_CERTIFICATE_UNTRUSTED', 'ETLS_CERTIF
  */
 const connect = async ({ trust = false, acknowledgePlaintext = false, certificate = null } = {}) => {
   const trustedFingerprint = trust ? hostKey.value?.fingerprint : ''
+  const generation = ++connectGeneration
   dialog.value = null
   busy.value = true; clearConnectionError()
   try {
@@ -205,6 +225,12 @@ const connect = async ({ trust = false, acknowledgePlaintext = false, certificat
     const response = await connectionsApi.connect(profile, { password: password.value, keyPassphrase: keyPassphrase.value }, {
       signal: permissionController.signal, onPermissionWait: value => { permissionPending.value = value },
     })
+    if (generation !== connectGeneration) {
+      // The dialog was closed or the attempt cancelled meanwhile: never open
+      // the result in a panel, and leave no connection the UI does not know.
+      if (response?.ok) void connectionsApi.disconnect(profile.id, profile.protocol)
+      return
+    }
     if (!response?.ok) {
       const code = response?.error?.code || ''
       if (code === 'ECANCELLED') return
@@ -225,6 +251,7 @@ const connect = async ({ trust = false, acknowledgePlaintext = false, certificat
       return
     }
     clearSecrets(); await refreshCredentials()
+    connectionState.value = 'connected'
     emit('connected', { ...response, profile, targetPanel: props.activePanel })
     if (response.credentialWarning) warning.value = `Connected, but the credential could not be saved securely. ${response.credentialWarning.message}`
     else emit('close')
@@ -236,6 +263,15 @@ const connect = async ({ trust = false, acknowledgePlaintext = false, certificat
   }
 }
 const cancelDialog = () => { dialog.value = null }
+const disconnect = async () => {
+  busy.value = true; clearConnectionError()
+  try {
+    const response = await connectionsApi.disconnect(draft.id, draft.protocol)
+    if (!response.ok) throw Error(response.error.message)
+    connectionState.value = 'disconnected'
+  } catch (cause) { error.value = cause.message } finally { busy.value = false }
+}
+const cancelConnection = () => { connectGeneration++; permissionController?.abort() }
 const show = async () => {
   const generation = ++showGeneration
   loading.value = true; modal?.show(); clearConnectionError(); configError.value = ''; dialog.value = null
@@ -255,7 +291,7 @@ const show = async () => {
     }
   } catch (cause) { error.value = cause.message } finally { if (generation === showGeneration) loading.value = false }
 }
-const finishClose = () => { baseline.value = ''; dialog.value = null; clearSecrets(); emit('close') }
+const finishClose = () => { connectGeneration++; baseline.value = ''; dialog.value = null; clearSecrets(); emit('close') }
 const close = () => { if (!busy.value) guard(finishClose) }
 const handleHide = (event) => {
   if (busy.value) { event.preventDefault(); return }
@@ -268,7 +304,7 @@ const handleHide = (event) => {
   }
 }
 const handleHidden = () => { clearSecrets(); if (props.open) emit('close') }
-watch(() => props.open, value => { if (value) show(); else { showGeneration++; selectionGeneration++; clearSecrets(); dialog.value = null; modal?.hide() } })
+watch(() => props.open, value => { if (value) show(); else { showGeneration++; selectionGeneration++; statusGeneration++; connectGeneration++; clearSecrets(); dialog.value = null; modal?.hide() } })
 watch(() => draft.authType, (value, previous) => {
   if (previous === undefined) return
   clearSecrets(); authNeeds.value = ''
@@ -283,6 +319,12 @@ watch(() => draft.ftpTls, (value, previous) => {
 })
 const certificateValidity = (certificate) => [certificate.notBefore, certificate.notAfter].map(value => value ? new Date(value).toLocaleString() : 'unknown').join(' – ')
 const certificateNames = (certificate) => [...(certificate.dnsNames || []), ...(certificate.ipAddresses || [])].join(', ') || 'none'
+// SSH and FTP status events update the selected profile's state.
+onMounted(() => {
+  unsubscribeStatus = connectionsApi.onStatus((event) => {
+    if (event?.connectionId === draft.id && event?.protocol === draft.protocol) connectionState.value = event.status
+  })
+})
 onMounted(() => {
   modal = new Modal(modalElement.value, { backdrop: 'static' })
   modalElement.value.addEventListener('hide.bs.modal', handleHide)
@@ -291,7 +333,8 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   permissionController?.abort()
-  showGeneration++; selectionGeneration++; clearSecrets()
+  unsubscribeStatus?.()
+  showGeneration++; selectionGeneration++; statusGeneration++; connectGeneration++; clearSecrets()
   modalElement.value?.removeEventListener('hide.bs.modal', handleHide)
   modalElement.value?.removeEventListener('hidden.bs.modal', handleHidden)
   modal?.dispose(); modal = null
@@ -349,7 +392,7 @@ onBeforeUnmount(() => {
                 </template>
                 <template v-else-if="dialog.kind === 'discard'">
                   <h2 id="remote-dialog-title" class="h6 d-flex align-items-center gap-2"><i class="mdi mdi-content-save-alert-outline text-warning" aria-hidden="true" />Discard unsaved changes?</h2>
-                  <p id="remote-dialog-body" class="mb-0">The changes to this connection have not been saved.</p>
+                  <p id="remote-dialog-body" class="mb-0">The changes to this connection have not been saved. Save them, discard them, or keep editing.</p>
                 </template>
               </section>
 
@@ -378,6 +421,10 @@ onBeforeUnmount(() => {
                 <form class="col-12 col-sm-8" @submit.prevent="connect()">
                   <fieldset class="border-0 p-0 m-0" :disabled="busy || loading">
                   <legend class="visually-hidden">{{ definition?.label }} connection profile</legend>
+                  <div v-if="selected" class="small mb-2 d-flex align-items-center gap-1" role="status" aria-live="polite">
+                    <i class="mdi" :class="connectionState === 'connected' ? 'mdi-lan-connect text-success' : 'mdi-lan-disconnect text-body-secondary'" aria-hidden="true" />
+                    {{ connectionState === 'connected' ? 'Connected' : 'Not connected' }}
+                  </div>
                   <div class="row g-2">
                     <div class="col-12"><label class="form-label" for="remote-name">Name</label><input id="remote-name" v-model="draft.name" class="form-control form-control-sm" required></div>
                     <div class="col-8"><label class="form-label" for="remote-host">Host</label><input id="remote-host" v-model="draft.host" class="form-control form-control-sm" required></div>
@@ -451,14 +498,16 @@ onBeforeUnmount(() => {
             <template v-else>
               <button class="btn btn-sm btn-neutral" type="button" data-dialog-focus @click="cancelDialog">Keep editing</button>
               <button class="btn btn-sm btn-danger" type="button" @click="discardAndProceed">Discard changes</button>
+              <button class="btn btn-sm btn-primary" type="button" @click="saveAndProceed">Save changes</button>
             </template>
           </div>
           <div v-else class="modal-footer">
             <button v-if="selected" class="btn btn-sm btn-danger me-auto" type="button" :disabled="busy" @click="remove">Delete</button>
-            <button v-if="permissionPending" class="btn btn-sm btn-neutral" type="button" @click="permissionController?.abort()">Cancel connection</button>
+            <button v-if="permissionPending" class="btn btn-sm btn-neutral" type="button" @click="cancelConnection">Cancel connection</button>
+            <button v-if="selected && connectionState === 'connected'" class="btn btn-sm btn-neutral" type="button" :disabled="busy" @click="disconnect">Disconnect</button>
             <button class="btn btn-sm btn-neutral" type="button" :disabled="busy" @click="close">Cancel</button>
             <button class="btn btn-sm btn-neutral" type="button" :disabled="busy || loading" @click="save">Save</button>
-            <button class="btn btn-sm btn-primary" type="button" :disabled="busy || loading" @click="connect()">{{ busy ? 'Connecting…' : 'Connect' }}</button>
+            <button class="btn btn-sm btn-primary" type="button" :disabled="busy || loading" @click="connect()">{{ busy ? 'Connecting…' : connectionState === 'connected' ? 'Reconnect' : 'Connect' }}</button>
           </div>
         </div>
       </div>

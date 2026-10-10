@@ -10,13 +10,20 @@ const source = (await fs.readFile(new URL('../src/components/RemoteConnectionsMo
   .split('<script setup>')[1].split('</script>')[0].replace(/^import .*$/gm, '')
 const profile = { id: 'existing', name: 'Saved', protocol: 'sftp', host: 'fixture.invalid', port: 22, username: 'fixture',
   authType: 'password', privateKeyPath: '', sshConfigHost: '', savePassword: true, saveKeyPassphrase: false, trustedFingerprint: '', initialPath: '' }
-const fixture = ({ supported = true, response = { ok: true, connectionId: 'existing' }, config = [], extra = [], protocols = ['sftp', 'ftp', 'ftps'] } = {}) => {
+const fixture = ({ supported = true, response = { ok: true, connectionId: 'existing' }, config = [], extra = [], protocols = ['sftp', 'ftp', 'ftps'], registry = CONNECTION_PROTOCOLS, connectGate = null, status = 'disconnected' } = {}) => {
   const settings = ref(createDefaultSettings()), saved = [], requests = [], events = [], forgotten = []
   const scope = effectScope()
   settings.value.connections = normalizeSettings({ connections: [...extra, profile] }).connections
   const responses = Array.isArray(response) ? [...response] : null
+  const disconnected = [], statusListeners = []
+  const protocolDefinitionFor = (id) => registry.find(item => item.id === id) || null
+  const fieldsFor = (id) => [...profileFields('sftp').slice(0, 9), ...Object.keys(protocolDefinitionFor(id)?.fields || {})]
+  const emptyFor = (id) => { const definition = protocolDefinitionFor(id); const value = { id: '', name: '', host: '', username: '', initialPath: '', savePassword: false, protocol: id, authType: definition.authTypes[0].value, ...definition.fields }; value.port = definition.defaultPort ? definition.defaultPort(value) : defaultConnectionPort(id, value.ftpTls); return value }
   const dependencies = { computed, nextTick, onMounted() {}, onBeforeUnmount() {}, reactive, ref, watch,
-    CERTIFICATE_REASONS, CONNECTION_PROTOCOLS, defaultConnectionPort, emptyConnectionProfile, profileFields, protocolDefinition,
+    CERTIFICATE_REASONS, CONNECTION_PROTOCOLS: registry, defaultConnectionPort,
+    emptyConnectionProfile: registry === CONNECTION_PROTOCOLS ? emptyConnectionProfile : emptyFor,
+    profileFields: registry === CONNECTION_PROTOCOLS ? profileFields : fieldsFor,
+    protocolDefinition: registry === CONNECTION_PROTOCOLS ? protocolDefinition : protocolDefinitionFor,
     defineProps: () => reactive({ open: true, activePanel: 'left' }), defineEmits: () => (...args) => events.push(args),
     crypto: { randomUUID: () => 'new-stable-id' },
     useSettings: () => ({ settings, loadSettings: async () => ({ ok: true }),
@@ -27,11 +34,16 @@ const fixture = ({ supported = true, response = { ok: true, connectionId: 'exist
       sshConfigHosts: async () => ({ ok: true, hosts: config }),
       resolveSshHost: async alias => ({ ok: true, host: config.find(host => host.alias === alias) }),
       forgetCredential: async (...args) => { forgotten.push(args); return { ok: true } },
-      connect: async (...args) => { requests.push(structuredClone(args.slice(0, 2))); return responses ? responses.shift() : response },
+      connect: async (...args) => { requests.push(structuredClone(args.slice(0, 2))); if (connectGate) await connectGate; return responses ? responses.shift() : response },
+      status: async () => ({ ok: true, status }),
+      disconnect: async (...args) => { disconnected.push(args); return { ok: true } },
+      onStatus: (callback) => { statusListeners.push(callback); return () => {} },
     },
   }
-  const api = scope.run(() => vm.compileFunction(`${source}\nreturn { draft, password, keyPassphrase, credentials, capabilities, authNeeds, warning, error, select, selectConfig, newProfile, save, connect, show, forget, profiles, unsupportedProfileCount, remove, activeTab, tabs, selectTab, tabKeydown, dialog, discardAndProceed, cancelDialog, removeTrustedCertificate, dirty, close, portTouched, selectedId }`, Object.keys(dependencies))(...Object.values(dependencies)))
-  return { ...api, saved, requests, events, forgotten, stop: () => scope.stop() }
+  const onMountedHooks = []
+  dependencies.onMounted = (hook) => onMountedHooks.push(hook)
+  const api = scope.run(() => vm.compileFunction(`${source}\nreturn { draft, password, keyPassphrase, credentials, capabilities, authNeeds, warning, error, select, selectConfig, newProfile, save, connect, show, forget, profiles, unsupportedProfileCount, remove, activeTab, tabs, selectTab, tabKeydown, dialog, discardAndProceed, saveAndProceed, cancelDialog, removeTrustedCertificate, dirty, close, portTouched, selectedId, connectionState, disconnect, cancelConnection }`, Object.keys(dependencies))(...Object.values(dependencies)))
+  return { ...api, saved, requests, events, forgotten, disconnected, statusListeners, onMountedHooks, stop: () => scope.stop() }
 }
 test('saved password status does not refill the input; typed secrets bypass settings and are cleared on success', async () => {
   const f = fixture()
@@ -287,4 +299,74 @@ test('the dialog source keeps ARIA tabs, the consent text and credential storage
   assert.match(vue, />Connect without encryption</)
   assert.match(vue, /v-if="capabilities\.credentialStore" class="form-check mt-2"><input id="remote-save-password"/)
   assert.match(vue, /class="col-12 col-sm-4"/, 'list and form stack in narrow windows')
+})
+
+test('connection state follows status requests and events; Disconnect and Reconnect route by protocol', async () => {
+  const f = fixture({ extra: [ftps], status: 'connected' })
+  try {
+    f.onMountedHooks[0]()
+    await f.show(); f.selectTab('ftps'); await nextTick(); await new Promise(resolve => setImmediate(resolve))
+    assert.equal(f.connectionState.value, 'connected')
+    await f.disconnect()
+    assert.deepEqual(f.disconnected.at(-1), ['nas', 'ftps'])
+    assert.equal(f.connectionState.value, 'disconnected')
+    f.statusListeners[0]({ connectionId: 'nas', protocol: 'ftps', providerId: 'ftps:nas', status: 'connected' })
+    assert.equal(f.connectionState.value, 'connected')
+    // An event for the same id under another protocol is not this profile.
+    f.statusListeners[0]({ connectionId: 'nas', protocol: 'sftp', providerId: 'sftp:nas', status: 'disconnected' })
+    assert.equal(f.connectionState.value, 'connected')
+  } finally { f.stop() }
+})
+
+test('a connect result that arrives after the dialog closed opens nothing and is disconnected', async () => {
+  let release
+  const gate = new Promise(resolve => { release = resolve })
+  const f = fixture({ extra: [ftp], connectGate: gate, response: { ok: true, connectionId: 'router', providerId: 'ftp:router' } })
+  try {
+    await f.show(); f.selectTab('ftp')
+    const pending = f.connect()
+    await new Promise(resolve => setImmediate(resolve))
+    f.cancelConnection()
+    release(); await pending
+    assert.equal(f.events.some(([name]) => name === 'connected'), false)
+    assert.deepEqual(f.disconnected.at(-1), ['router', 'ftp'])
+  } finally { f.stop() }
+})
+
+test('the unsaved-changes prompt can save before switching', async () => {
+  const f = fixture({ extra: [ftp] })
+  try {
+    await f.show()
+    f.draft.name = 'Renamed before switching'
+    f.selectTab('ftp')
+    assert.equal(f.dialog.value.kind, 'discard')
+    await f.saveAndProceed()
+    assert.equal(f.activeTab.value, 'ftp')
+    assert.equal(f.saved.at(-1).connections.find(item => item.id === 'existing').name, 'Renamed before switching')
+  } finally { f.stop() }
+})
+
+test('a future protocol is one registry entry: its tab, fields and default port need no dialog changes', async () => {
+  const webdavTab = Object.freeze({ id: 'webdav', label: 'WebDAV', icon: 'mdi-web', description: 'WebDAV over HTTPS.',
+    authTypes: [{ value: 'password', label: 'Password' }], fields: { davPath: '/' }, features: {}, passwordAuth: ['password'],
+    pathPlaceholder: '/', defaultPort: () => 443 })
+  const f = fixture({ registry: [...CONNECTION_PROTOCOLS, webdavTab], protocols: ['sftp', 'ftp', 'ftps', 'webdav'], extra: [webdav] })
+  try {
+    await f.show()
+    assert.deepEqual(f.tabs.value.map(tab => tab.id), ['sftp', 'ftp', 'ftps', 'webdav'])
+    f.selectTab('webdav')
+    assert.deepEqual(f.profiles.value.map(item => item.id), ['dav'])
+    f.newProfile()
+    assert.equal(f.draft.protocol, 'webdav')
+    assert.equal(f.draft.port, 443)
+    assert.equal(f.draft.davPath, '/')
+    assert.equal('ftpTls' in f.draft || 'privateKeyPath' in f.draft, false)
+  } finally { f.stop() }
+  // Without the capability the profile stays saved but gets no tab.
+  const hidden = fixture({ extra: [webdav] })
+  try {
+    await hidden.show()
+    assert.equal(hidden.tabs.value.some(tab => tab.id === 'webdav'), false)
+    assert.equal(hidden.unsupportedProfileCount.value, 1)
+  } finally { hidden.stop() }
 })

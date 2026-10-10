@@ -85,6 +85,8 @@ test('plain FTP with a password and Anonymous connect, list, read and write', as
     assert.equal(await fs.readFile(path.join(context.root, 'a.txt'), 'utf8'), 'changed')
     context.ftp.disconnect(context.profile.id)
     assert.deepEqual(context.events.map((event) => event.status), ['connected', 'disconnected'])
+    // The session-only password is dropped with the connection.
+    assert.equal(connection.password, '')
     assert.throws(() => context.ftp.get(result.providerId), { code: 'EFTP_DISCONNECTED' })
 
     context.profiles.set(context.profile.id, { ...context.profile, authType: 'anonymous', username: 'anonymous' })

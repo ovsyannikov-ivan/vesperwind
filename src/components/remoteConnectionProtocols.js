@@ -4,7 +4,7 @@
 // branches beyond these feature flags. A new protocol (for example WebDAV)
 // is a new entry here plus its backend; settings, connections API and the
 // backend must support it before it is listed.
-import { defaultConnectionPort } from '../../shared/defaultSettings.js'
+import { defaultConnectionAuthType, defaultConnectionPort } from '../../shared/defaultSettings.js'
 
 const COMMON = Object.freeze(['id', 'name', 'host', 'port', 'username', 'authType', 'protocol', 'savePassword', 'initialPath'])
 
@@ -44,7 +44,7 @@ export const CONNECTION_PROTOCOLS = Object.freeze([
     id: 'ftps',
     label: 'FTPS',
     icon: 'mdi-folder-lock-outline',
-    description: 'FTP over TLS. The server certificate is verified with your system’s trusted certificates.',
+    description: 'FTP over TLS. Server certificates are verified with your system’s trusted certificates unless you trust one explicitly.',
     authTypes: Object.freeze([
       { value: 'password', label: 'Password' },
       { value: 'anonymous', label: 'Anonymous' },
@@ -66,9 +66,9 @@ export const emptyConnectionProfile = (protocol) => {
   const definition = protocolDefinition(protocol)
   const profile = {
     id: '', name: '', host: '', username: '', initialPath: '', savePassword: false,
-    protocol, authType: definition.authTypes[0].value, ...definition.fields,
+    protocol, authType: defaultConnectionAuthType(protocol), ...definition.fields,
   }
-  profile.port = defaultConnectionPort(protocol, profile.ftpTls)
+  profile.port = definition.defaultPort ? definition.defaultPort(profile) : defaultConnectionPort(protocol, profile.ftpTls)
   return profile
 }
 

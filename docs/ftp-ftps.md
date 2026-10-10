@@ -173,6 +173,12 @@ protocols in `connections:capabilities.protocols`.
   the pin is never replaced automatically and nothing is retried.
 - "Save password securely" appears only when the runtime has a credential
   store.
+- The selected profile shows Connected or Not connected (status request plus
+  the merged `ssh:status`/`ftp:status` stream); Disconnect ends the session,
+  Connect becomes Reconnect while connected. The unsaved-changes prompt offers
+  Save changes, Discard changes and Keep editing. A connect result that
+  arrives after the dialog was closed or the attempt cancelled is not opened
+  in a panel, and its connection is disconnected.
 
 ## Node/SEA backend
 
