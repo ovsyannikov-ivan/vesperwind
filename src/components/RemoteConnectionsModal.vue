@@ -15,7 +15,11 @@ const selectedId = ref('')
 const password = ref(''), keyPassphrase = ref('')
 const busy = ref(false), loading = ref(false)
 const permissionPending = ref(false)
-let permissionController
+// True for the whole connect, from saving the profile to the answer, so the
+// attempt can be cancelled during the network permission wait, the TCP/TLS
+// handshake and the login alike.
+const connecting = ref(false)
+let permissionController, activeAttempt = null
 const error = ref(''), warning = ref(''), configError = ref(''), credentialError = ref('')
 const hostKey = ref(null), hostKeyErrorCode = ref('')
 const authNeeds = ref('')
@@ -199,7 +203,8 @@ const connect = async ({ trust = false, acknowledgePlaintext = false, certificat
   const trustedFingerprint = trust ? hostKey.value?.fingerprint : ''
   const generation = ++connectGeneration
   dialog.value = null
-  busy.value = true; clearConnectionError()
+  busy.value = true; connecting.value = true; clearConnectionError()
+  const controller = permissionController = new AbortController()
   try {
     if (draft.protocol === 'sftp' && draft.sshConfigHost) {
       const response = await connectionsApi.resolveSshHost(draft.sshConfigHost)
@@ -221,14 +226,23 @@ const connect = async ({ trust = false, acknowledgePlaintext = false, certificat
       if (certificate.endpoint !== `${profile.host}:${profile.port}`) throw Error('The connection changed; connect again to review its certificate')
       profile = await saveProfile({ ...profile, tlsTrustedCertificate: certificate.sha256 })
     }
-    permissionController = new AbortController()
-    const response = await connectionsApi.connect(profile, { password: password.value, keyPassphrase: keyPassphrase.value }, {
-      signal: permissionController.signal, onPermissionWait: value => { permissionPending.value = value },
+    const attempt = { protocol: profile.protocol, attemptId: crypto.randomUUID() }
+    if (generation === connectGeneration) activeAttempt = attempt
+    const request = connectionsApi.connect(profile, { password: password.value, keyPassphrase: keyPassphrase.value }, {
+      signal: controller.signal, attemptId: attempt.attemptId, onPermissionWait: value => { permissionPending.value = value },
     })
+    // Cancel answers at once; the backend stops an FTP/FTPS attempt itself.
+    const cancelled = new Promise(resolve => {
+      const stop = () => resolve({ ok: false, error: { code: 'ECANCELLED', message: 'Connection was cancelled' } })
+      if (controller.signal.aborted) stop()
+      else controller.signal.addEventListener('abort', stop, { once: true })
+    })
+    const response = await Promise.race([request, cancelled])
     if (generation !== connectGeneration) {
       // The dialog was closed or the attempt cancelled meanwhile: never open
       // the result in a panel, and leave no connection the UI does not know.
-      if (response?.ok) void connectionsApi.disconnect(profile.id, profile.protocol)
+      // SFTP has no backend cancellation, so its late success is closed here.
+      if (profile.protocol === 'sftp') void request.then(late => { if (late?.ok) void connectionsApi.disconnect(profile.id, profile.protocol) })
       return
     }
     if (!response?.ok) {
@@ -256,7 +270,9 @@ const connect = async ({ trust = false, acknowledgePlaintext = false, certificat
     if (response.credentialWarning) warning.value = `Connected, but the credential could not be saved securely. ${response.credentialWarning.message}`
     else emit('close')
   } catch (cause) { error.value = cause.message || 'Unable to connect' } finally {
-    busy.value = false; permissionPending.value = false; permissionController = null
+    if (permissionController === controller) {
+      busy.value = false; connecting.value = false; permissionPending.value = false; permissionController = null; activeAttempt = null
+    }
     await nextTick()
     const id = authNeeds.value === 'keyPassphrase' ? 'remote-passphrase' : authNeeds.value === 'password' ? 'remote-password' : null
     if (id && !dialog.value) modalElement.value?.querySelector(`#${id}`)?.focus()
@@ -271,7 +287,13 @@ const disconnect = async () => {
     connectionState.value = 'disconnected'
   } catch (cause) { error.value = cause.message } finally { busy.value = false }
 }
-const cancelConnection = () => { connectGeneration++; permissionController?.abort() }
+/** Stops the running connect: the UI ignores its answer and the backend ends it. */
+const cancelConnection = () => {
+  connectGeneration++
+  permissionController?.abort()
+  if (activeAttempt) void connectionsApi.cancelConnect(activeAttempt.protocol, activeAttempt.attemptId)
+  activeAttempt = null
+}
 const show = async () => {
   const generation = ++showGeneration
   loading.value = true; modal?.show(); clearConnectionError(); configError.value = ''; dialog.value = null
@@ -304,7 +326,7 @@ const handleHide = (event) => {
   }
 }
 const handleHidden = () => { clearSecrets(); if (props.open) emit('close') }
-watch(() => props.open, value => { if (value) show(); else { showGeneration++; selectionGeneration++; statusGeneration++; connectGeneration++; clearSecrets(); dialog.value = null; modal?.hide() } })
+watch(() => props.open, value => { if (value) show(); else { showGeneration++; selectionGeneration++; statusGeneration++; cancelConnection(); clearSecrets(); dialog.value = null; modal?.hide() } })
 watch(() => draft.authType, (value, previous) => {
   if (previous === undefined) return
   clearSecrets(); authNeeds.value = ''
@@ -332,9 +354,9 @@ onMounted(() => {
   if (props.open) show()
 })
 onBeforeUnmount(() => {
-  permissionController?.abort()
+  cancelConnection()
   unsubscribeStatus?.()
-  showGeneration++; selectionGeneration++; statusGeneration++; connectGeneration++; clearSecrets()
+  showGeneration++; selectionGeneration++; statusGeneration++; clearSecrets()
   modalElement.value?.removeEventListener('hide.bs.modal', handleHide)
   modalElement.value?.removeEventListener('hidden.bs.modal', handleHidden)
   modal?.dispose(); modal = null
@@ -503,7 +525,7 @@ onBeforeUnmount(() => {
           </div>
           <div v-else class="modal-footer">
             <button v-if="selected" class="btn btn-sm btn-danger me-auto" type="button" :disabled="busy" @click="remove">Delete</button>
-            <button v-if="permissionPending" class="btn btn-sm btn-neutral" type="button" @click="cancelConnection">Cancel connection</button>
+            <button v-if="connecting" class="btn btn-sm btn-neutral" type="button" @click="cancelConnection">Cancel connection</button>
             <button v-if="selected && connectionState === 'connected'" class="btn btn-sm btn-neutral" type="button" :disabled="busy" @click="disconnect">Disconnect</button>
             <button class="btn btn-sm btn-neutral" type="button" :disabled="busy" @click="close">Cancel</button>
             <button class="btn btn-sm btn-neutral" type="button" :disabled="busy || loading" @click="save">Save</button>

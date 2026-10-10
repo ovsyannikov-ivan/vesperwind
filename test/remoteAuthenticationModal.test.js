@@ -11,7 +11,7 @@ const source = (await fs.readFile(new URL('../src/components/RemoteConnectionsMo
 const profile = { id: 'existing', name: 'Saved', protocol: 'sftp', host: 'fixture.invalid', port: 22, username: 'fixture',
   authType: 'password', privateKeyPath: '', sshConfigHost: '', savePassword: true, saveKeyPassphrase: false, trustedFingerprint: '', initialPath: '' }
 const fixture = ({ supported = true, response = { ok: true, connectionId: 'existing' }, config = [], extra = [], protocols = ['sftp', 'ftp', 'ftps'], registry = CONNECTION_PROTOCOLS, connectGate = null, status = 'disconnected' } = {}) => {
-  const settings = ref(createDefaultSettings()), saved = [], requests = [], events = [], forgotten = []
+  const settings = ref(createDefaultSettings()), saved = [], requests = [], events = [], forgotten = [], cancelled = []
   const scope = effectScope()
   settings.value.connections = normalizeSettings({ connections: [...extra, profile] }).connections
   const responses = Array.isArray(response) ? [...response] : null
@@ -35,6 +35,7 @@ const fixture = ({ supported = true, response = { ok: true, connectionId: 'exist
       resolveSshHost: async alias => ({ ok: true, host: config.find(host => host.alias === alias) }),
       forgetCredential: async (...args) => { forgotten.push(args); return { ok: true } },
       connect: async (...args) => { requests.push(structuredClone(args.slice(0, 2))); if (connectGate) await connectGate; return responses ? responses.shift() : response },
+      cancelConnect: async (...args) => { cancelled.push(args); return { ok: true, cancelled: true } },
       status: async () => ({ ok: true, status }),
       disconnect: async (...args) => { disconnected.push(args); return { ok: true } },
       onStatus: (callback) => { statusListeners.push(callback); return () => {} },
@@ -42,8 +43,8 @@ const fixture = ({ supported = true, response = { ok: true, connectionId: 'exist
   }
   const onMountedHooks = []
   dependencies.onMounted = (hook) => onMountedHooks.push(hook)
-  const api = scope.run(() => vm.compileFunction(`${source}\nreturn { draft, password, keyPassphrase, credentials, capabilities, authNeeds, warning, error, select, selectConfig, newProfile, save, connect, show, forget, profiles, unsupportedProfileCount, remove, activeTab, tabs, selectTab, tabKeydown, dialog, discardAndProceed, saveAndProceed, cancelDialog, removeTrustedCertificate, dirty, close, portTouched, selectedId, connectionState, disconnect, cancelConnection }`, Object.keys(dependencies))(...Object.values(dependencies)))
-  return { ...api, saved, requests, events, forgotten, disconnected, statusListeners, onMountedHooks, stop: () => scope.stop() }
+  const api = scope.run(() => vm.compileFunction(`${source}\nreturn { draft, password, keyPassphrase, credentials, capabilities, authNeeds, warning, error, select, selectConfig, newProfile, save, connect, show, forget, profiles, unsupportedProfileCount, remove, activeTab, tabs, selectTab, tabKeydown, dialog, discardAndProceed, saveAndProceed, cancelDialog, removeTrustedCertificate, dirty, close, portTouched, selectedId, connectionState, disconnect, cancelConnection, connecting, busy }`, Object.keys(dependencies))(...Object.values(dependencies)))
+  return { ...api, saved, requests, events, forgotten, cancelled, disconnected, statusListeners, onMountedHooks, stop: () => scope.stop() }
 }
 test('saved password status does not refill the input; typed secrets bypass settings and are cleared on success', async () => {
   const f = fixture()
@@ -318,7 +319,7 @@ test('connection state follows status requests and events; Disconnect and Reconn
   } finally { f.stop() }
 })
 
-test('a connect result that arrives after the dialog closed opens nothing and is disconnected', async () => {
+test('Cancel connection stays available for the whole FTP connect and stops it on the backend', async () => {
   let release
   const gate = new Promise(resolve => { release = resolve })
   const f = fixture({ extra: [ftp], connectGate: gate, response: { ok: true, connectionId: 'router', providerId: 'ftp:router' } })
@@ -326,11 +327,41 @@ test('a connect result that arrives after the dialog closed opens nothing and is
     await f.show(); f.selectTab('ftp')
     const pending = f.connect()
     await new Promise(resolve => setImmediate(resolve))
+    // The handshake is running: no permission wait, yet Cancel is offered.
+    assert.equal(f.connecting.value, true)
     f.cancelConnection()
-    release(); await pending
+    // The dialog is usable at once, without waiting for the server.
+    await pending
+    assert.equal(f.busy.value, false)
+    assert.equal(f.connecting.value, false)
+    assert.deepEqual(f.cancelled, [['ftp', 'new-stable-id']])
+    release(); await new Promise(resolve => setImmediate(resolve))
+    // The backend closes a connection that won the race; the UI opens nothing.
     assert.equal(f.events.some(([name]) => name === 'connected'), false)
-    assert.deepEqual(f.disconnected.at(-1), ['router', 'ftp'])
+    assert.deepEqual(f.disconnected, [])
   } finally { f.stop() }
+})
+
+test('a late SFTP connect result after Cancel opens nothing and is disconnected', async () => {
+  let release
+  const gate = new Promise(resolve => { release = resolve })
+  const f = fixture({ connectGate: gate, response: { ok: true, connectionId: 'existing', providerId: 'sftp:existing' } })
+  try {
+    await f.show()
+    const pending = f.connect()
+    await new Promise(resolve => setImmediate(resolve))
+    f.cancelConnection()
+    await pending
+    assert.equal(f.busy.value, false)
+    release(); await new Promise(resolve => setImmediate(resolve)); await new Promise(resolve => setImmediate(resolve))
+    assert.equal(f.events.some(([name]) => name === 'connected'), false)
+    assert.deepEqual(f.disconnected.at(-1), ['existing', 'sftp'])
+  } finally { f.stop() }
+})
+
+test('the dialog source shows Cancel connection for the whole connect, not only the permission wait', async () => {
+  const vue = await fs.readFile(new URL('../src/components/RemoteConnectionsModal.vue', import.meta.url), 'utf8')
+  assert.match(vue, /<button v-if="connecting" class="btn btn-sm btn-neutral" type="button" @click="cancelConnection">Cancel connection<\/button>/)
 })
 
 test('the unsaved-changes prompt can save before switching', async () => {

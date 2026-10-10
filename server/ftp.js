@@ -283,6 +283,8 @@ export const mapFtpError = (error, path) => {
 }
 
 const cancelled = () => ftpError('ECANCELLED', 'The operation was cancelled', { vesperwind: true })
+/** The error an aborted connect attempt ends with (cancelled unless a reason was given). */
+const abortReason = (signal) => (signal.reason?.vesperwind ? signal.reason : cancelled())
 
 // ---------------------------------------------------------------------------
 // Sessions
@@ -406,10 +408,17 @@ export class FtpSession {
       }
     }
     if (tlsOptions) verifyDataSockets(client, verify, (error) => { dataFailure = error })
+    // A cancelled attempt closes the half-open control connection at once,
+    // during the TCP connect, the TLS handshake or the login.
+    const { signal } = settings
+    const abort = () => client.close()
     let timedOut = false
     const deadline = setTimeout(() => { timedOut = true; client.close() }, settings.connectTimeout)
+    if (signal?.aborted) { clearTimeout(deadline); client.close(); throw abortReason(signal) }
+    signal?.addEventListener('abort', abort, { once: true })
     const tlsFailure = async (error) => {
       if (error?.certificate) return error
+      if (signal?.aborted) return null
       const reason = CERTIFICATE_REASONS.get(error?.code)
       if (!reason) return null
       const raw = await probeCertificate(credentialFree(spec))
@@ -455,11 +464,13 @@ export class FtpSession {
       return session
     } catch (error) {
       client.close()
+      if (signal?.aborted) throw abortReason(signal)
       if (error?.vesperwind || error?.certificate) throw error
       if (timedOut) throw ftpError('ETIMEDOUT', 'The FTP server did not respond in time', { vesperwind: true })
       throw mapFtpError(error)
     } finally {
       clearTimeout(deadline)
+      signal?.removeEventListener('abort', abort)
     }
   }
 
@@ -961,6 +972,14 @@ export class FtpConnection {
   }
 }
 
+const ATTEMPT_ID = /^[A-Za-z0-9-]{1,80}$/
+// A finished attempt stays cancellable this long, so a cancel that crosses
+// the successful answer still closes the connection the UI never opened.
+const FINISHED_ATTEMPT_GRACE = 30_000
+/** The saved settings one connection was made with; a change invalidates it. */
+const sessionIdentity = (profile) => JSON.stringify(SESSION_FIELDS.map((field) => profile?.[field] ?? null))
+const profileChanged = () => ftpError('EFTP_PROFILE_CHANGED', 'The connection settings changed while connecting. Connect again to use the new settings.', { vesperwind: true })
+
 export class FtpConnectionManager {
   /**
    * @param {object} options
@@ -973,62 +992,143 @@ export class FtpConnectionManager {
     this.loadProfile = loadProfile
     this.emitStatus = emitStatus
     this.options = { ...FTP_DEFAULTS, ...options }
+    // The newest attempt per profile id; an older one is aborted when a newer starts.
+    this.pending = new Map()
+    // Attempts by the id the client chose, for `cancel`.
+    this.attempts = new Map()
+    // Session-only passwords of profiles connected in this process, with the
+    // settings they were checked against. Never written anywhere.
+    this.secrets = new Map()
+  }
+
+  async savedProfile(id) {
+    const value = await this.loadProfile(id)
+    if (!value) throw ftpError('ENOENT', 'The connection profile was not found')
+    return validateFtpProfile(value)
   }
 
   /**
    * Connects a **saved** profile. Its settings, not the request, decide the
    * endpoint, TLS mode, pin and plaintext acknowledgement. `password` is a
-   * typed secret kept only in memory for this connection.
+   * typed secret kept only in memory for this process; without one, the
+   * password of this profile's previous connection is reused while its
+   * endpoint, identity and trust settings are unchanged.
+   *
+   * Only the newest attempt for a profile registers: a newer connect, a
+   * `cancel`, a disconnect or a settings change aborts it, and the saved
+   * profile is read again right before the session is registered.
    */
-  async connect(profileId, password = '') {
+  async connect(profileId, password = '', { attemptId } = {}) {
     if (typeof profileId !== 'string' || !PROFILE_ID.test(profileId)) throw ftpError('EINVAL', 'Invalid connection ID')
     if (typeof password !== 'string' || /[\r\n\0]/.test(password)) throw ftpError('EINVAL', 'Invalid password')
-    const profile = validateFtpProfile(await this.loadProfile(profileId).then((value) => {
-      if (!value) throw ftpError('ENOENT', 'The connection profile was not found')
-      return value
-    }))
-    if (profile.protocol === 'ftp' && profile.plaintextAcknowledged !== true) {
-      throw ftpError('EFTP_PLAINTEXT_NOT_ACKNOWLEDGED', 'Confirm that this FTP connection sends the password and files unencrypted')
+    if (attemptId !== undefined && (typeof attemptId !== 'string' || !ATTEMPT_ID.test(attemptId) || this.attempts.has(attemptId))) {
+      throw ftpError('EINVAL', 'Invalid connection attempt ID')
     }
-    const secret = profile.authType === 'anonymous' ? 'anonymous@' : password
-    if (!secret) {
-      // No secure credential store in this runtime: a password is always typed.
-      throw ftpError('EAUTHENTICATION_REQUIRED', 'Enter the password for this FTP connection', { auth: { needs: 'password' } })
-    }
-    const spec = {
-      host: profile.host, port: profile.port, security: securityOf(profile), username: profile.username, password: secret,
-      pin: profile.protocol === 'ftps' ? normalizeCertificatePin(profile.tlsTrustedCertificate) : '',
-    }
-    const session = await FtpSession.connect(spec, this.options)
-    let paths
+    const attempt = { id: attemptId, profileId, controller: new AbortController(), identity: null, connection: null }
+    const { signal } = attempt.controller
+    const alive = () => { if (signal.aborted) throw abortReason(signal) }
+    this.pending.get(profileId)?.controller.abort(cancelled())
+    this.pending.set(profileId, attempt)
+    if (attemptId) this.attempts.set(attemptId, attempt)
     try {
-      const home = await session.pwd().then(normalizeFtpPath).catch(() => '/')
-      const initial = normalizeFtpPath(profile.initialPath || home)
-      const entry = await session.stat(initial).catch((error) => { throw mapFtpError(error, initial) })
-      if (!entry) throw ftpError('ENOENT', 'Initial remote directory was not found', { path: initial })
-      if (entry.kind !== 'directory') throw ftpError('ENOTDIR', 'Initial remote path is not a folder')
-      paths = { root: '/', initial, home }
-    } catch (error) {
-      session.close()
-      throw error
-    }
-    const connection = new FtpConnection(profile, secret, session, paths, this.options)
-    this.connections.get(profile.id)?.close()
-    this.connections.set(profile.id, connection)
-    const providerId = connection.providerId
-    connection.events.once('closed', () => {
-      if (this.connections.get(profile.id) === connection) this.connections.delete(profile.id)
-      this.emitStatus({ connectionId: profile.id, providerId, status: 'disconnected' })
-    })
-    this.emitStatus({ connectionId: profile.id, providerId, status: 'connected' })
-    return {
-      connectionId: profile.id, providerId, status: 'connected',
-      root: connection.rootEntry(), initial: connection.initialEntry(), homePath: connection.homePath,
-      capabilities: { mlsd: session.capabilities.mlsd, utf8: session.capabilities.utf8, rest: session.capabilities.rest, changePermissions: false, terminal: false, symlinkCreate: false, atomicCreate: false },
+      const profile = await this.savedProfile(profileId)
+      alive()
+      attempt.identity = sessionIdentity(profile)
+      if (profile.protocol === 'ftp' && profile.plaintextAcknowledged !== true) {
+        throw ftpError('EFTP_PLAINTEXT_NOT_ACKNOWLEDGED', 'Confirm that this FTP connection sends the password and files unencrypted')
+      }
+      const remembered = this.secrets.get(profileId)
+      const reused = profile.authType !== 'anonymous' && !password && remembered?.identity === attempt.identity
+      const secret = profile.authType === 'anonymous' ? 'anonymous@' : password || (reused ? remembered.secret : '')
+      if (!secret) {
+        // No secure credential store in this runtime: a password is typed once per session.
+        throw ftpError('EAUTHENTICATION_REQUIRED', 'Enter the password for this FTP connection', { auth: { needs: 'password' } })
+      }
+      const spec = {
+        host: profile.host, port: profile.port, security: securityOf(profile), username: profile.username, password: secret,
+        pin: profile.protocol === 'ftps' ? normalizeCertificatePin(profile.tlsTrustedCertificate) : '',
+      }
+      let session
+      try {
+        session = await FtpSession.connect(spec, { ...this.options, signal })
+      } catch (error) {
+        if (reused && error?.code === 'EAUTHENTICATION_REQUIRED') this.secrets.delete(profileId)
+        throw error
+      }
+      const closeOnAbort = () => session.close()
+      signal.addEventListener('abort', closeOnAbort, { once: true })
+      let paths
+      try {
+        alive()
+        const home = await session.pwd().then(normalizeFtpPath).catch(() => '/')
+        alive()
+        const initial = normalizeFtpPath(profile.initialPath || home)
+        const entry = await session.stat(initial).catch((error) => { throw mapFtpError(error, initial) })
+        alive()
+        if (!entry) throw ftpError('ENOENT', 'Initial remote directory was not found', { path: initial })
+        if (entry.kind !== 'directory') throw ftpError('ENOTDIR', 'Initial remote path is not a folder')
+        paths = { root: '/', initial, home }
+        // The settings may have changed during the handshake (in another
+        // window too): only a session made with the current ones registers.
+        const current = await this.loadProfile(profileId)
+        alive()
+        if (!current || sessionIdentity(current) !== attempt.identity) throw profileChanged()
+      } catch (error) {
+        session.close()
+        throw signal.aborted ? abortReason(signal) : error
+      } finally {
+        signal.removeEventListener('abort', closeOnAbort)
+      }
+      const connection = new FtpConnection(profile, secret, session, paths, this.options)
+      attempt.connection = connection
+      this.connections.get(profile.id)?.close()
+      this.connections.set(profile.id, connection)
+      if (profile.authType !== 'anonymous') this.secrets.set(profile.id, { secret, identity: attempt.identity })
+      const providerId = connection.providerId
+      connection.events.once('closed', () => {
+        if (this.connections.get(profile.id) === connection) this.connections.delete(profile.id)
+        this.emitStatus({ connectionId: profile.id, providerId, status: 'disconnected' })
+      })
+      this.emitStatus({ connectionId: profile.id, providerId, status: 'connected' })
+      return {
+        connectionId: profile.id, providerId, status: 'connected',
+        root: connection.rootEntry(), initial: connection.initialEntry(), homePath: connection.homePath,
+        capabilities: { mlsd: session.capabilities.mlsd, utf8: session.capabilities.utf8, rest: session.capabilities.rest, changePermissions: false, terminal: false, symlinkCreate: false, atomicCreate: false },
+      }
+    } finally {
+      if (this.pending.get(profileId) === attempt) this.pending.delete(profileId)
+      if (attemptId) {
+        if (attempt.connection) setTimeout(() => this.attempts.delete(attemptId), FINISHED_ATTEMPT_GRACE).unref?.()
+        else this.attempts.delete(attemptId)
+      }
     }
   }
 
+  /**
+   * Cancels the attempt `attemptId`: a running one is aborted (its sockets
+   * close at once); one that already connected is disconnected while it is
+   * still the registered connection of its profile.
+   */
+  cancel(attemptId) {
+    const attempt = typeof attemptId === 'string' ? this.attempts.get(attemptId) : undefined
+    if (!attempt) return false
+    this.attempts.delete(attemptId)
+    if (!attempt.connection) {
+      attempt.controller.abort(cancelled())
+      return true
+    }
+    if (this.connections.get(attempt.profileId) !== attempt.connection) return false
+    // Not `disconnect`: a newer attempt for this profile keeps running.
+    this.connections.delete(attempt.profileId)
+    this.secrets.delete(attempt.profileId)
+    attempt.connection.close()
+    return true
+  }
+
+  /** Ends the connection and any attempt for `id`, and forgets its session password. */
   disconnect(id) {
+    this.pending.get(id)?.controller.abort(cancelled())
+    this.secrets.delete(id)
     const connection = this.connections.get(id)
     if (!connection) return
     this.connections.delete(id)
@@ -1054,11 +1154,23 @@ export class FtpConnectionManager {
    */
   invalidate(nextProfiles) {
     const next = new Map((Array.isArray(nextProfiles) ? nextProfiles : []).map((profile) => [profile.id, profile]))
+    const changed = (id, identity) => !next.has(id) || sessionIdentity(next.get(id)) !== identity
     for (const [id, connection] of [...this.connections]) {
-      const profile = next.get(id)
-      if (!profile || SESSION_FIELDS.some((field) => (profile[field] ?? null) !== (connection.profile[field] ?? null))) this.disconnect(id)
+      if (changed(id, sessionIdentity(connection.profile))) this.disconnect(id)
+    }
+    // An attempt still in its handshake stops now; one that has not read its
+    // profile yet is checked again before it registers.
+    for (const [id, attempt] of [...this.pending]) {
+      if (attempt.identity !== null && changed(id, attempt.identity)) attempt.controller.abort(profileChanged())
+    }
+    for (const [id, remembered] of [...this.secrets]) {
+      if (changed(id, remembered.identity)) this.secrets.delete(id)
     }
   }
 
-  shutdown() { for (const id of [...this.connections.keys()]) this.disconnect(id) }
+  shutdown() {
+    for (const attempt of [...this.pending.values()]) attempt.controller.abort(cancelled())
+    for (const id of [...this.connections.keys()]) this.disconnect(id)
+    this.secrets.clear()
+  }
 }

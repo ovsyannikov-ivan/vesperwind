@@ -171,6 +171,15 @@ test('the connections API sends SFTP profiles to ssh:connect and FTP/FTPS profil
   }
   assert.equal((await api.connect({ id: 'w', protocol: 'webdav', host: 'h' })).error.code, 'EPROTOCOL_UNSUPPORTED')
   assert.equal(calls.length, 3)
+  // An attempt id makes the FTP connect cancellable on the backend.
+  await api.connect({ id: 'f', protocol: 'ftps', host: 'h' }, 'p', { attemptId: 'a-1' })
+  assert.deepEqual(calls.at(-1).payload, { profileId: 'f', password: 'p', attemptId: 'a-1' })
+  await api.cancelConnect('ftps', 'a-1')
+  assert.deepEqual(calls.at(-1), { event: 'ftp:cancel-connect', payload: { attemptId: 'a-1' }, timeout: 30_000 })
+  // SFTP has no backend cancellation: nothing is sent.
+  const sent = calls.length
+  assert.deepEqual(await api.cancelConnect('sftp', 'a-2'), { ok: true, cancelled: false })
+  assert.equal(calls.length, sent)
   await api.disconnect('f', 'ftps')
   assert.deepEqual(calls.at(-1).event, 'ftp:disconnect')
   await api.status('s')

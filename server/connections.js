@@ -28,7 +28,7 @@ export const createFtpManager = ({ connections, loadSettings, broadcast, ...opti
 export const registerConnectionHandlers = (socket, { ftp }) => {
   socket.on('ftp:connect', async (payload, acknowledge) => {
     try {
-      acknowledge?.({ ok: true, ...(await ftp.connect(payload?.profileId, payload?.password ?? '')) })
+      acknowledge?.({ ok: true, ...(await ftp.connect(payload?.profileId, payload?.password ?? '', { attemptId: payload?.attemptId })) })
     } catch (error) {
       // Certificate details let the trust dialog ask for explicit trust;
       // they contain no secret.
@@ -40,6 +40,8 @@ export const registerConnectionHandlers = (socket, { ftp }) => {
       })
     }
   })
+  // Cancels one `ftp:connect` by the attemptId it was sent with.
+  socket.on('ftp:cancel-connect', (payload, acknowledge) => acknowledge?.({ ok: true, cancelled: ftp.cancel(payload?.attemptId) }))
   socket.on('ftp:disconnect', (payload, acknowledge) => {
     ftp.disconnect(payload?.connectionId)
     acknowledge?.({ ok: true })

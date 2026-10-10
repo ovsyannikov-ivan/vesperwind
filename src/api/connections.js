@@ -44,8 +44,16 @@ export const createConnectionsApi = ({ transport, prepareNetwork }) => {
         return request(events.connect, typeof secrets === 'string' ? { profile, secret: secrets } : { profile, secrets }, 'Unable to connect to the remote host')
       }
       const password = typeof secrets === 'string' ? secrets : secrets?.password || ''
-      return request(events.connect, { profileId: profile.id, password }, 'Unable to connect to the FTP server', 60_000)
+      return request(events.connect, { profileId: profile.id, password, ...(options.attemptId ? { attemptId: options.attemptId } : {}) }, 'Unable to connect to the FTP server', 60_000)
     },
+    /**
+     * Stops the FTP/FTPS connect sent with `attemptId` on the backend (or
+     * closes it if it already connected). SFTP attempts have no backend
+     * cancellation; the caller ignores their late result instead.
+     */
+    cancelConnect: (protocol, attemptId) => (protocol === 'ftp' || protocol === 'ftps') && attemptId
+      ? request('ftp:cancel-connect', { attemptId }, 'Unable to cancel the connection')
+      : Promise.resolve({ ok: true, cancelled: false }),
     capabilities: () => request('connections:capabilities', {}, 'Unable to read connection capabilities'),
     sshConfigHosts: () => request('ssh:config-hosts', {}, 'Unable to read SSH configuration'),
     resolveSshHost: (alias) => request('ssh:config-resolve', { alias }, 'Unable to resolve SSH configuration'),

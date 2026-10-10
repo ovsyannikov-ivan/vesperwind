@@ -176,9 +176,14 @@ protocols in `connections:capabilities.protocols`.
 - The selected profile shows Connected or Not connected (status request plus
   the merged `ssh:status`/`ftp:status` stream); Disconnect ends the session,
   Connect becomes Reconnect while connected. The unsaved-changes prompt offers
-  Save changes, Discard changes and Keep editing. A connect result that
-  arrives after the dialog was closed or the attempt cancelled is not opened
-  in a panel, and its connection is disconnected.
+  Save changes, Discard changes and Keep editing.
+- Cancel connection is shown for the whole connect: the network permission
+  wait, the TCP/TLS handshake and the login. It frees the dialog at once. An
+  FTP/FTPS attempt is stopped on the backend (`ftp:cancel-connect`), which
+  also closes a connection that completed just before the cancel arrived. A
+  connect result that arrives after the dialog was closed or the attempt
+  cancelled is not opened in a panel; a late SFTP connection, which has no
+  backend cancellation, is disconnected by the dialog.
 
 ## Node/SEA backend
 
@@ -190,10 +195,20 @@ and file operations; any other provider is `EFILESYSTEM_ID`). The FTP client
 is [basic-ftp](https://github.com/patrickjuchli/basic-ftp) 6.2.3 (pinned);
 `test/ftpLibraryContract.test.js` checks the library behaviour this relies on.
 
-- `ftp:connect { profileId, password }` connects a **saved** profile, like the
-  native command; endpoint, TLS mode, pin and plaintext acknowledgement come
-  from the settings file. Plain FTP without `plaintextAcknowledged` is
-  refused before any network access.
+- `ftp:connect { profileId, password, attemptId? }` connects a **saved**
+  profile, like the native command; endpoint, TLS mode, pin and plaintext
+  acknowledgement come from the settings file. Plain FTP without
+  `plaintextAcknowledged` is refused before any network access.
+- Only the newest attempt for a profile registers its session. A newer
+  connect for the same profile, `ftp:cancel-connect { attemptId }`,
+  `ftp:disconnect` or a saved change of the profile's session settings aborts
+  an attempt that is still connecting and closes its sockets at once
+  (`ECANCELLED`, or `EFTP_PROFILE_CHANGED` for a settings change). Right
+  before registering, the saved profile is read again; a removed profile or
+  changed protocol, endpoint, user, authentication, TLS mode, pin or
+  plaintext acknowledgement ends the attempt with `EFTP_PROFILE_CHANGED`, so
+  a session is never registered with outdated settings. The native backend
+  holds its profile lock for the whole connect instead.
 - TLS without a pin: Node verifies the chain against its bundled roots, the
   operating system store and `NODE_EXTRA_CA_CERTS`, and the host name
   (`rejectUnauthorized` stays on). With a pin: exactly that certificate is
@@ -231,9 +246,13 @@ is [basic-ftp](https://github.com/patrickjuchli/basic-ftp) 6.2.3 (pinned);
   checks now apply to SFTP listings in Node.
 - Media and content requests read byte ranges with `REST` when the server
   supports it.
-- Passwords are held in memory for the life of the connection only (there is
-  no secure credential store in this runtime); they are never written to the
-  settings file, logs, Socket.IO events or errors. Sessions end when the last
+- Passwords are held in memory only (there is no secure credential store in
+  this runtime); they are never written to the settings file, logs, Socket.IO
+  events or errors. After a successful connect the password stays in memory
+  for this backend process, so Reconnect, or Connect after a lost
+  connection, works with an empty password field while the profile's session
+  settings are unchanged. Disconnect, a change of those settings, a refused
+  reused password and the end of the process forget it. Sessions end when the last
   browser disconnects, on `ftp:disconnect`, or when saved settings change a
   connected profile's protocol, host, port, user, authentication, TLS mode,
   pin or plaintext acknowledgement (the same applies to SFTP profiles).
