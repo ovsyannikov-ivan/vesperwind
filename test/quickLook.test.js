@@ -30,7 +30,7 @@ class MediaElement extends EventTarget {
 
 test('dispatch keeps normal media formats, configured text, and metadata fallback distinct', () => {
   const rules = ['.txt', '.log', '.md', '.json', '.js', '.mjs', '.cjs', '.ts', '.vue', '.css', '.html', '.xml', '.yaml', '.yml', '.ini', '.conf', '.sql', '.sh', '.py', '.php', 'Dockerfile']
-  for (const rule of rules) assert.equal(getQuickLookKind(entry(rule.startsWith('.') ? `file${rule}` : rule), rules), 'text')
+  for (const rule of rules) assert.equal(getQuickLookKind(entry(rule.startsWith('.') ? `file${rule}` : rule), rules), rule === '.md' ? 'markdown' : 'text')
   for (const [file, kind] of [['image.jpg', 'image'], ['film.mkv', 'video'], ['book.m4b', 'audio'], ['a.pdf', 'pdf'], ['a.docx', 'word'], ['a.xls', 'spreadsheet'], ['a.xlsx', 'spreadsheet'], ['a.unknown', 'metadata']]) {
     assert.equal(getQuickLookKind(entry(file), rules), kind)
   }

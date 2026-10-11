@@ -29,6 +29,7 @@ const workspaceElement = ref(null)
 const monacoEditor = ref(null)
 const { settings } = useSettings()
 const pdfViewerRefs = new Map()
+const specializedRefs = new Map()
 const pendingClose = ref(null)
 const pendingRevert = ref(null)
 const closeBusy = ref(false)
@@ -96,6 +97,13 @@ const activeTabReady = computed(() =>
       !activeTextTab.value.error,
   ),
 )
+// Text tabs and documents whose editor keeps its own history (Markdown) share Undo/Redo.
+const historyAvailable = computed(() =>
+  Boolean(activeTextTab.value || getDocumentHandler(activeTab.value?.type)?.history),
+)
+const activeHistoryTab = computed(() =>
+  historyAvailable.value && !activeTab.value.loading && !activeTab.value.error ? activeTab.value : null,
+)
 const activeEditorPosition = computed(() =>
   editorPosition.value.tabId === activeTextTab.value?.id
     ? editorPosition.value
@@ -106,15 +114,15 @@ const indentationLabel = computed(() =>
 )
 const canUndo = computed(() =>
   Boolean(
-    activeTabReady.value &&
-      historyState.value.tabId === activeTextTab.value.id &&
+    activeHistoryTab.value && !activeHistoryTab.value.saving &&
+      historyState.value.tabId === activeHistoryTab.value.id &&
       historyState.value.canUndo,
   ),
 )
 const canRedo = computed(() =>
   Boolean(
-    activeTabReady.value &&
-      historyState.value.tabId === activeTextTab.value.id &&
+    activeHistoryTab.value && !activeHistoryTab.value.saving &&
+      historyState.value.tabId === activeHistoryTab.value.id &&
       historyState.value.canRedo,
   ),
 )
@@ -306,15 +314,18 @@ const saveActiveTab = () => {
   saveTab(activeEditableTab.value.id)
 }
 
+const historyEditor = () =>
+  activeTextTab.value ? monacoEditor.value : specializedRefs.get(activeHistoryTab.value?.id)
+
 const undo = () => {
   if (canUndo.value) {
-    monacoEditor.value?.undo()
+    historyEditor()?.undo()
   }
 }
 
 const redo = () => {
   if (canRedo.value) {
-    monacoEditor.value?.redo()
+    historyEditor()?.redo()
   }
 }
 
@@ -342,6 +353,14 @@ const setPdfViewerRef = (element, tabId) => {
     pdfViewerRefs.set(tabId, element)
   } else {
     pdfViewerRefs.delete(tabId)
+  }
+}
+
+const setSpecializedRef = (element, tabId) => {
+  if (element) {
+    specializedRefs.set(tabId, element)
+  } else {
+    specializedRefs.delete(tabId)
   }
 }
 
@@ -510,7 +529,7 @@ onBeforeUnmount(() => {
             }"
           >{{ editorStatus }}</span>
           <button
-            v-if="activeTextTab"
+            v-if="historyAvailable"
             class="btn btn-sm toolbar-button toolbar-command editor-history-button"
             type="button"
             title="Undo (Cmd/Ctrl+Z)"
@@ -521,7 +540,7 @@ onBeforeUnmount(() => {
             <i class="mdi mdi-undo" aria-hidden="true" />
           </button>
           <button
-            v-if="activeTextTab"
+            v-if="historyAvailable"
             class="btn btn-sm toolbar-button toolbar-command editor-history-button"
             type="button"
             title="Redo (Shift+Cmd/Ctrl+Z)"
@@ -597,11 +616,13 @@ onBeforeUnmount(() => {
       <component
         :is="getDocumentHandler(tab.type).component"
         v-for="tab in specializedTabs"
+        :ref="(element) => setSpecializedRef(element, tab.id)"
         v-show="tab.id === activeTab?.id"
         :key="tab.id"
         :tab="tab"
         :visible="visible && tab.id === activeTab?.id"
         @save="saveActiveTab"
+        @history-state="updateHistoryState"
       />
       <PdfViewer
         v-for="tab in pdfTabs"

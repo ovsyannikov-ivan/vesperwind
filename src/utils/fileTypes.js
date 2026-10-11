@@ -42,7 +42,7 @@ export const getEntryOpenAction = (entry, editableFiles = []) => {
 
   const type = getFileOpenType(entry?.name, editableFiles)
 
-  if (type === 'text') {
+  if (type === 'text' || type === 'markdown') {
     return 'edit'
   }
 

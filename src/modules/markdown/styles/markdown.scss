@@ -1,0 +1,605 @@
+@use "sass:meta";
+
+// TOAST UI's own stylesheet, nested under .vw-markdown: its global ProseMirror
+// and contents rules reach only the Markdown editor and viewer, never the DOCX
+// editor, Monaco or the rest of the application.
+.vw-markdown {
+	@include meta.load-css("@toast-ui/editor/dist/toastui-editor.css");
+}
+
+// Vesperwind palette. Every color is a theme variable, so Light, Dark and System
+// switch live without recreating the editor.
+.vw-markdown {
+	--markdown-surface: var(--surface-1);
+	--markdown-raised: var(--modal-bg, var(--surface-1));
+	--markdown-code-bg: var(--surface-2);
+	--markdown-code-color: var(--bs-code-color);
+	--markdown-highlight: var(--accent-muted);
+
+	.toastui-editor-defaultUI {
+		border: 0;
+		border-radius: 0;
+		color: var(--text);
+		font-family: var(--bs-body-font-family);
+
+		button {
+			color: var(--text);
+		}
+
+		.ProseMirror {
+			padding: 1rem 1.5rem;
+		}
+
+		.toastui-editor-ok-button {
+			border: 1px solid var(--accent);
+			border-radius: 6px;
+			background-color: var(--accent);
+			color: #fff;
+			font-size: 0.8125rem;
+
+			&:hover {
+				filter: brightness(1.08);
+			}
+		}
+
+		.toastui-editor-close-button {
+			border: 1px solid var(--toolbar-control-border);
+			border-radius: 6px;
+			background-color: var(--toolbar-control-active-bg);
+			color: var(--text);
+			font-size: 0.8125rem;
+
+			&:hover {
+				border-color: var(--border-strong);
+				background-color: var(--surface-3);
+			}
+		}
+	}
+
+	.toastui-editor-main-container {
+		color: var(--text);
+	}
+
+	.toastui-editor-md-container,
+	.toastui-editor-ww-container {
+		background-color: var(--markdown-surface);
+	}
+
+	.toastui-editor-main .toastui-editor-md-splitter {
+		background-color: var(--border);
+	}
+
+	// Toolbar: the toolbar surface with flat icon buttons that light up on hover.
+	.toastui-editor-defaultUI-toolbar {
+		height: 40px;
+		padding: 0 0.75rem;
+		border-bottom: 1px solid var(--border);
+		border-radius: 0;
+		background-color: var(--toolbar-bg);
+
+		button {
+			margin: 4px 2px;
+			border: 1px solid transparent;
+			border-radius: 6px;
+
+			&:not(:disabled):hover {
+				border-color: var(--border);
+				background-color: var(--hover);
+			}
+
+			&:focus-visible {
+				outline: 2px solid var(--accent);
+				outline-offset: -1px;
+			}
+		}
+
+		.scroll-sync {
+			color: var(--text-muted);
+
+			&.active::before {
+				color: var(--accent);
+			}
+		}
+
+		.switch {
+			background-color: var(--surface-3);
+
+			&::before {
+				background-color: var(--text-muted);
+			}
+		}
+
+		input:checked + .switch {
+			background-color: var(--accent-muted);
+
+			&::before {
+				background-color: var(--accent);
+			}
+		}
+	}
+
+	.toastui-editor-toolbar {
+		height: 41px;
+	}
+
+	.toastui-editor-toolbar-divider {
+		margin: 11px 8px;
+		background-color: var(--border);
+	}
+
+	.toastui-editor-dropdown-toolbar {
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		background-color: var(--toolbar-bg);
+		box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+	}
+
+	// Mode switch and the narrow-window Write/Preview tabs.
+	.toastui-editor-mode-switch {
+		border-top: 1px solid var(--border);
+		border-radius: 0;
+		background-color: var(--toolbar-bg);
+
+		.tab-item {
+			border-color: var(--border);
+			background: var(--surface-2);
+			color: var(--text-muted);
+
+			&.active {
+				border-top-color: var(--markdown-surface);
+				background-color: var(--markdown-surface);
+				color: var(--text);
+			}
+		}
+	}
+
+	.toastui-editor-defaultUI .toastui-editor-md-tab-container {
+		border-bottom: 1px solid var(--border);
+		border-radius: 0;
+		background: var(--toolbar-bg);
+	}
+
+	.toastui-editor-md-tab-container .tab-item {
+		border-color: var(--border);
+		background: var(--surface-2);
+		color: var(--text-muted);
+
+		&.active {
+			border-bottom-color: var(--markdown-surface);
+			background-color: var(--markdown-surface);
+			color: var(--text);
+		}
+	}
+
+	// Popups (heading, link, image, table), the context menu and tooltips.
+	.toastui-editor-popup,
+	.toastui-editor-context-menu {
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		background-color: var(--markdown-raised);
+		color: var(--text);
+		box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+	}
+
+	.toastui-editor-popup-body {
+		label {
+			color: var(--text-muted);
+		}
+
+		input[type="text"] {
+			border: 1px solid var(--border);
+			border-radius: 6px;
+			background-color: var(--markdown-surface);
+			color: var(--text);
+
+			&:focus {
+				outline: 2px solid var(--accent);
+				outline-offset: -1px;
+			}
+
+			&.disabled {
+				border-color: var(--border);
+				background-color: var(--surface-2);
+				color: var(--text-muted);
+			}
+		}
+
+		input.wrong,
+		span.wrong {
+			border-color: var(--danger);
+		}
+	}
+
+	.toastui-editor-popup-add-heading ul li,
+	.toastui-editor-context-menu li {
+		border-radius: 6px;
+
+		&:not(.disabled):hover {
+			background-color: var(--bs-primary);
+			color: #fff;
+		}
+	}
+
+	.toastui-editor-context-menu {
+		.menu-group {
+			border-bottom-color: var(--border);
+		}
+
+		li.disabled {
+			color: var(--text-muted);
+		}
+	}
+
+	.toastui-editor-popup-add-image {
+		.toastui-editor-tabs .tab-item {
+			border-bottom-color: var(--border);
+			color: var(--text);
+
+			&:hover {
+				border-bottom-color: var(--border-strong);
+			}
+
+			&.active {
+				border-bottom-color: var(--accent);
+				color: var(--accent);
+			}
+		}
+
+		.toastui-editor-file-name {
+			border-color: var(--border);
+			border-radius: 6px;
+			color: var(--text-muted);
+
+			&.has-file {
+				color: var(--text);
+			}
+		}
+
+		.toastui-editor-file-select-button {
+			border: 1px solid var(--toolbar-control-border);
+			border-radius: 6px;
+			background-color: var(--toolbar-control-active-bg);
+			color: var(--text);
+
+			&:hover {
+				border-color: var(--border-strong);
+			}
+		}
+	}
+
+	.toastui-editor-popup-add-table {
+		.toastui-editor-table-cell {
+			border-color: var(--border);
+			background: var(--markdown-surface);
+
+			&.header {
+				background: var(--surface-2);
+			}
+		}
+
+		.toastui-editor-table-selection-layer {
+			border-color: var(--accent);
+			background: var(--accent-muted);
+		}
+
+		.toastui-editor-table-description {
+			color: var(--text);
+		}
+	}
+
+	.toastui-editor-tooltip {
+		border-radius: 6px;
+		background-color: var(--text);
+		color: var(--markdown-surface);
+
+		.arrow {
+			background-color: var(--text);
+		}
+	}
+
+	.toastui-editor-ww-code-block-language {
+		border-color: var(--border);
+		border-radius: 6px;
+		background-color: var(--markdown-raised);
+
+		input {
+			color: var(--text);
+		}
+	}
+
+	// Editing surfaces and the Markdown syntax colors of the source editor.
+	.ProseMirror {
+		color: var(--text);
+
+		.placeholder {
+			color: var(--text-muted);
+		}
+	}
+
+	table.ProseMirror-selectednode,
+	.html-block.ProseMirror-selectednode {
+		outline-color: var(--accent);
+	}
+
+	.toastui-editor-md-delimiter,
+	.toastui-editor-md-thematic-break,
+	.toastui-editor-md-link,
+	.toastui-editor-md-table,
+	.toastui-editor-md-block-quote,
+	.toastui-editor-md-code.toastui-editor-md-delimiter,
+	.toastui-editor-md-meta,
+	.toastui-editor-md-html,
+	.toastui-editor-md-link.toastui-editor-md-link-url.toastui-editor-md-marked-text {
+		color: var(--text-muted);
+	}
+
+	.toastui-editor-md-block-quote .toastui-editor-md-marked-text,
+	.toastui-editor-md-list-item .toastui-editor-md-meta,
+	.toastui-editor-md-table .toastui-editor-md-table-cell {
+		color: var(--text);
+	}
+
+	.toastui-editor-md-link.toastui-editor-md-link-desc.toastui-editor-md-marked-text,
+	.toastui-editor-md-list-item-style.toastui-editor-md-list-item-odd {
+		color: var(--bs-link-color);
+	}
+
+	.toastui-editor-md-list-item-style.toastui-editor-md-list-item-even,
+	.toastui-editor-md-code.toastui-editor-md-marked-text {
+		color: var(--markdown-code-color);
+	}
+
+	.toastui-editor-md-code,
+	.toastui-editor-md-code-block-line-background,
+	.toastui-editor-md-custom-block-line-background {
+		background-color: var(--markdown-code-bg);
+	}
+
+	.toastui-editor-md-custom-block {
+		color: var(--text);
+	}
+
+	// The rendered document, shared by the WYSIWYG editor, the Markdown preview
+	// and the Quick Look viewer.
+	.toastui-editor-contents {
+		color: var(--text);
+		font-family: var(--bs-body-font-family);
+		font-size: 0.875rem;
+
+		p,
+		h1,
+		h2,
+		h3,
+		h4,
+		h5,
+		h6,
+		ul,
+		menu,
+		ol,
+		dir,
+		table,
+		td,
+		td p,
+		div {
+			color: var(--text);
+		}
+
+		h1,
+		h2 {
+			border-bottom-color: var(--border);
+		}
+
+		h1 {
+			border-bottom-style: solid;
+			border-bottom-width: 1px;
+		}
+
+		del,
+		blockquote,
+		blockquote p,
+		blockquote ul,
+		blockquote ol {
+			color: var(--text-muted);
+		}
+
+		blockquote {
+			border-left-color: var(--border-strong);
+		}
+
+		pre {
+			border-radius: 6px;
+			background-color: var(--markdown-code-bg);
+
+			code {
+				background-color: transparent;
+				color: var(--text);
+			}
+		}
+
+		code,
+		pre {
+			font-family: var(--bs-font-monospace);
+		}
+
+		code {
+			background-color: var(--markdown-code-bg);
+			color: var(--markdown-code-color);
+		}
+
+		table,
+		table th,
+		table td {
+			border-color: var(--border);
+		}
+
+		table th,
+		th p {
+			background-color: var(--surface-2);
+			color: var(--text);
+		}
+
+		td.toastui-editor-cell-selected,
+		th.toastui-editor-cell-selected {
+			background-color: var(--selection);
+		}
+
+		ul > li::before {
+			background-color: var(--text-muted);
+		}
+
+		ol > li::before {
+			color: var(--text-muted);
+		}
+
+		hr {
+			border-top-color: var(--border);
+		}
+
+		a {
+			color: var(--bs-link-color);
+
+			&:hover {
+				color: var(--bs-link-hover-color);
+			}
+		}
+
+		.image-link:hover::before {
+			border-color: var(--border);
+			background-color: var(--markdown-raised);
+		}
+
+		.toastui-editor-ww-code-block::after {
+			border: 1px solid var(--border);
+			background-color: var(--surface-3);
+			color: var(--text);
+		}
+
+		.toastui-editor-md-preview-highlight::after,
+		th.toastui-editor-md-preview-highlight,
+		td.toastui-editor-md-preview-highlight {
+			background-color: var(--markdown-highlight);
+		}
+
+		th.toastui-editor-md-preview-highlight {
+			color: var(--text);
+		}
+
+		img {
+			max-width: 100%;
+		}
+
+		// A missing image keeps a visible, labeled place in the document.
+		img.markdown-image-missing {
+			display: inline-block;
+			min-width: 2rem;
+			min-height: 1.5rem;
+			outline: 1px dashed var(--border-strong);
+			color: var(--text-muted);
+		}
+	}
+
+	// Rendered Markdown that is not itself editable is content the user can copy.
+	.toastui-editor-md-preview,
+	.toastui-editor-contents {
+		-webkit-user-select: text;
+		user-select: text;
+		cursor: auto;
+	}
+
+	.toastui-editor-defaultUI-toolbar,
+	.toastui-editor-mode-switch,
+	.toastui-editor-md-tab-container {
+		-webkit-user-select: none;
+		user-select: none;
+		cursor: default;
+	}
+}
+
+// Dark rows of TOAST UI's icon sprite and its light-only inline images.
+:root[data-bs-theme="dark"] .vw-markdown {
+	--markdown-highlight: rgb(255 250 193 / 0.18);
+
+	.toastui-editor-toolbar-icons {
+		background-position-y: -49px;
+
+		&:not(:disabled).active {
+			background-position-y: -75px;
+		}
+	}
+
+	.toastui-editor-context-menu .menu-item span::before {
+		background-position-y: -126px;
+	}
+
+	.toastui-editor-contents .task-list-item::before,
+	.toastui-editor-contents .toastui-editor-ww-code-block::after,
+	.toastui-editor-contents .image-link:hover::before {
+		filter: invert(0.88) hue-rotate(180deg);
+	}
+}
+
+// Workspace tab layout.
+.markdown-editor {
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	width: 100%;
+	min-height: 0;
+	overflow: hidden;
+	background: var(--surface-1);
+}
+
+.markdown-editor-surface {
+	position: relative;
+	flex: 1 1 auto;
+	min-height: 0;
+}
+
+.markdown-editor-host {
+	position: absolute;
+	inset: 0;
+}
+
+.markdown-warning {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.25rem 0.75rem;
+	border-bottom: 1px solid var(--bs-border-color);
+	background: var(--bs-warning-bg-subtle);
+	color: var(--bs-warning-text-emphasis);
+	font-size: 0.78rem;
+
+	span {
+		flex: 1 1 auto;
+	}
+
+	.btn {
+		flex: 0 0 auto;
+	}
+}
+
+// Quick Look and Properties preview.
+.markdown-preview {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow: auto;
+
+	&:focus-visible {
+		outline: 2px solid var(--accent);
+		outline-offset: -2px;
+	}
+
+	.markdown-preview-content {
+		max-width: 960px;
+		margin: 0 auto;
+		padding: 1rem 1.5rem 2rem;
+	}
+
+	.markdown-preview-empty {
+		margin: 2rem auto;
+		color: var(--text-muted);
+		text-align: center;
+	}
+}

@@ -18,6 +18,7 @@ export const getQuickLookKind = (entry, editableFiles = DEFAULT_EDITABLE_FILES) 
   if (extension === 'pptx') return 'presentation'
   if (['docx', 'doc', 'rtf'].includes(extension)) return 'word'
   if (['xls', 'xlsx'].includes(extension)) return 'spreadsheet'
+  if (['md', 'markdown'].includes(extension)) return 'markdown'
   if (extension === 'log' || isEditableFile(entry.name, editableFiles)) return 'text'
   return 'metadata'
 }

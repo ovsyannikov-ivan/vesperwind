@@ -4,6 +4,7 @@ import { getFileIcon } from '../utils/fileIcons.js'
 const PdfViewer = defineAsyncComponent(() => import('./PdfViewer.vue'))
 const WordPreview = defineAsyncComponent(() => import('../modules/document/WordPreview.vue'))
 const SpreadsheetPreview = defineAsyncComponent(() => import('../modules/spreadsheet/SpreadsheetPreview.vue'))
+const MarkdownPreview = defineAsyncComponent(() => import('../modules/markdown/MarkdownPreview.vue'))
 const props = defineProps({ preview: { type: Object, required: true }, compact: Boolean })
 const pdf = ref(null)
 const icon = computed(() => getFileIcon(props.preview.node).icon)
@@ -27,6 +28,7 @@ defineExpose({ openFind: () => pdf.value?.openFind() })
     <PdfViewer v-else-if="['pdf', 'presentation'].includes(preview.kind)" ref="pdf" :tab="preview" :visible="true" :compact="compact" @state-change="(_id, state) => Object.assign(preview, state)" />
     <WordPreview v-else-if="preview.kind === 'word'" :bytes="preview.bytes" />
     <SpreadsheetPreview v-else-if="preview.kind === 'spreadsheet'" :model="preview.model" />
+    <MarkdownPreview v-else-if="preview.kind === 'markdown'" :markdown="preview.content" :provider-id="preview.providerId" :path="preview.node.path" />
   </div>
 </template>
 <style lang="scss" scoped>

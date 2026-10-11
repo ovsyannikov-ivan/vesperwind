@@ -21,10 +21,12 @@ between applications.
   downloading. Browsing a folder never downloads its files; opening or reading
   a file can prepare its content automatically.
 - **Quick Look:** press Space on a selected file for a temporary read-only preview
-  of media, text, PDF, PPTX, DOCX/DOC/RTF or XLS/XLSX without opening an editor tab.
+  of media, text, formatted Markdown, PDF, PPTX, DOCX/DOC/RTF or XLS/XLSX without
+  opening an editor tab.
 - **Text & code:** multi-tab Monaco editor with syntax highlighting, minimap,
   document search and indentation controls. Edit local or remote files.
 - **Documents:** edit DOCX and XLSX/XLS; import DOC and RTF with bundled LOWA in desktop builds.
+  Markdown opens in a WYSIWYG editor with a Markdown source mode.
 - **PDFs & presentations:** read-only PPTX preview through bundled LOWA; thumbnails,
   page navigation, zoom, text selection and search through PDF.js.
 - **Media:** view images and play local or remote audio/video with seeking,
@@ -53,7 +55,8 @@ and the [Windows build guide](docs/build-windows.md).
 ## Learn more
 
 - [Office conversion](docs/office-conversion.md) and [bounded file operations](docs/file-operation-lifecycle.md)
-- [Word documents](docs/word-documents.md) and [spreadsheets](docs/spreadsheets.md)
+- [Word documents](docs/word-documents.md), [spreadsheets](docs/spreadsheets.md)
+  and [Markdown documents](docs/markdown-documents.md)
 - [Quick Look and playback coordination](docs/quick-look.md)
 - [Media URLs, HLS and persistent playlists](docs/media-player.md)
 - [Video seeking and thumbnail previews](docs/video-thumbnails.md),

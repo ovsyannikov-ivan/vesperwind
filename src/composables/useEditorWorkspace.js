@@ -204,6 +204,8 @@ export const useEditorWorkspace = () => {
         tab.content = formatted.content
         tab.dirty = tab.content !== tab.savedContent
       }
+      // Editors that serialize lazily (Markdown) write their latest text into the tab first.
+      await handler.flush?.(tab)
       contentBeingSaved = tab.content
       const serialized = formatted?.serialized ?? (tab.type === 'text' && tab.formattingEol === 'cr'
         ? contentBeingSaved.replace(/\r\n|\r|\n/g, '\r') : null)

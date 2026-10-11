@@ -79,6 +79,15 @@ for interface strings. No `@docx-editor.dev/pro`, `@docx-editor.dev/editor-api`,
 React adapter, remote font service, or remote conversion service is included.
 Project source and bundled notices: <https://github.com/eigenpal/docx-editor>.
 
+## Markdown editor
+
+The Markdown editor and Quick Look viewer bundle TOAST UI Editor 3.2.2
+(`@toast-ui/editor`, MIT) with its ProseMirror dependencies (MIT; Vesperwind
+also pins `prosemirror-history` 1.5.1 directly) and DOMPurify 2.5.9
+(MPL-2.0 OR Apache-2.0) for HTML sanitizing. Scripts and styles, including the
+toolbar icon sprite, are bundled; usage statistics are disabled. Project source:
+<https://github.com/nhn/tui.editor>.
+
 ## Embedded Office converter
 
 Native PPTX, DOC and RTF conversion bundles a conversion-only LOWA build of

@@ -24,6 +24,9 @@ for playback and document controls. Directories are ignored.
   sheet selection and bounded pages of 100 rows by 26 columns. Stored values and
   number formats are displayed; formulas without cached values show their formula.
   No Univer editing runtime is created.
+- Markdown (`.md`, `.markdown`) is rendered by TOAST UI Viewer as a selectable,
+  read-only document, loaded through the text loader below; see
+  [Markdown documents](markdown-documents.md).
 - Configured editable text files and logs use a selectable, scrollable `<pre>` without
   Monaco. UTF-8 content is limited to **3 MiB** at the provider read boundary.
   Oversized files show metadata and an explicit message; binary or unsupported

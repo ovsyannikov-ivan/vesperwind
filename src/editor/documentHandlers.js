@@ -1,5 +1,6 @@
 import { spreadsheetHandler } from '../modules/spreadsheet/index.js'
 import { wordHandler } from '../modules/document/index.js'
+import { markdownHandler } from '../modules/markdown/index.js'
 import { getFileExtension } from '../../shared/mediaTypes.js'
 
 const textHandler = {
@@ -33,7 +34,7 @@ const presentationHandler = {
   createTab: (common) => ({ ...pdfHandler.createTab(common), pdfBytes: null, zoomMode: 'fit-page' }),
 }
 
-export const documentHandlers = Object.freeze([textHandler, pdfHandler, presentationHandler, spreadsheetHandler, wordHandler])
+export const documentHandlers = Object.freeze([textHandler, pdfHandler, presentationHandler, spreadsheetHandler, wordHandler, markdownHandler])
 export const getDocumentHandler = (id) => documentHandlers.find((handler) => handler.id === id)
 export const getDocumentHandlerForExtension = (extension) =>
   documentHandlers.find((handler) => handler.extensions.includes(extension))

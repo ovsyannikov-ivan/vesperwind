@@ -22,11 +22,11 @@ export const loadFilePreview = async (target, { signal, io = filesystem, prepare
   try {
     const location = { providerId: target.providerId, path: target.node.path }
     let result
-    if (target.kind === 'text') {
+    if (['text', 'markdown'].includes(target.kind)) {
       if (target.node.size > TEXT_PREVIEW_MAX_BYTES) { target.message = `This text file is too large for ${label}.`; return }
       result = await io.readText(location, { ...options, maxBytes: TEXT_PREVIEW_MAX_BYTES, strictText: true })
       if (result.ok && !signal?.aborted) target.content = result.content
-      else if (result.error?.code === 'ETEXT_BINARY' && getFileExtension(target.node.name) === 'ts' && !signal?.aborted) {
+      else if (result.error?.code === 'ETEXT_BINARY' && target.kind === 'text' && getFileExtension(target.node.name) === 'ts' && !signal?.aborted) {
         target.kind = 'video'; await onBinaryTransportStream?.(); return
       } else if (result.error?.code === 'EFILE_TOO_LARGE') target.message = `This text file is too large for ${label}.`
     } else if (['audio', 'pdf', 'image'].includes(target.kind)) {
