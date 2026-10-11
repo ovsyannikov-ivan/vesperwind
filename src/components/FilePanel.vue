@@ -222,15 +222,11 @@ const loadRoot = async () => {
 	}
 };
 
-const visibleEntries = () =>
-	Array.from(panelContentRef.value?.querySelectorAll(".tree-row[data-file-path]") || [])
-		.filter((row) => row.getClientRects().length > 0)
-		.map((row) => ({
-			providerId: props.providerId,
-			path: row.dataset.filePath,
-			name: row.dataset.fileName,
-			isDirectory: row.dataset.fileDirectory === "true",
-		}));
+// Every entry the tree shows, in display order, from the tree state rather
+// than the DOM: the virtual list mounts only the rows near the viewport.
+const fileTreeRef = ref(null);
+// While search results replace the tree, no tree entry is visible.
+const visibleEntries = () => (search.open ? [] : fileTreeRef.value?.visibleEntries() || []);
 
 const selectNode = (payload) => {
 	const node = payload?.node || payload;
@@ -753,6 +749,7 @@ watch(entryChange, (change) => {
 					</div>
 				</div>
 				<FileTree
+					ref="fileTreeRef"
 					:key="`${providerId}:${root.path}:${settingsRevision}`"
 					:root="root"
 					:home-path="homePath"
