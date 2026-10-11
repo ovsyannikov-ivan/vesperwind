@@ -1,3 +1,7 @@
+<script>
+let treeSequence = 0
+</script>
+
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import FileTreeNode from './FileTreeNode.vue'
@@ -8,6 +12,7 @@ import { createVirtualViewport } from '../composables/useVirtualViewport.js'
 import { entryChange } from '../composables/useEntryChanges.js'
 import { useFileOperations } from '../composables/useFileOperations.js'
 import { computeVirtualRange } from '../utils/virtualRange.js'
+import { viewportPriority } from '../utils/viewportPriority.js'
 import { entryNameError } from '../../shared/entryName.js'
 import { isFilesystemRootEntry } from '../../shared/localFilesystem.js'
 import { FILE_TREE_KEY } from '../utils/fileTreeContext.js'
@@ -76,15 +81,8 @@ const range = computed(() => computeVirtualRange({ count: tree.rows.value.length
 
 // Cloud status of a folder follows the viewport: rows on screen first, then
 // the ones closest to them. Read when each batch is chosen, not per scroll.
-const statusPriority = (directoryPath) => {
-  const { first, last } = range.value
-  const center = (first + Math.max(first, last)) / 2
-  const index = tree.flat.value.indexByPath
-  return tree.displayedOf(directoryPath)
-    .map((entry) => ({ entry, distance: Math.abs((index.get(entry.path) ?? Infinity) - center) }))
-    .sort((left, right) => left.distance - right.distance)
-    .map(({ entry }) => entry)
-}
+const statusPriority = (directoryPath) => viewportPriority({ rows: tree.rows.value,
+  first: range.value.first, last: range.value.last, directoryPath })
 
 const tree = createDirectoryTree({
   getRoot: () => props.root,
@@ -107,8 +105,17 @@ const bottomSpace = computed(() => (rows.value.length - range.value.end) * viewp
 const selectedSet = computed(() => new Set(props.selectedPaths))
 const isSelected = (row) => selectedSet.value.has(row.entry.path) ||
   (row.depth === 0 && props.selectedPath === row.entry.path)
-// One tab stop: the active row, else the first row.
-const focusPath = computed(() => (tree.indexOf(props.selectedPath) >= 0 ? props.selectedPath : rows.value[0]?.entry?.path))
+// One tab stop: the active row (else the first row) while it is mounted;
+// when scrolling unmounts it, the list itself takes the tab stop and keeps
+// handling keys for the logical selection. Scrolling never moves selection.
+const treeId = `file-tree-${++treeSequence}`
+const rowId = (index) => `${treeId}-row-${index}`
+const focusIndex = computed(() => Math.max(0, tree.indexOf(props.selectedPath)))
+const focusPath = computed(() => rows.value[focusIndex.value]?.entry?.path)
+const focusRowMounted = computed(() => Boolean(focusPath.value) &&
+  focusIndex.value >= range.value.start && focusIndex.value < range.value.end)
+const activeDescendant = computed(() => (focusRowMounted.value && tree.indexOf(props.selectedPath) >= 0
+  ? rowId(focusIndex.value) : undefined))
 
 const entryRows = () => rows.value.filter((row) => row.kind === 'entry' && row.depth > 0)
 /** Every logically shown entry in display order, mounted or not. */
@@ -156,7 +163,12 @@ const toggleRow = (row) => tree.toggle(row.entry, row.depth)
 const openRow = (row) => emit('open', { node: row.entry, siblings: row.depth > 0 ? tree.displayedOf(row.parentPath) : [row.entry] })
 const contextMenuRow = (row, payload) => emit('context-menu', { ...payload, siblings: tree.childrenOf(row.parentPath) })
 
-provide(FILE_TREE_KEY, { tree, startRename, submitRename, cancelRename })
+// A focused row (or its rename input) that scrolls out of the window hands
+// focus to the list, so the keyboard keeps working without scrolling back.
+const keepFocus = (element) => {
+  if (element?.contains?.(globalThis.document?.activeElement)) listRef.value?.focus({ preventScroll: true })
+}
+provide(FILE_TREE_KEY, { tree, startRename, submitRename, cancelRename, keepFocus })
 
 // Arrow keys move through the logical tree, including rows that are not mounted.
 const moveSelection = async (event, target) => {
@@ -168,8 +180,28 @@ const moveSelection = async (event, target) => {
   emit('select', { node: row.entry, shiftKey: event.shiftKey, metaKey: false, ctrlKey: false })
   await revealPath(row.entry.path, { focus: true })
 }
+// Keys that a focused row handles itself, for the selection while the list
+// holds focus (its row is not mounted).
+const handleListKeydown = (event) => {
+  const row = rows.value[tree.indexOf(props.selectedPath)]
+  if (!row || row.kind !== 'entry') return false
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    if (row.entry.isDirectory) toggleRow(row)
+    else openRow(row)
+  } else if (event.key === 'F2' && row.depth > 0) {
+    event.preventDefault()
+    void startRename(row.entry)
+  } else if ((event.key === 'ArrowRight' && row.entry.isDirectory && !row.expanded) ||
+    (event.key === 'ArrowLeft' && row.expanded)) {
+    event.preventDefault()
+    toggleRow(row)
+  } else return false
+  return true
+}
 const handleTreeKeydown = (event) => {
   if (event.target.closest?.('input, textarea') || event.altKey || event.metaKey || event.ctrlKey) return
+  if (event.target === listRef.value && handleListKeydown(event)) return
   const entries = entryRows()
   const current = entries.findIndex((row) => row.entry.path === props.selectedPath)
   const page = Math.max(1, Math.floor((viewport.height - viewport.inset) / viewport.rowHeight) - 1)
@@ -238,12 +270,15 @@ defineExpose({ visibleEntries, revealPath, tree })
     role="tree"
     aria-label="Filesystem tree"
     :aria-multiselectable="compact ? undefined : 'true'"
+    :aria-activedescendant="activeDescendant"
+    :tabindex="focusRowMounted ? -1 : 0"
     @keydown="handleTreeKeydown"
   >
     <li v-if="topSpace" class="tree-spacer" role="none" aria-hidden="true" :style="{ height: `${topSpace}px` }" />
-    <template v-for="row in mountedRows" :key="row.key">
+    <template v-for="(row, offset) in mountedRows" :key="row.key">
       <FileTreeNode
         v-if="row.kind === 'entry'"
+        :id="rowId(range.start + offset)"
         :node="row.entry"
         :depth="row.depth"
         :expanded="row.expanded"

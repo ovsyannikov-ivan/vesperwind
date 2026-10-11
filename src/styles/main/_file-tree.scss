@@ -15,6 +15,15 @@
 	list-style: none;
 }
 
+// The list holds keyboard focus while the selected row is scrolled away.
+.file-tree:focus {
+	outline: none;
+}
+
+.file-tree:focus-visible {
+	box-shadow: inset 0 0 0 1px var(--accent);
+}
+
 // Stands in for rows outside the virtual window (see FileTree.vue).
 .tree-spacer {
 	display: block;

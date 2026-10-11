@@ -71,7 +71,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['select', 'open', 'toggle', 'drop-request', 'context-menu'])
-const { tree, startRename, submitRename, cancelRename } = inject(FILE_TREE_KEY)
+const { tree, startRename, submitRename, cancelRename, keepFocus } = inject(FILE_TREE_KEY)
 const { settings } = useSettings()
 const dropTarget = ref(false)
 const { state: clipboardState } = useFileClipboard()
@@ -330,7 +330,7 @@ watch(() => props.active, (isActive) => { if (!isActive) lastNameClick = 0 })
 onMounted(() => {
   if (renaming.value) void focusRenameInput()
 })
-onBeforeUnmount(() => { unmounting = true; cancelRenameTimer() })
+onBeforeUnmount(() => { unmounting = true; cancelRenameTimer(); keepFocus(rowElement.value) })
 </script>
 
 <template>

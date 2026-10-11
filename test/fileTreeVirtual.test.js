@@ -5,11 +5,13 @@ import assert from 'node:assert/strict'
 import test, { after } from 'node:test'
 import { h, nextTick, reactive, ref } from 'vue'
 import { compileComponent, FakeElement, installDomGlobals, testRenderer } from './support/vueTestRenderer.js'
+import { answerBatch, cloudBackend, resetCloudBackend } from './support/fakeCloudStatus.js'
 import { selectFileEntries } from '../src/utils/fileSelection.js'
 
 installDomGlobals()
 const nodeUrl = await compileComponent('src/components/FileTreeNode.vue')
-const treeUrl = await compileComponent('src/components/FileTree.vue', { './FileTreeNode.vue': nodeUrl })
+const treeUrl = await compileComponent('src/components/FileTree.vue', { './FileTreeNode.vue': nodeUrl,
+  '../api/cloudStatus.js': new URL('./support/fakeCloudStatus.js', import.meta.url).href })
 const { default: FileTree } = await import(treeUrl)
 
 const ROW = 22
@@ -19,7 +21,8 @@ const settle = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms))
 const file = (dir, index) => ({ name: `file-${String(index).padStart(5, '0')}.txt`, path: `${dir}/file-${String(index).padStart(5, '0')}.txt`,
   isDirectory: false, size: index, modifiedAt: '2026-10-11T00:00:00.000Z' })
 
-const mountTree = async ({ count = 3000, folders = null } = {}) => {
+const mountTree = async ({ count = 3000, folders = null, compact = false, cloud = false } = {}) => {
+  resetCloudBackend(cloud)
   const directories = folders || { '/root': Array.from({ length: count }, (_, index) => file('/root', index)) }
   const requests = []
   const container = new FakeElement('div')
@@ -29,7 +32,7 @@ const mountTree = async ({ count = 3000, folders = null } = {}) => {
   const host = new FakeElement('div')
   host.childBox = () => ({ top: OFFSET - container.scrollTop })
   container.children.push(host); host.parentNode = container
-  const state = reactive({ selectedPath: '/root', selectedEntries: [], anchorPath: '', expandedPaths: [] })
+  const state = reactive({ selectedPath: '/root', selectedEntries: [], anchorPath: '', expandedPaths: [], refreshRevision: 0, hide: null })
   const events = []
   const treeRef = ref(null)
   const select = ({ node, shiftKey, metaKey, ctrlKey }) => {
@@ -50,6 +53,10 @@ const mountTree = async ({ count = 3000, folders = null } = {}) => {
       selectedPaths: state.selectedEntries.map((entry) => entry.path),
       selectedEntries: state.selectedEntries,
       expandedPaths: state.expandedPaths,
+      compact,
+      scrollSelectedIntoView: compact,
+      refreshRevision: state.refreshRevision,
+      transformChildren: state.hide ? (entries) => entries.filter((entry) => !state.hide(entry)) : null,
       listDirectory: async (path) => {
         requests.push(path)
         return { ok: true, entries: (directories[path] || []).map((entry) => ({ ...entry })) }
@@ -72,7 +79,14 @@ const mountTree = async ({ count = 3000, folders = null } = {}) => {
     await settle(120)
     await nextTick()
   }
-  return { app, list, rows, scrollTo, container, state, requests, events, tree: () => treeRef.value }
+  const key = async (target, name, extra = {}) => {
+    target.dispatchEvent({ type: 'keydown', key: name, bubbles: true, target, preventDefault () {}, ...extra })
+    await settle(); await nextTick(); await nextTick()
+  }
+  // Tab stops by name: elements are compared by identity, never deeply.
+  const tabStops = () => [list, ...rows()].filter((element) => element.getAttribute('tabindex') === '0')
+    .map((element) => (element === list ? 'list' : element.dataset.treePath))
+  return { app, list, rows, scrollTo, container, state, requests, events, directories, key, tabStops, tree: () => treeRef.value }
 }
 
 test('3000 and 10,000 entries mount only the viewport plus overscan', async () => {
@@ -183,6 +197,103 @@ test('rows carry tree semantics; spacers are hidden and only one row is a tab st
   assert.deepEqual(h.list.querySelectorAll('.tree-state').map((state) => text(state).trim()), ['Empty folder'])
   assert.equal(h.list.querySelectorAll('LI').filter((item) => item.getAttribute('role') === 'treeitem')[1].getAttribute('aria-expanded'), 'true')
   h.app.unmount()
+})
+
+const rowFor = (h, index) => h.rows().find((row) => row.dataset.filePath === `/root/file-${String(index).padStart(5, '0')}.txt`)
+const click = async (element, extra = {}) => { element.dispatchEvent({ type: 'click', bubbles: true, ...extra }); await nextTick() }
+
+for (const compact of [false, true]) {
+  test(`${compact ? 'editor' : 'panel'} tree: Tab still reaches the tree after the selected row scrolls away`, async () => {
+    const h = await mountTree({ compact })
+    assert.deepEqual(h.tabStops(), ['/root'], 'the selected root row is the tab stop')
+    await click(rowFor(h, 0))
+    rowFor(h, 0).focus()
+    await h.scrollTo(1500 * ROW)
+    assert.ok(rowFor(h, 0) === undefined, 'the selected row left the window')
+    assert.deepEqual(h.tabStops(), ['list'], 'the list is the single tab stop')
+    assert.ok(globalThis.document.activeElement === h.list, 'focus moved to the list instead of being lost')
+    assert.equal(h.state.selectedPath, '/root/file-00000.txt', 'scrolling did not change the selection')
+    assert.equal(h.container.scrollTop, 1500 * ROW, 'and did not scroll back')
+    // Keys on the list work on the logical selection.
+    await h.key(h.list, 'ArrowDown')
+    assert.equal(h.state.selectedPath, '/root/file-00001.txt')
+    assert.ok(globalThis.document.activeElement === rowFor(h, 1), 'the new row is revealed and focused')
+    assert.deepEqual(h.tabStops(), ['/root/file-00001.txt'])
+    if (!compact) {
+      await h.key(rowFor(h, 1), 'ArrowDown', { shiftKey: true })
+      await h.key(rowFor(h, 2), 'ArrowDown', { shiftKey: true })
+      assert.equal(h.state.anchorPath, '/root/file-00001.txt', 'Shift keeps the anchor')
+      assert.deepEqual(h.state.selectedEntries.map((entry) => entry.name), ['file-00001.txt', 'file-00002.txt', 'file-00003.txt'])
+    }
+    await h.key(globalThis.document.activeElement, 'End')
+    assert.equal(h.state.selectedPath, '/root/file-02999.txt')
+    h.app.unmount()
+  })
+}
+
+test('F2 and Enter on the list act on an offscreen selection; the draft survives scrolling', async () => {
+  const h = await mountTree()
+  await click(rowFor(h, 3))
+  rowFor(h, 3).focus()
+  await h.scrollTo(2000 * ROW)
+  assert.ok(globalThis.document.activeElement === h.list)
+  await h.key(h.list, 'F2')
+  await settle(); await nextTick()
+  const input = h.list.querySelector('.tree-rename-input')
+  assert.ok(input, 'the rename starts on the selected row, scrolled into view')
+  assert.equal(input.closest('.tree-row').dataset.filePath, '/root/file-00003.txt')
+  assert.ok(globalThis.document.activeElement === input)
+  input.value = 'kept.txt'
+  input.dispatchEvent({ type: 'input', bubbles: true, target: input })
+  await h.scrollTo(2500 * ROW)
+  assert.ok(globalThis.document.activeElement === h.list, 'the unmounted input hands focus to the list')
+  assert.equal(h.tree().tree.rename.draft, 'kept.txt')
+  h.app.unmount()
+})
+
+test('focus moves to the list when the focused row is deleted or filtered out', async () => {
+  const h = await mountTree({ count: 20 })
+  await click(rowFor(h, 5))
+  rowFor(h, 5).focus()
+  h.directories['/root'] = h.directories['/root'].filter((entry) => entry.name !== 'file-00005.txt')
+  h.state.refreshRevision++
+  await settle(); await nextTick()
+  assert.equal(rowFor(h, 5), undefined)
+  assert.ok(globalThis.document.activeElement === h.list)
+  assert.equal(h.tabStops().length, 1)
+  await click(rowFor(h, 7))
+  rowFor(h, 7).focus()
+  h.state.hide = (entry) => entry.name === 'file-00007.txt'
+  await nextTick(); await nextTick()
+  assert.equal(rowFor(h, 7), undefined)
+  assert.ok(globalThis.document.activeElement === h.list)
+  assert.equal(h.tabStops().length, 1)
+  h.app.unmount()
+})
+
+test('rows render before cloud status; the next batch follows the real viewport', async () => {
+  const h = await mountTree({ cloud: true })
+  assert.ok(h.rows().length > 20, 'rows are shown while the first batch is pending')
+  assert.equal(cloudBackend.sent.length, 1)
+  const [first] = cloudBackend.sent
+  assert.equal(first.paths.length, 64)
+  const onScreen = Array.from({ length: 19 }, (_, index) => `/root/file-${String(index).padStart(5, '0')}.txt`)
+  assert.ok(onScreen.every((path) => first.paths.slice(0, 19).includes(path)), 'the first batch starts with the rows on screen')
+  await h.scrollTo(1500 * ROW)
+  answerBatch(0)
+  await settle(); await nextTick()
+  const second = cloudBackend.sent[1].paths.map((path) => Number(path.match(/(\d+)\.txt$/)[1]))
+  assert.ok(second.every((index) => Math.abs(index - 1508) <= 40), `the second batch is around the viewport: ${second.slice(0, 5)}`)
+  assert.equal(cloudBackend.sent.length, 2, 'scrolling did not restart the scan')
+  assert.deepEqual(cloudBackend.other, [], 'nothing but metadata was requested')
+  // Badges come from the tree state when rows come back.
+  await h.scrollTo(0)
+  const badges = h.rows().slice(1, 6).map((row) => row.querySelector('.tree-content-badge')?.getAttribute('aria-label') || null)
+  assert.ok(badges.every((label) => /download required/.test(label)), 'resolved badges reappear without a new request')
+  assert.equal(cloudBackend.sent.length, 2)
+  assert.equal(h.requests.length, 1, 'no new listing')
+  h.app.unmount()
+  assert.ok(cloudBackend.cancelled.length >= 1, 'unmounting cancels the batch in flight')
 })
 
 // The transport modules imported by the rows keep the event loop alive.

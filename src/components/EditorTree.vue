@@ -195,7 +195,7 @@ watch(
         :watch-active="watchActive"
         scroll-selected-into-view
         compact
-        @select="selectedPath = $event.path"
+        @select="selectedPath = $event.node?.path || $event.path"
         @open="openNode"
         @expanded-change="updateExpanded"
       />
