@@ -170,7 +170,8 @@ export const compileComponent = async (relative, replacements = {}) => {
   const code = content.replace(/from (['"])(\.{1,2}\/[^'"]+)\1/g, (_, quote, specifier) =>
     `from ${quote}${replacements[specifier] || pathToFileURL(path.resolve(path.dirname(filename), specifier)).href}${quote}`)
   await fs.mkdir(cacheDirectory, { recursive: true })
-  const target = path.join(cacheDirectory, `${path.basename(relative)}.${process.pid}.mjs`)
+  // One file per component, overwritten on each run.
+  const target = path.join(cacheDirectory, `${relative.replaceAll(/[\\/]/g, '_')}.mjs`)
   await fs.writeFile(target, code)
   return pathToFileURL(target).href
 }
