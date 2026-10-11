@@ -61,18 +61,24 @@ export const createCloudStatusInspector = ({
     } finally { signal.removeEventListener('abort', cancel) }
   }
 
-  // Calls onBatch(paths, response) for every batch in order; a response with
-  // `complete` resolves the remaining paths without asking the backend.
-  const inspect = async ({ providerId, path, paths, signal, onBatch }) => {
-    for (let start = 0; start < paths.length; start += batchSize) {
+  // Calls onBatch(paths, response) for every batch; a response with `complete`
+  // resolves the remaining paths without asking the backend. `next(size)`, when
+  // given, picks each batch at the moment it is sent (for example the rows now
+  // in view); otherwise `paths` are sent in order.
+  const inspect = async ({ providerId, path, paths = [], next, signal, onBatch }) => {
+    let offset = 0
+    const take = next || ((size) => { const batch = paths.slice(offset, offset + size); offset += size; return batch })
+    for (;;) {
       await pause()
       if (signal.aborted) return
-      const batch = paths.slice(start, start + batchSize)
+      const batch = take(batchSize)
+      if (!batch.length) return
       const response = await limit(() => requestBatch({ providerId, path, paths: batch, signal }), signal)
       if (signal.aborted) return
       onBatch(batch, response)
       if (response?.ok && response.complete) {
-        const rest = paths.slice(start + batchSize)
+        const rest = []
+        for (let more = take(batchSize); more.length; more = take(batchSize)) rest.push(...more)
         if (rest.length) onBatch(rest, { ok: true, statuses: [], complete: true })
         return
       }

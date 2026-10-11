@@ -63,13 +63,28 @@ export const createDirectoryListing = ({ state, getLocation, isActive = () => tr
     }
     const states = new Map([...ordered.keys()].map((path) => [path, 'pending']))
     statusStates = states
+    // Each batch is chosen when it is sent: `statusOrder()` first (the rows the
+    // user sees now), then the remaining entries in their initial order.
+    const order = [...ordered.keys()]
+    const queued = new Set(order)
+    let cursor = 0
+    const next = (size) => {
+      const batch = []
+      const take = (path) => { if (queued.delete(path)) batch.push(path) }
+      for (const entry of statusOrder() || []) {
+        if (batch.length >= size) break
+        if (entry?.path && ordered.has(entry.path)) take(entry.path)
+      }
+      while (batch.length < size && cursor < order.length) take(order[cursor++])
+      return batch
+    }
     try {
       if (!ordered.size || !(await cloudStatus.supports(location)) || !current()) {
         if (current()) for (const path of states.keys()) states.set(path, 'resolved')
         return
       }
       traceMedia('directory.status-start', { consumer: id, ...location, revision: generation, entries: ordered.size })
-      await cloudStatus.inspect({ ...location, paths: [...ordered.keys()], signal: request.signal,
+      await cloudStatus.inspect({ ...location, paths: order, next, signal: request.signal,
         onBatch: (paths, response) => {
           if (!current()) return
           const statuses = new Map(response?.ok && Array.isArray(response.statuses)
