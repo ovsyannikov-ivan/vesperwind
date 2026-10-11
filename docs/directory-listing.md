@@ -62,10 +62,13 @@ FTPS never request or receive cloud status.
 
 ## Frontend
 
-`createDirectoryListing` applies a listing as before (one `children-loaded`, one
-selection reconcile) and then starts a scan bound to that listing generation:
+Each loaded folder of a file tree has its own `createDirectoryListing` in the
+tree state (see [virtual file tree](virtual-file-tree.md)). It applies a
+listing as before (one `children-loaded`, one selection reconcile) and then
+starts a scan bound to that listing generation:
 
-- files only, the displayed (sorted and filtered) rows first, then the rest;
+- files only; each batch is chosen when it is sent, starting with the entries
+  nearest to the middle of the viewport, then the rest in display order;
 - batches of 64 after the next paint (or a 200 ms fallback when a hidden window
   gets no animation frames), at most two batches in flight across all trees;
 - each result is written onto the existing entry object (`contentAvailability`,
