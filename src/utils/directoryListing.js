@@ -25,7 +25,7 @@ export const applyCloudStatus = (entry, status = {}) => {
 // any new load, collapse, location change or dispose aborts it, and late
 // results are checked against the generation and the entry before use.
 export const createDirectoryListing = ({ state, getLocation, isActive = () => true, list, onLoaded = () => {},
-  consumer = 'tree', cloudStatus = null, statusOrder = () => [] }) => {
+  consumer = 'tree', cloudStatus = null, statusOrder = () => [], displayOrder = () => [] }) => {
   const id = `${consumer}:${++consumerId}`
   let revision = 0
   let controller = null
@@ -51,20 +51,26 @@ export const createDirectoryListing = ({ state, getLocation, isActive = () => tr
       for (const field of CLOUD_STATUS_FIELDS) if (old[field] != null && entry[field] == null) entry[field] = old[field]
     }
   }
-  const startStatus = async (location, generation, key) => {
+  // `resume` continues the current generation's scan for the entries still
+  // pending (a folder collapsed mid-scan and reopened from its cached
+  // listing); resolved and failed entries are never inspected again.
+  const startStatus = async (location, generation, key, { resume = false } = {}) => {
     if (!cloudStatus) return
     const request = new AbortController()
     statusController = request
     const current = () => !disposed && !request.signal.aborted && generation === revision && successfulIdentity === key
     const byPath = new Map(state.children.map((entry) => [entry.path, entry]))
     const ordered = new Map()
-    for (const entry of [...(statusOrder() || []), ...state.children]) {
-      if (isStatusCandidate(entry) && byPath.get(entry.path) && !ordered.has(entry.path)) ordered.set(entry.path, byPath.get(entry.path))
+    // Priority first, then display order, then anything the view filters out.
+    for (const entry of [...(statusOrder() || []), ...(displayOrder() || []), ...state.children]) {
+      if (!isStatusCandidate(entry) || !byPath.get(entry.path) || ordered.has(entry.path)) continue
+      if (resume && statusStates.get(entry.path) !== 'pending') continue
+      ordered.set(entry.path, byPath.get(entry.path))
     }
-    const states = new Map([...ordered.keys()].map((path) => [path, 'pending']))
+    const states = resume ? statusStates : new Map([...ordered.keys()].map((path) => [path, 'pending']))
     statusStates = states
     // Each batch is chosen when it is sent: `statusOrder()` first (the rows the
-    // user sees now), then the remaining entries in their initial order.
+    // user sees now), then the remaining entries in that initial order.
     const order = [...ordered.keys()]
     const queued = new Set(order)
     let cursor = 0
@@ -112,7 +118,11 @@ export const createDirectoryListing = ({ state, getLocation, isActive = () => tr
     if (disposed || !isActive()) return false
     const location = { ...getLocation() }
     const key = identity(location)
-    if (!force && state.loaded && successfulIdentity === key) return true
+    if (!force && state.loaded && successfulIdentity === key) {
+      // Collapsing stopped the scan; reopening from the cache continues it.
+      if (!statusController && [...statusStates.values()].includes('pending')) void startStatus(location, revision, key, { resume: true })
+      return true
+    }
     if (successfulIdentity && successfulIdentity !== key) reset()
     invalidate()
     const current = revision

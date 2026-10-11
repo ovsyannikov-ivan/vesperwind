@@ -2,7 +2,7 @@ import { computed, effectScope, reactive, shallowReactive } from 'vue'
 import { isComputerPath } from '../../shared/localFilesystem.js'
 import { createDirectoryListing } from '../utils/directoryListing.js'
 import { flattenTree } from '../utils/flattenTree.js'
-import { isSameOrDescendantPath, normalizeFilesystemPath } from '../utils/filesystemPath.js'
+import { buildFilesystemPathLevels, isSameOrDescendantPath, normalizeFilesystemPath } from '../utils/filesystemPath.js'
 import { directoryWatch } from '../api/directoryWatch.js'
 
 // Folders that were loaded and then collapsed keep their contents for a quick
@@ -72,12 +72,41 @@ export const createDirectoryTree = ({
       getLocation: () => ({ providerId: getProviderId(), path }),
       isActive: () => !disposed && expanded.has(path) && records.get(key) === record,
       list: (target, options) => listDirectory(target, options),
-      onLoaded: (payload) => { onChildrenLoaded(payload); syncExpanded() },
+      onLoaded: (payload) => { releaseVanished(record); onChildrenLoaded(payload); syncExpanded() },
       cloudStatus,
       statusOrder: () => statusPriority(path, record),
+      displayOrder: () => record.displayed.value,
     })
     records.set(key, record)
     return record
+  }
+
+  // A successful, complete listing of `parent` is the truth about its child
+  // folders. Branches under a child that is gone (deleted, renamed or moved
+  // away, or replaced by a file) are released with their watchers, requests
+  // and scans, so neither late responses nor a new folder of the same name
+  // can bring the old contents back. Only full listings decide this: the
+  // panel's filters and the viewport never do, and a failed or stale refresh
+  // never reaches onLoaded. The owner is told the vanished folders are no
+  // longer expanded; a rename done in Vesperwind has already moved them in
+  // expandedPaths, so the renamed folder reopens with a fresh listing.
+  const releaseVanished = (parent) => {
+    const folders = new Set(parent.state.children.filter((entry) => entry.isDirectory)
+      .map((entry) => normalizeFilesystemPath(entry.path)))
+    const vanished = (path) => {
+      if (path === parent.path || !isSameOrDescendantPath(parent.path, path)) return false
+      const child = buildFilesystemPathLevels(parent.path, path)[1]
+      return child !== undefined && !folders.has(normalizeFilesystemPath(child))
+    }
+    for (const other of [...records.values()]) {
+      if (vanished(other.path)) release(other)
+    }
+    const closed = [...expanded].filter(vanished)
+    for (const path of closed) expanded.delete(path)
+    for (const path of closed) onExpandedChange({ path, expanded: false })
+    const listed = new Set(parent.state.children.map((entry) => normalizeFilesystemPath(entry.path)))
+    const renamedChild = rename.path && buildFilesystemPathLevels(parent.path, rename.path).length === 2
+    if (rename.path && (vanished(rename.path) || (renamedChild && !listed.has(normalizeFilesystemPath(rename.path))))) cancelRename(true)
   }
 
   const loadRecord = async (record, options = {}) => {

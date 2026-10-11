@@ -288,3 +288,15 @@ test('the panel restores expanded folders after a swap once their parents load',
   assert.equal(computed(() => h.tree.rows.value.length).value, 8)
   h.tree.dispose()
 })
+
+test('viewport priority walks outward from the window, only over one folder, within a bounded reach', async () => {
+  const { viewportPriority } = await import('../src/utils/viewportPriority.js')
+  const rows = [{ kind: 'entry', entry: { path: '/r', isDirectory: true }, parentPath: null },
+    ...Array.from({ length: 1000 }, (_, index) => ({ kind: 'entry', parentPath: index % 10 === 0 ? '/r/sub' : '/r',
+      entry: { path: `/r/${index}`, isDirectory: index === 500 } }))]
+  const picked = viewportPriority({ rows, first: 495, last: 505, directoryPath: '/r', limit: 6 })
+  // Row 500 is /r/499 (the root row comes first); /r/500 is a folder and skipped.
+  assert.deepEqual(picked.map((entry) => entry.path), ['/r/499', '/r/498', '/r/497', '/r/501', '/r/496', '/r/502'])
+  assert.deepEqual(viewportPriority({ rows, first: 0, last: 10, directoryPath: '/r/missing', reach: 50 }), [])
+  assert.equal(viewportPriority({ rows, first: 0, last: 20, directoryPath: '/r', limit: 1000, reach: 30 }).length <= 61, true)
+})

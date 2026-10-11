@@ -71,14 +71,18 @@ export const createCloudStatusInspector = ({
     for (;;) {
       await pause()
       if (signal.aborted) return
-      const batch = take(batchSize)
-      if (!batch.length) return
-      const response = await limit(() => requestBatch({ providerId, path, paths: batch, signal }), signal)
-      if (signal.aborted) return
+      // The batch is chosen once a slot is free, so a scan that waited behind
+      // other folders still sends the rows that are in view now.
+      let batch = []
+      const response = await limit(() => {
+        batch = take(batchSize)
+        return batch.length ? requestBatch({ providerId, path, paths: batch, signal }) : null
+      }, signal)
+      if (signal.aborted || !batch.length) return
       onBatch(batch, response)
       if (response?.ok && response.complete) {
-        const rest = []
-        for (let more = take(batchSize); more.length; more = take(batchSize)) rest.push(...more)
+        // The rest in one pass, without choosing it batch by batch.
+        const rest = take(Number.POSITIVE_INFINITY)
         if (rest.length) onBatch(rest, { ok: true, statuses: [], complete: true })
         return
       }
