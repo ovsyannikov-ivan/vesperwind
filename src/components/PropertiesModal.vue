@@ -49,13 +49,13 @@ onBeforeUnmount(() => { modal?.hide(); modal?.dispose(); if (previousFocus?.isCo
                 <section aria-labelledby="properties-general">
                   <h2 id="properties-general" class="fs-6 mb-3">General</h2>
                   <dl class="properties-metadata">
-                    <dt>Name</dt><dd>{{ p.name }}</dd>
-                    <dt>Kind</dt><dd>{{ p.type === 'symlink' ? 'Symbolic link' : p.type === 'alias' ? 'Finder alias' : p.type === 'directory' ? 'Folder' : p.name.includes('.') ? `${p.name.split('.').at(-1).toUpperCase()} file` : p.type }}</dd>
-                    <dt>Path</dt><dd>{{ p.path }}</dd>
-                    <template v-if="p.target"><dt>Target</dt><dd>{{ p.target }}</dd></template>
-                    <dt>Size</dt><dd v-if="p.type !== 'directory'">{{ p.size == null ? '—' : formatFileSize(p.size) }}</dd>
+                    <dt>Name</dt><dd class="selectable-text">{{ p.name }}</dd>
+                    <dt>Kind</dt><dd class="selectable-text">{{ p.type === 'symlink' ? 'Symbolic link' : p.type === 'alias' ? 'Finder alias' : p.type === 'directory' ? 'Folder' : p.name.includes('.') ? `${p.name.split('.').at(-1).toUpperCase()} file` : p.type }}</dd>
+                    <dt>Path</dt><dd class="selectable-text">{{ p.path }}</dd>
+                    <template v-if="p.target"><dt>Target</dt><dd class="selectable-text">{{ p.target }}</dd></template>
+                    <dt>Size</dt><dd v-if="p.type !== 'directory'" class="selectable-text">{{ p.size == null ? '—' : formatFileSize(p.size) }}</dd>
                     <dd v-else>
-                      <span v-if="state.size.value">{{ formatFileSize(state.size.value.bytes) }} · {{ state.size.value.items.toLocaleString() }} items</span>
+                      <span v-if="state.size.value" class="selectable-text">{{ formatFileSize(state.size.value.bytes) }} · {{ state.size.value.items.toLocaleString() }} items</span>
                       <span v-else>Not calculated</span>
                       <div class="mt-1 d-flex align-items-center gap-2">
                         <span v-if="state.sizeState.value === 'calculating'" class="small" role="status">Calculating…</span>
@@ -66,8 +66,8 @@ onBeforeUnmount(() => { modal?.hide(); modal?.dispose(); if (previousFocus?.isCo
                       <div v-if="state.size.value?.errors" class="small text-body-secondary">{{ state.size.value.errors }} items could not be inspected</div>
                       <div v-if="state.sizeError.value" class="small text-danger" role="alert">{{ state.sizeError.value.message }}</div>
                     </dd>
-                    <dt>Created</dt><dd>{{ formatModifiedAtTitle(p.createdAt) || (current.providerId.startsWith('sftp:') ? 'Not provided by server' : '—') }}</dd>
-                    <dt>Modified</dt><dd>{{ formatModifiedAtTitle(p.modifiedAt) || '—' }}</dd>
+                    <dt>Created</dt><dd class="selectable-text">{{ formatModifiedAtTitle(p.createdAt) || (current.providerId.startsWith('sftp:') ? 'Not provided by server' : '—') }}</dd>
+                    <dt>Modified</dt><dd class="selectable-text">{{ formatModifiedAtTitle(p.modifiedAt) || '—' }}</dd>
                     <template v-if="badge || p.metadataWarnings?.length"><dt>Availability</dt><dd><span v-if="badge">{{ badge.label }}</span><div v-for="(warning, index) in p.metadataWarnings" :key="index" class="small text-danger" role="alert">{{ warning.message }}</div></dd></template>
                   </dl>
                 </section>
@@ -94,7 +94,7 @@ onBeforeUnmount(() => { modal?.hide(); modal?.dispose(); if (previousFocus?.isCo
                     <div v-if="p.permissions.mode != null" class="d-flex gap-2 align-items-center">
                       <label for="properties-mode" class="form-label mb-0">Mode</label>
                       <input id="properties-mode" v-model="state.draft.value.mode" class="form-control form-control-sm properties-mode" maxlength="4" inputmode="numeric" :readonly="!p.capabilities.changeMode" :disabled="state.saving.value" :aria-invalid="state.values.value.mode === null">
-                      <code>{{ symbolicMode(state.values.value.mode ?? p.permissions.mode) }}</code>
+                      <code class="selectable-text">{{ symbolicMode(state.values.value.mode ?? p.permissions.mode) }}</code>
                     </div>
                     <p v-if="p.permissions.mode & 0o7000" class="small text-body-secondary mt-2 mb-0">Special bits are preserved.</p>
                     <p v-if="state.invalid.value" class="small text-danger mt-2 mb-0">Use valid numeric IDs and three octal rwx digits; keep existing special bits.</p>
@@ -136,7 +136,7 @@ onBeforeUnmount(() => { modal?.hide(); modal?.dispose(); if (previousFocus?.isCo
   .modal-title { overflow-wrap: anywhere; }
   .modal-body { overflow: auto; min-height: 0; }
   .properties-columns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.5rem; }
-  .properties-details { min-width: 0; user-select: text; }
+  .properties-details { min-width: 0; }
   .properties-metadata { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .5rem 1rem; font-size: .875rem; dd { margin: 0; overflow-wrap: anywhere; } dt { font-weight: 500; color: var(--bs-secondary-color); } }
   .permissions-matrix { font-size: .8rem; th { font-weight: 500; } td, th:not(:first-child) { text-align: center; } }
   .properties-mode { width: 5rem; }

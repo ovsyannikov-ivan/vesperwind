@@ -39,7 +39,7 @@ onBeforeUnmount(() => {
           <div class="mb-3"><label for="archive-target" class="form-label">Destination directory</label><input id="archive-target" v-model="targetPath" class="form-control form-control-sm" :disabled="busy" required autocomplete="off" spellcheck="false"></div>
           <div class="mb-3"><label for="archive-name" class="form-label">{{ creating ? 'ZIP filename' : 'New folder name' }}</label><input id="archive-name" v-model="name" class="form-control form-control-sm" :disabled="busy" required autocomplete="off"></div>
           <p v-if="busy" class="small mb-0" role="status" aria-live="polite">{{ cancelling ? 'Cancelling…' : 'Working…' }} {{ progress?.entries || 0 }} entries · {{ ((progress?.bytes || 0) / 1048576).toFixed(1) }} MB</p>
-          <div v-if="error" class="alert alert-danger py-2 small mb-0" role="alert"><strong>{{ error.code }}</strong>: {{ error.message }}<details v-if="error.nativeError" class="mt-1"><summary>Details</summary><pre class="text-wrap mb-0">{{ error.nativeError }}</pre></details></div>
+          <div v-if="error" class="alert alert-danger py-2 small mb-0" role="alert"><strong>{{ error.code }}</strong>: {{ error.message }}<details v-if="error.nativeError" class="mt-1"><summary>Details</summary><pre class="text-wrap mb-0 selectable-text">{{ error.nativeError }}</pre></details></div>
         </div>
         <div class="modal-footer">
           <button class="btn btn-sm btn-neutral" type="button" :disabled="cancelling" @click="cancel">{{ busy ? 'Cancel operation' : 'Cancel' }}</button>

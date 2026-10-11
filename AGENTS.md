@@ -38,6 +38,17 @@ and `src/components/SettingsModal.vue`; do not introduce a separate visual style
 - Verify affected dialogs visually and run `npm test` before handing off changes.
   The modal-style regression test should cover any new modal component.
 
+## Text selection and cursors
+
+The interface shell behaves like native chrome: `src/styles/main/_text-selection.scss`
+makes it non-selectable with the arrow cursor in every window (main and media
+overlay). Text fields, editable content and anything marked `selectable-text`
+opt back in. Mark only the copyable content itself (a path, a value, preview
+text), not its labels, headings or the whole dialog. Write `user-select` together
+with `-webkit-user-select`; WKWebView and WebKitGTK ignore the unprefixed
+property in development builds. Do not block selection with global event
+handlers or a transparent `::selection`.
+
 ## Styles (SCSS)
 
 Styles are written in SCSS and compiled by Vite (`sass`). `src/styles/main.scss`

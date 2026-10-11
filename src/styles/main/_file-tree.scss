@@ -174,8 +174,6 @@
 	align-items: stretch;
 	border-left: 2px solid transparent;
 	color: var(--text);
-	cursor: default;
-	user-select: none;
 
 	&.is-compact {
 		grid-template-columns: minmax(0, 1fr) 1.75rem;
@@ -197,10 +195,6 @@
 }
 
 .tree-row {
-	&[draggable="true"] {
-		cursor: grab;
-	}
-
 	&.is-dragging {
 		opacity: 0.55;
 	}

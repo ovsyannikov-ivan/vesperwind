@@ -50,7 +50,6 @@
 	padding: 0 5px 0 9px;
 	border-bottom: 1px solid var(--border);
 	background: var(--surface-2);
-	user-select: none;
 }
 
 .file-panel {
@@ -66,6 +65,7 @@
 body.is-swapping-panels,
 body.is-swapping-panels * {
 	cursor: grabbing !important;
+	-webkit-user-select: none !important;
 	user-select: none !important;
 }
 

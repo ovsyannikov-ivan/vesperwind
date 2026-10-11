@@ -63,11 +63,11 @@ onBeforeUnmount(() => {
                 <i class="mdi quick-look-file-icon" :class="icon" aria-hidden="true" />
                 <p>{{ preview.message || 'No richer built-in preview is available for this file.' }}</p>
                 <dl>
-                  <dt>Name</dt><dd>{{ preview.node.name }}</dd>
-                  <dt>Type</dt><dd>{{ getFileExtension(preview.node.name).toUpperCase() || 'File' }}</dd>
-                  <dt>Size</dt><dd>{{ formatFileSize(preview.node.size) }}</dd>
-                  <dt>Modified</dt><dd>{{ formatModifiedAtTitle(preview.node.modifiedAt) || '—' }}</dd>
-                  <dt>Path</dt><dd>{{ preview.node.path }}</dd>
+                  <dt>Name</dt><dd class="selectable-text">{{ preview.node.name }}</dd>
+                  <dt>Type</dt><dd class="selectable-text">{{ getFileExtension(preview.node.name).toUpperCase() || 'File' }}</dd>
+                  <dt>Size</dt><dd class="selectable-text">{{ formatFileSize(preview.node.size) }}</dd>
+                  <dt>Modified</dt><dd class="selectable-text">{{ formatModifiedAtTitle(preview.node.modifiedAt) || '—' }}</dd>
+                  <dt>Path</dt><dd class="selectable-text">{{ preview.node.path }}</dd>
                 </dl>
               </div>
             </template>
@@ -128,7 +128,6 @@ onBeforeUnmount(() => {
   padding: 1rem;
   overflow: auto;
   white-space: pre;
-  user-select: text;
   font-size: .85rem;
   line-height: 1.5;
 }
@@ -138,7 +137,6 @@ onBeforeUnmount(() => {
   padding: 2rem;
   max-width: 100%;
   overflow: auto;
-  user-select: text;
 }
 
 .quick-look-file-icon {

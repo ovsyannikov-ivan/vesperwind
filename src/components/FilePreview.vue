@@ -22,7 +22,7 @@ defineExpose({ openFind: () => pdf.value?.openFind() })
       <p v-if="['audio', 'video'].includes(preview.kind)" class="small text-body-secondary">{{ preview.node.name }}</p>
       <p v-if="preview.mediaMetadata?.duration != null" class="small">Duration: {{ Math.round(preview.mediaMetadata.duration) }} s</p>
     </div>
-    <pre v-else-if="preview.kind === 'text'" class="file-preview-text" tabindex="0">{{ preview.content }}</pre>
+    <pre v-else-if="preview.kind === 'text'" class="file-preview-text selectable-text" tabindex="0">{{ preview.content }}</pre>
     <img v-else-if="preview.kind === 'image'" :src="preview.sourceUrl" :alt="preview.node.name" class="file-preview-image" @error="preview.error = { message: 'Unable to display this image' }">
     <PdfViewer v-else-if="['pdf', 'presentation'].includes(preview.kind)" ref="pdf" :tab="preview" :visible="true" :compact="compact" @state-change="(_id, state) => Object.assign(preview, state)" />
     <WordPreview v-else-if="preview.kind === 'word'" :bytes="preview.bytes" />
@@ -39,7 +39,7 @@ defineExpose({ openFind: () => pdf.value?.openFind() })
   overflow: hidden;
   .file-preview-message { display: flex; gap: .5rem; padding: 1rem; margin: auto; }
   .file-preview-identity { margin: auto; padding: 1rem; text-align: center; overflow-wrap: anywhere; .mdi { font-size: 4rem; color: var(--bs-secondary-color); } }
-  .file-preview-text { flex: 1; margin: 0; padding: 1rem; overflow: auto; user-select: text; font-size: .85rem; }
+  .file-preview-text { flex: 1; margin: 0; padding: 1rem; overflow: auto; font-size: .85rem; }
   .file-preview-poster { max-width: 100%; max-height: 300px; object-fit: contain; }
   .file-preview-image { width: 100%; height: 100%; min-height: 0; object-fit: contain; }
   :deep(.pdf-viewer) { flex: 1; min-height: 0; }

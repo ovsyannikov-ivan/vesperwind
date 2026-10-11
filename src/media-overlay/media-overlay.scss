@@ -1,5 +1,6 @@
 // Share Bootstrap theme tokens with the main window, including dropdown surfaces.
 @use '../styles/main/theme';
+@use '../styles/main/text-selection';
 
 :root {
 	color-scheme: dark;

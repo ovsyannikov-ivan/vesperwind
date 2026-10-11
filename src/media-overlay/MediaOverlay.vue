@@ -275,7 +275,7 @@ onBeforeUnmount(() => {
             <dl>
               <div v-for="item in section.rows" :key="item.label">
                 <dt>{{ item.label }}</dt>
-                <dd :title="item.title || undefined">{{ item.value }}</dd>
+                <dd class="selectable-text" :title="item.title || undefined">{{ item.value }}</dd>
               </div>
             </dl>
           </section>

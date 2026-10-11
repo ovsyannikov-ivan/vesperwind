@@ -322,7 +322,7 @@ onBeforeUnmount(() => {
 									<i class="mdi mdi-database-outline" aria-hidden="true" />
 									<div class="min-w-0">
 										<div>Stored locally as JSON</div>
-										<code class="settings-storage-path">{{ storagePath }}</code>
+										<code class="settings-storage-path selectable-text">{{ storagePath }}</code>
 									</div>
 								</div>
 

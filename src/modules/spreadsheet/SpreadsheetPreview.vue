@@ -34,7 +34,7 @@ watch(sheetIndex, () => { firstRow.value = 0; firstColumn.value = 0 })
         <tbody>
           <tr v-for="row in rows" :key="row">
             <th scope="row">{{ row + 1 }}</th>
-            <td v-for="column in columns" :key="column">{{ formatPreviewCell(cells.get(`${row}:${column}`), model.date1904) }}</td>
+            <td v-for="column in columns" :key="column" class="selectable-text">{{ formatPreviewCell(cells.get(`${row}:${column}`), model.date1904) }}</td>
           </tr>
         </tbody>
       </table>
@@ -54,7 +54,6 @@ watch(sheetIndex, () => { firstRow.value = 0; firstColumn.value = 0 })
 .spreadsheet-preview-scroll {
   flex: 1;
   overflow: auto;
-  user-select: text;
 }
 
 td {

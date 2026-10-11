@@ -407,16 +407,16 @@ onBeforeUnmount(() => {
                       <template v-if="dialog.kind === 'certificateChanged'"> This can mean that someone is intercepting the connection. Verify the new fingerprint with the server administrator. To trust it, remove the trusted certificate in the connection settings, then connect again.</template>
                     </div>
                     <dl class="row small mb-2 remote-certificate-details">
-                      <dt class="col-sm-3">Server</dt><dd class="col-sm-9 text-break">{{ dialog.certificate.endpoint }}</dd>
+                      <dt class="col-sm-3">Server</dt><dd class="col-sm-9 text-break selectable-text">{{ dialog.certificate.endpoint }}</dd>
                       <template v-if="dialog.kind === 'certificateChanged'">
-                        <dt class="col-sm-3">Trusted SHA-256</dt><dd class="col-sm-9"><code class="text-break">{{ dialog.certificate.pinnedSha256 }}</code></dd>
-                        <dt class="col-sm-3">Presented SHA-256</dt><dd class="col-sm-9"><code class="text-break">{{ dialog.certificate.sha256 }}</code></dd>
+                        <dt class="col-sm-3">Trusted SHA-256</dt><dd class="col-sm-9 selectable-text"><code class="text-break">{{ dialog.certificate.pinnedSha256 }}</code></dd>
+                        <dt class="col-sm-3">Presented SHA-256</dt><dd class="col-sm-9 selectable-text"><code class="text-break">{{ dialog.certificate.sha256 }}</code></dd>
                       </template>
-                      <template v-else><dt class="col-sm-3">SHA-256</dt><dd class="col-sm-9"><code class="text-break">{{ dialog.certificate.sha256 }}</code></dd></template>
-                      <dt class="col-sm-3">Subject</dt><dd class="col-sm-9 text-break">{{ dialog.certificate.subject || 'unknown' }}</dd>
-                      <dt class="col-sm-3">Issuer</dt><dd class="col-sm-9 text-break">{{ dialog.certificate.issuer || 'unknown' }}</dd>
-                      <dt class="col-sm-3">Valid</dt><dd class="col-sm-9">{{ certificateValidity(dialog.certificate) }}</dd>
-                      <dt class="col-sm-3">Names (SAN)</dt><dd class="col-sm-9 text-break">{{ certificateNames(dialog.certificate) }}</dd>
+                      <template v-else><dt class="col-sm-3">SHA-256</dt><dd class="col-sm-9 selectable-text"><code class="text-break">{{ dialog.certificate.sha256 }}</code></dd></template>
+                      <dt class="col-sm-3">Subject</dt><dd class="col-sm-9 text-break selectable-text">{{ dialog.certificate.subject || 'unknown' }}</dd>
+                      <dt class="col-sm-3">Issuer</dt><dd class="col-sm-9 text-break selectable-text">{{ dialog.certificate.issuer || 'unknown' }}</dd>
+                      <dt class="col-sm-3">Valid</dt><dd class="col-sm-9 selectable-text">{{ certificateValidity(dialog.certificate) }}</dd>
+                      <dt class="col-sm-3">Names (SAN)</dt><dd class="col-sm-9 text-break selectable-text">{{ certificateNames(dialog.certificate) }}</dd>
                     </dl>
                     <p v-if="dialog.kind === 'certificate'" class="small mb-0">Trusting saves this exact certificate for this connection. Vesperwind will then accept it without checking who issued it, the host name or its expiry date, and will refuse any other certificate. Trust it only if you have verified the fingerprint.</p>
                   </div>

@@ -1,0 +1,34 @@
+// Text selection and cursor policy, shared by every window (main.scss and the
+// media overlay). The interface shell behaves like native chrome: labels,
+// headers, rows, tabs and menus cannot be selected and show the arrow. Text
+// fields and content areas opt back in. Rules sit on the root so Bootstrap
+// modals and Vue Teleport targets under <body> inherit them as well.
+//
+// WebKit (WKWebView on macOS, WebKitGTK) ignores the unprefixed property, so
+// both spellings are written; the production minifier would add the prefix,
+// the development server does not.
+
+html {
+	-webkit-user-select: none;
+	user-select: none;
+	cursor: default;
+}
+
+// Places where the user edits or copies text: text-like inputs (readonly ones
+// too, they hold values meant for copying), textareas, anything that is actually
+// editable (contenteditable, plaintext-only and their editable descendants;
+// nested contenteditable="false" islands are not matched and keep what the
+// editor around them sets), and content marked with .selectable-text.
+// `cursor: auto` lets the engine show the I-beam over text and the arrow
+// elsewhere. :where() keeps specificity at zero, so a component's own cursor
+// (links, resize handles, disabled states) still wins.
+:where(
+	input:not([type="button"], [type="checkbox"], [type="color"], [type="file"], [type="hidden"], [type="image"], [type="radio"], [type="range"], [type="reset"], [type="submit"]),
+	textarea,
+	:read-write,
+	.selectable-text
+) {
+	-webkit-user-select: text;
+	user-select: text;
+	cursor: auto;
+}

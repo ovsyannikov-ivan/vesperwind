@@ -264,6 +264,8 @@
 	word-spacing: normal;
 	forced-color-adjust: none;
 	caret-color: CanvasText;
+	-webkit-user-select: text;
+	user-select: text;
 
 	&[data-main-rotation="90"] {
 		transform: rotate(90deg) translateY(-100%);
@@ -286,6 +288,7 @@
 		color: transparent;
 		cursor: text;
 		transform-origin: 0% 0%;
+		-webkit-user-select: text;
 		user-select: text;
 		white-space: pre;
 	}
@@ -305,6 +308,7 @@
 	}
 
 	span[role="img"] {
+		-webkit-user-select: none;
 		user-select: none;
 		cursor: default;
 	}
@@ -315,6 +319,7 @@
 		inset: 100% 0 0;
 		z-index: 0;
 		cursor: default;
+		-webkit-user-select: none;
 		user-select: none;
 	}
 
