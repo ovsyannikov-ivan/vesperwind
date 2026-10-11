@@ -15,6 +15,12 @@
 	list-style: none;
 }
 
+// Stands in for rows outside the virtual window (see FileTree.vue).
+.tree-spacer {
+	display: block;
+	pointer-events: none;
+}
+
 .tree-table {
 	--tree-columns: minmax(11rem, 1fr) 1.75rem 5.25rem 10.5rem;
 	width: 100%;

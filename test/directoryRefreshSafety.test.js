@@ -99,10 +99,11 @@ test('only a successful current response can make a directory empty; filtered em
   const h = fixture({ list: async () => ({ ...success([]), sourceEntryCount: 5 }) })
   await h.load(); assert.equal(h.state.loaded, true); assert.equal(h.state.children.length, 0)
   assert.equal(h.state.sourceEntryCount, 5); h.dispose()
-  const source = await fs.readFile(new URL('../src/components/FileTreeNode.vue', import.meta.url), 'utf8')
-  assert.match(source, /No items match the current filters/)
-  assert.match(source, /v-if="expanded && displayedChildren.length"/)
-  assert.match(source, /listing\.dispose\(\)/)
+  const flatten = await fs.readFile(new URL('../src/utils/flattenTree.js', import.meta.url), 'utf8')
+  const tree = await fs.readFile(new URL('../src/composables/useDirectoryTree.js', import.meta.url), 'utf8')
+  assert.match(flatten, /state\.sourceEntryCount > 0 \? 'No items match the current filters' : 'Empty folder'/)
+  assert.match(flatten, /if \(!expanded\) return/)
+  assert.match(tree, /record\.listing\.dispose\(\)/)
 })
 test('two shared-watch panels survive materialization bursts and delayed stale empty responses independently', async () => {
   let event; const requests = []

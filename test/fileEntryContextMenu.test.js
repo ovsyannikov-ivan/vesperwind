@@ -29,7 +29,9 @@ test('context-menu Rename starts the selected tree node inline editor', async ()
   assert.match(panel, /selectNode\(node\)[\s\S]*?renameRequest\.value = \{[\s\S]*?path: node\.path/u)
   assert.match(panel, /defineExpose\(\{ openNode, requestRename, removeSelectedPaths, editAddress, quickLookContext,/u)
   assert.match(panel, /:rename-request="renameRequest"/u)
-  assert.match(tree, /:rename-request="renameRequest"/u)
-  assert.match(node, /request\.path !== props\.node\.path/u)
-  assert.match(node, /selectNode\(\)[\s\S]*?await nextTick\(\)[\s\S]*?await beginRename\(\)/u)
+  // The tree finds the requested row logically (it may not be mounted),
+  // selects it, scrolls it into view and starts the rename there.
+  assert.match(tree, /watch\(\(\) => props\.renameRequest, async \(request\) => \{[\s\S]*?tree\.indexOf\(request\.path\)[\s\S]*?emit\('select', \{ node: row\.entry \}\)[\s\S]*?await nextTick\(\)[\s\S]*?await startRename\(row\.entry\)/u)
+  assert.match(tree, /tree\.beginRename\(entry\)\n  await revealPath\(entry\.path\)/u)
+  assert.match(node, /renaming = computed\(\(\) => props\.depth > 0 && rename\.path === props\.node\.path\)/u)
 })
