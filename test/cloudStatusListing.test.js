@@ -276,3 +276,29 @@ test('a window without animation frames still proceeds to the next batch', async
     else delete globalThis.requestAnimationFrame
   }
 })
+
+test('each batch follows the rows in view when it is sent, without restarting or repeating', async () => {
+  const sent = []
+  let inView = ['/a/f0.txt', '/a/f1.txt']
+  const inspector = createCloudStatusInspector({
+    request: async (event, payload) => {
+      if (event !== 'filesystem:cloud-status') return { ok: true }
+      sent.push(payload.paths)
+      // The user scrolls to the end while the first batch is inspected.
+      if (sent.length === 1) inView = ['/a/f6.txt', '/a/f7.txt']
+      return { ok: true, statuses: [] }
+    },
+    batchSize: 2, pause: () => Promise.resolve(), newId: () => 'id',
+  })
+  const entries = { '/a': Array.from({ length: 8 }, (_, index) => file('/a', `f${index}.txt`)) }
+  let h
+  h = harness({ entries, cloudStatus: inspector,
+    statusOrder: () => inView.map((path) => h.state.children.find((entry) => entry.path === path)) })
+  await h.listing.load()
+  for (let index = 0; index < 20 && sent.length < 4; index++) await settle()
+  assert.deepEqual(sent[0], ['/a/f0.txt', '/a/f1.txt'])
+  assert.deepEqual(sent[1], ['/a/f6.txt', '/a/f7.txt'], 'the next batch is the rows now in view')
+  assert.deepEqual(sent.flat().sort(), entries['/a'].map((entry) => entry.path).sort(), 'every file exactly once')
+  assert.equal(sent.length, 4)
+  h.listing.dispose()
+})
