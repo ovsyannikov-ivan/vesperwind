@@ -12,6 +12,10 @@ export const nameMatches = (name, query) => {
   return wildcardMatch(name, needle)
 }
 
+// The same order as localeCompare(b, undefined, options), several times
+// faster for large folders because the collator is created once.
+const nameCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+
 export const sortAndFilterEntries = (entries, view = {}, depth = 0) => {
   const extensions = view.extensions || []
   const shown = entries.filter((entry) => depth !== 0 ||
@@ -26,8 +30,8 @@ export const sortAndFilterEntries = (entries, view = {}, depth = 0) => {
     let value = 0
     if (criterion === 'size') value = (a.size ?? -1) - (b.size ?? -1)
     else if (criterion === 'date') value = (new Date(a.modifiedAt || 0).getTime() || 0) - (new Date(b.modifiedAt || 0).getTime() || 0)
-    else value = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
-    return direction * (value || a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }))
+    else value = nameCollator.compare(a.name, b.name)
+    return direction * (value || nameCollator.compare(a.name, b.name))
   })
 }
 
