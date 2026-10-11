@@ -24,7 +24,14 @@ Each event has its own effect:
 | A row scrolls out of the window | None. No request, no watcher change. |
 | A folder is collapsed | Its listing, watcher and cloud scan stop. Its contents stay for a quick re-open (at most 64 collapsed folders). Its descendants are released; the owner's `expandedPaths` reopens them with it, as before. |
 | The panel is deactivated (`watchActive`) | Requests and watchers stop; data stays. Reactivating refreshes the open folders. |
+| A child folder is missing from a successful full listing of its parent (deleted, renamed or moved away, replaced by a file) | That branch is released: records, watchers, listings and cloud batches; late responses are ignored and the owner is told it is no longer expanded. A folder recreated under the same name starts closed with a fresh listing. |
 | The provider or root changes, or the tree unmounts | Everything is released. |
+
+Only a successful, complete listing (before the panel's filters) can release a
+branch. A failed or superseded refresh, a filter that hides a folder, or a row
+leaving the viewport never does. A rename made in Vesperwind first moves the
+owner's `expandedPaths` (FilePanel), so the renamed branch reopens with fresh
+listings; an outside rename shows the new name closed.
 
 `FileTreeNode.vue` is one row: icon, name, cloud badge, size, date, selection,
 the toggle, the rename input, drag source and drop target, context menu and
@@ -95,17 +102,38 @@ the virtual range simple (no pinned row) while never losing typed text.
 
 The list is `role="tree"`; each row is a `treeitem` with `aria-level`,
 `aria-expanded` (folders), `aria-selected`, `aria-posinset` and
-`aria-setsize`. Spacers are `role="none"`. Only the active row is a tab stop.
-Arrow Up/Down, Home, End and Page Up/Down move the selection through the
-logical tree (Shift extends it), scrolling to and focusing rows that were not
-mounted; Enter, F2 and Arrow Left/Right keep their behaviour.
+`aria-setsize`. Spacers are `role="none"`.
+
+There is always exactly one tab stop. While the selected row (or the first
+row, without a selection) is mounted, it is that row; when scrolling unmounts
+it, the list itself is (`tabindex="0"`, with `aria-activedescendant` while the
+selected row exists). A focused row or rename input that scrolls out of the
+window hands focus to the list without scrolling back, and scrolling never
+changes the selection. On a row or on the list, Arrow Up/Down, Home, End and
+Page Up/Down move the selection through the logical tree (Shift extends it and
+keeps the anchor), scrolling to and focusing rows that were not mounted; Enter,
+F2 and Arrow Left/Right act on the selection, revealing it first.
 
 ## Cloud status
 
-Cloud status stays in the folder records. Each batch is chosen when it is sent:
-the folder's entries ordered by distance from the middle of the viewport, then
-the rest. Scrolling into the middle of a large folder therefore inspects those
-rows next, without restarting the scan or re-inspecting resolved files.
+Cloud status stays in the folder records, never in a row. Each batch is chosen
+when a limiter slot is free: up to 256 files of that folder nearest to the
+middle of the viewport (`viewportPriority`, walking at most 2048 rows outward
+instead of sorting the folder), then the rest in display order. Scrolling into
+the middle of a large folder therefore inspects those rows next, without
+restarting the scan or re-inspecting resolved files; rows that come back show
+the badges already stored on their entries. A folder collapsed mid-scan and
+reopened from its cached listing continues with the entries still pending.
+
+Choosing every batch for a scan took 0.7 ms (3,000 files, 47 batches) and
+4.8 ms (30,000 files, 469 batches) in total, at most 0.05 ms per batch. Sorting
+the folder by distance for each batch, as before, took 29 ms and 2.9 s. After a
+`complete` response the rest is taken in one pass (under 0.1 ms).
+
+On a real iCloud Drive folder with 202 cloud-only files open in both panels,
+the debug desktop app listed it in about 6 ms and then inspected batches of
+64, 64, 64 and 10 per panel, two at a time; `st_flags` and allocated blocks of
+every file were unchanged afterwards.
 
 ## Measurements
 
