@@ -1,9 +1,9 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, toRefs, watch } from 'vue'
+// One row of the virtual file tree. Folder contents, expansion, watchers,
+// cloud status and the rename draft live in the tree state (FileTree), so a
+// row can be unmounted by scrolling at any time without losing anything.
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { isComputerPath, isFilesystemRootEntry } from '../../shared/localFilesystem.js'
-import { entryNameError } from '../../shared/entryName.js'
-import { useFileOperations } from '../composables/useFileOperations.js'
-import { entryChange } from '../composables/useEntryChanges.js'
 import { getFileIcon } from '../utils/fileIcons.js'
 import { getFileStatusBadge } from '../utils/contentAvailability.js'
 import { useSettings } from '../composables/useSettings.js'
@@ -22,10 +22,6 @@ import {
   TERMINAL_PATH_MIME,
 } from '../utils/terminalPath.js'
 import { LOCAL_FILESYSTEM_PROVIDER } from '../api/filesystemLocation.js'
-import { createDirectoryListing } from '../utils/directoryListing.js'
-import { cloudStatus } from '../api/cloudStatus.js'
-import { traceMedia } from '../api/mediaDiagnostics.js'
-import { directoryWatch } from '../api/directoryWatch.js'
 import { runtime } from '../api/runtime.js'
 import { externalFiles } from '../api/shellIntegration.js'
 import { useFileClipboard } from '../composables/useFileClipboard.js'
@@ -33,6 +29,7 @@ import { showNotice } from '../composables/useNotice.js'
 import { isCutEntry } from '../utils/fileClipboard.js'
 import { fileDropKind } from '../utils/fileDrop.js'
 import { beginNativeDrag, endNativeDrag, nativeDrag } from '../utils/nativeDragSession.js'
+import { FILE_TREE_KEY } from '../utils/fileTreeContext.js'
 
 const props = defineProps({
   node: {
@@ -43,25 +40,16 @@ const props = defineProps({
     type: Number,
     default: 0,
   },
-  selectedPath: {
-    type: String,
-    default: '',
-  },
-  selectedPaths: {
-    type: Array,
-    default: () => [],
-  },
+  expanded: { type: Boolean, default: false },
+  loading: { type: Boolean, default: false },
+  selected: { type: Boolean, default: false },
+  active: { type: Boolean, default: false },
+  focusable: { type: Boolean, default: false },
+  posInSet: { type: Number, default: 1 },
+  setSize: { type: Number, default: 1 },
   selectedEntries: {
     type: Array,
     default: () => [],
-  },
-  expandedPaths: {
-    type: Array,
-    default: () => [],
-  },
-  renameRequest: {
-    type: Object,
-    default: null,
   },
   homePath: {
     type: String,
@@ -76,87 +64,75 @@ const props = defineProps({
     type: String,
     default: LOCAL_FILESYSTEM_PROVIDER,
   },
-  defaultExpanded: {
-    type: Boolean,
-    default: false,
-  },
-  listDirectory: {
-    type: Function,
-    required: true,
-  },
   compact: {
     type: Boolean,
     default: false,
   },
-  scrollSelectedIntoView: {
-    type: Boolean,
-    default: false,
-  },
-  watchActive: { type: Boolean, default: true },
-  refreshRevision: { type: Number, default: 0 },
-  transformChildren: { type: Function, default: null },
 })
 
-const emit = defineEmits(['select', 'open', 'drop-request', 'context-menu', 'expanded-change', 'children-loaded'])
+const emit = defineEmits(['select', 'open', 'toggle', 'drop-request', 'context-menu'])
+const { tree, startRename, submitRename, cancelRename, keepFocus } = inject(FILE_TREE_KEY)
 const { settings } = useSettings()
-const expanded = ref(false)
-const listingState = reactive({ loaded: false, loading: false, children: [], error: null, sourceEntryCount: 0 })
-const { loaded, loading, children, error } = toRefs(listingState)
-const dragging = ref(false)
 const dropTarget = ref(false)
 const { state: clipboardState } = useFileClipboard()
 const cut = computed(() => props.depth > 0 &&
   isCutEntry(clipboardState.snapshot, { providerId: props.providerId, path: props.node.path }))
 const rowElement = ref(null)
-const { renameEntry } = useFileOperations(props.providerId)
-const renaming = ref(false)
-const renameName = ref('')
-const renameError = ref('')
-const renameBusy = ref(false)
 const renameInput = ref(null)
+const rename = tree.rename
+const renaming = computed(() => props.depth > 0 && rename.path === props.node.path)
+const dragging = computed(() => tree.drag.path === props.node.path)
 let renameTimer = null
 let lastNameClick = 0
-let stopDirectoryWatch = null
-const listing = createDirectoryListing({ state: listingState,
-  consumer: props.panelSide,
-  getLocation: () => ({ providerId: props.providerId, path: props.node.path }),
-  isActive: () => expanded.value && props.node.isDirectory,
-  list: (path, options) => props.listDirectory(path, options),
-  onLoaded: (payload) => emit('children-loaded', payload),
-  // Cloud status follows the rendered rows, displayed order first.
-  cloudStatus,
-  statusOrder: () => displayedChildren.value,
-})
-const refreshChildren = async (event) => {
-  if (!expanded.value) return
-  traceMedia('directory.refresh', { panel: props.panelSide, providerId: props.providerId, path: props.node.path,
-    eventPath: event?.directoryPath })
-  await listing.load({ force: true })
-}
-const startDirectoryWatch = () => {
-  if (stopDirectoryWatch || !expanded.value || !props.watchActive) return
-  stopDirectoryWatch = directoryWatch.subscribe(props.providerId, props.node.path, refreshChildren)
-}
-const releaseDirectoryWatch = () => {
-  stopDirectoryWatch?.()
-  stopDirectoryWatch = null
-}
+let unmounting = false
+
+const selected = computed(() => props.selected)
+const iconDetails = computed(() => getFileIcon(props.node, props.expanded))
+const statusBadge = computed(() => getFileStatusBadge(props.node, props.providerId))
+const rowPadding = computed(() => ({ paddingLeft: `calc(var(--file-tree-row-padding) + ${props.depth} * var(--file-tree-indent))` }))
+const formattedSize = computed(() =>
+  formatFileSize(props.node.size, props.node.isDirectory),
+)
+const formattedModifiedAt = computed(() =>
+  formatModifiedAt(props.node.modifiedAt, settings.value.appearance.locale),
+)
+const modifiedAtTitle = computed(() =>
+  formatModifiedAtTitle(props.node.modifiedAt, settings.value.appearance.locale),
+)
+const terminalPath = computed(() =>
+  formatTerminalPath(props.node.path, {
+    homePath: props.homePath,
+    directory: props.node.isDirectory,
+  }),
+)
+
 const cancelRenameTimer = () => { clearTimeout(renameTimer); renameTimer = null }
-const cancelRename = () => {
-  if (renameBusy.value) return
-  cancelRenameTimer()
-  renaming.value = false
-  renameError.value = ''
-}
 const beginRename = async () => {
-  if (!selected.value || props.depth === 0 || isFilesystemRootEntry(props.node) || renameBusy.value) return
-  renaming.value = true
-  renameName.value = props.node.name
-  renameError.value = ''
+  if (!selected.value || props.depth === 0 || isFilesystemRootEntry(props.node) || rename.busy) return
+  await startRename(props.node)
+}
+// The draft lives in the tree state; a remounted row picks up the text and
+// the caret where the user left them.
+const focusRenameInput = async () => {
   await nextTick()
-  renameInput.value?.focus()
+  const input = renameInput.value
+  if (!input) return
+  input.focus({ preventScroll: true })
+  if (rename.selectionStart !== null) {
+    input.setSelectionRange(rename.selectionStart, rename.selectionEnd)
+    return
+  }
   const dot = props.node.isDirectory ? -1 : props.node.name.lastIndexOf('.')
-  renameInput.value?.setSelectionRange(0, dot > 0 ? dot : props.node.name.length)
+  input.setSelectionRange(0, dot > 0 ? dot : props.node.name.length)
+}
+const rememberCaret = (event) => {
+  rename.selectionStart = event.target.selectionStart
+  rename.selectionEnd = event.target.selectionEnd
+}
+const handleRenameBlur = () => {
+  // Scrolling the row away is not leaving the rename.
+  if (unmounting || rename.error) return
+  cancelRename()
 }
 const handleNameClick = (event) => {
   if (event.shiftKey || event.metaKey || event.ctrlKey || props.selectedEntries.length > 1) {
@@ -171,80 +147,6 @@ const handleNameClick = (event) => {
   }
   lastNameClick = now
 }
-const submitRename = async () => {
-  if (renameBusy.value) return
-  renameError.value = entryNameError(renameName.value)
-  if (renameError.value) return
-  if (renameName.value === props.node.name) { cancelRename(); return }
-  renameBusy.value = true
-  try {
-    const response = await renameEntry(props.node.path, renameName.value)
-    if (response.ok) renaming.value = false
-    else renameError.value = response.error.message
-  } catch (error) {
-    renameError.value = error.message || 'Unable to rename this item'
-  } finally { renameBusy.value = false }
-}
-
-const selected = computed(() => props.selectedPaths.includes(props.node.path) ||
-  (props.depth === 0 && props.selectedPath === props.node.path))
-const activeSelection = computed(() => props.selectedPath === props.node.path)
-const iconDetails = computed(() => getFileIcon(props.node, expanded.value))
-const statusBadge = computed(() => getFileStatusBadge(props.node, props.providerId))
-const rowPadding = computed(() => ({ paddingLeft: `calc(var(--file-tree-row-padding) + ${props.depth} * var(--file-tree-indent))`}))
-const formattedSize = computed(() =>
-  formatFileSize(props.node.size, props.node.isDirectory),
-)
-const formattedModifiedAt = computed(() =>
-  formatModifiedAt(props.node.modifiedAt, settings.value.appearance.locale),
-)
-const modifiedAtTitle = computed(() =>
-  formatModifiedAtTitle(props.node.modifiedAt, settings.value.appearance.locale),
-)
-const displayedChildren = computed(() => {
-  const entries = props.transformChildren ? props.transformChildren(children.value, props.depth) : children.value
-  traceMedia('directory.visible', { panel: props.panelSide, providerId: props.providerId, path: props.node.path,
-    children: children.value.length, visible: entries.length, sourceEntries: listingState.sourceEntryCount })
-  return entries
-})
-const terminalPath = computed(() =>
-  formatTerminalPath(props.node.path, {
-    homePath: props.homePath,
-    directory: props.node.isDirectory,
-  }),
-)
-
-const scrollToSelected = async () => {
-  if (!props.scrollSelectedIntoView || !activeSelection.value) {
-    return
-  }
-
-  await nextTick()
-  rowElement.value?.scrollIntoView({
-    block: 'nearest',
-    inline: 'nearest',
-  })
-}
-
-const loadChildren = () => listing.load()
-
-const toggle = async () => {
-  if (!props.node.isDirectory) {
-    return
-  }
-
-  expanded.value = !expanded.value
-  emit('expanded-change', { path: props.node.path, expanded: expanded.value })
-
-  if (expanded.value) {
-    if (isComputerPath(props.node.path)) loaded.value = false
-    startDirectoryWatch()
-    await loadChildren()
-  } else {
-    listing.invalidate()
-    releaseDirectoryWatch()
-  }
-}
 
 const selectNode = (event) => {
   emit('select', {
@@ -253,6 +155,10 @@ const selectNode = (event) => {
     metaKey: Boolean(event?.metaKey),
     ctrlKey: Boolean(event?.ctrlKey),
   })
+}
+
+const toggle = () => {
+  if (props.node.isDirectory) emit('toggle')
 }
 
 const handleDoubleClick = () => {
@@ -278,24 +184,6 @@ const handleContextMenu = (event) => {
   })
 }
 
-const forwardOpen = (payload) => {
-  if (payload?.node) {
-    emit('open', payload)
-    return
-  }
-
-  emit('open', {
-    node: payload,
-    siblings: displayedChildren.value,
-  })
-}
-
-const forwardContextMenu = (payload) => {
-  emit('context-menu', payload?.siblings
-    ? payload
-    : { ...payload, siblings: children.value })
-}
-
 const handleKeydown = (event) => {
   if (event.key === 'F2') {
     event.preventDefault()
@@ -310,11 +198,11 @@ const handleKeydown = (event) => {
     else emit('open', props.node)
   }
 
-  if (event.key === 'ArrowRight' && props.node.isDirectory && !expanded.value) {
+  if (event.key === 'ArrowRight' && props.node.isDirectory && !props.expanded) {
     toggle()
   }
 
-  if (event.key === 'ArrowLeft' && expanded.value) {
+  if (event.key === 'ArrowLeft' && props.expanded) {
     toggle()
   }
 }
@@ -327,8 +215,9 @@ const handleDragStart = (event) => {
   }
 
   if (!selected.value) selectNode()
-  dragging.value = true
+  tree.drag.path = props.node.path
   const operable = props.depth > 0 && !isFilesystemRootEntry(props.node)
+  // Selected entries come from the panel state, never from mounted rows.
   const payload = operable ? createFileDragPayload(
     props.node,
     props.panelSide,
@@ -346,7 +235,7 @@ const handleDragStart = (event) => {
     void externalFiles.startDrag(session.sources || [session]).then((response) => {
       if (response.ok) return
       endNativeDrag()
-      dragging.value = false
+      tree.drag.path = ''
       if (response.error?.code !== 'EDRAG_ENDED') showNotice('Unable to drag', response.error)
     })
     return
@@ -359,7 +248,7 @@ const handleDragStart = (event) => {
 }
 
 const handleDragEnd = () => {
-  dragging.value = false
+  tree.drag.path = ''
 }
 
 const handleDragOver = (event) => {
@@ -432,61 +321,29 @@ const handleDrop = (event) => {
 watch(() => nativeDrag.active, (active) => {
   if (active) return
   dropTarget.value = false
-  dragging.value = false
+  tree.drag.path = ''
 })
+
+watch(renaming, (value) => { if (value) void focusRenameInput() })
+watch(() => props.active, (isActive) => { if (!isActive) lastNameClick = 0 })
 
 onMounted(() => {
-  if (props.defaultExpanded) {
-    expanded.value = true
-    startDirectoryWatch()
-    loadChildren()
-  }
-
-  scrollToSelected()
+  if (renaming.value) void focusRenameInput()
 })
-
-watch(() => props.expandedPaths.includes(props.node.path), (included) => {
-  if (included && props.node.isDirectory && !expanded.value) void toggle()
-})
-
-watch(activeSelection, (isSelected) => {
-  if (isSelected) {
-    scrollToSelected()
-  }
-  if (!isSelected) { lastNameClick = 0; cancelRename() }
-})
-
-watch(
-  () => props.renameRequest,
-  async (request) => {
-    if (!request || request.path !== props.node.path || props.depth === 0) {
-      return
-    }
-
-    selectNode()
-    await nextTick()
-    await beginRename()
-  },
-)
-
-watch(entryChange, async (change) => {
-  if (change?.providerId !== props.providerId || change?.targetDirectory !== props.node.path || !props.node.isDirectory) return
-  await refreshChildren()
-})
-watch(() => props.watchActive, (active) => {
-  if (!active) { listing.invalidate(); releaseDirectoryWatch() }
-  else if (expanded.value) { startDirectoryWatch(); void refreshChildren() }
-})
-watch(() => [props.providerId, props.node.path], () => {
-  releaseDirectoryWatch(); listing.reset()
-  if (expanded.value) { startDirectoryWatch(); void loadChildren() }
-}, { flush: 'sync' })
-watch(() => props.refreshRevision, () => { void refreshChildren() })
-onBeforeUnmount(() => { listing.dispose(); cancelRenameTimer(); releaseDirectoryWatch() })
+onBeforeUnmount(() => { unmounting = true; cancelRenameTimer(); keepFocus(rowElement.value) })
 </script>
 
 <template>
-  <li class="tree-node" role="treeitem" :aria-expanded="node.isDirectory ? expanded : undefined">
+  <li
+    class="tree-node"
+    role="treeitem"
+    :aria-level="depth + 1"
+    :aria-expanded="node.isDirectory ? expanded : undefined"
+    :aria-selected="selected"
+    :aria-posinset="posInSet"
+    :aria-setsize="setSize"
+    :aria-label="node.name"
+  >
     <div
       ref="rowElement"
       class="tree-row"
@@ -498,6 +355,7 @@ onBeforeUnmount(() => { listing.dispose(); cancelRenameTimer(); releaseDirectory
         'is-cut': cut,
       }"
       :title="node.path"
+      :data-tree-path="node.path"
       :data-file-path="depth > 0 ? node.path : undefined"
       :data-file-name="depth > 0 ? node.name : undefined"
       :data-file-directory="depth > 0 ? String(node.isDirectory) : undefined"
@@ -505,7 +363,7 @@ onBeforeUnmount(() => { listing.dispose(); cancelRenameTimer(); releaseDirectory
       :data-drop-path="node.isDirectory ? node.path : undefined"
       :data-drop-name="node.isDirectory ? node.name : undefined"
       :draggable="!renaming && Boolean(terminalPath)"
-      tabindex="0"
+      :tabindex="focusable ? 0 : -1"
       @click="selectNode"
       @dblclick="handleDoubleClick"
       @contextmenu="handleContextMenu"
@@ -521,6 +379,7 @@ onBeforeUnmount(() => { listing.dispose(); cancelRenameTimer(); releaseDirectory
           v-if="node.isDirectory"
           class="tree-toggle"
           type="button"
+          tabindex="-1"
           :aria-label="expanded ? `Collapse ${node.name}` : `Expand ${node.name}`"
           :aria-expanded="expanded"
           @click.stop="toggle"
@@ -540,11 +399,12 @@ onBeforeUnmount(() => { listing.dispose(); cancelRenameTimer(); releaseDirectory
           aria-hidden="true"
         />
         <input
-          v-if="renaming" ref="renameInput" v-model="renameName" class="tree-rename-input"
-          :aria-label="`Rename ${node.name}`" :disabled="renameBusy" :aria-invalid="Boolean(renameError)"
+          v-if="renaming" ref="renameInput" v-model="rename.draft" class="tree-rename-input"
+          :aria-label="`Rename ${node.name}`" :disabled="rename.busy" :aria-invalid="Boolean(rename.error)"
           @click.stop @dblclick.stop @pointerdown.stop @keydown.stop
           @keydown.enter.prevent="submitRename" @keydown.esc.prevent="cancelRename"
-          @blur="!renameError && cancelRename()"
+          @select="rememberCaret" @keyup="rememberCaret" @input="rememberCaret"
+          @blur="handleRenameBlur"
         >
         <span v-else class="tree-label" @click="handleNameClick">{{ node.name }}</span>
         <i
@@ -573,61 +433,5 @@ onBeforeUnmount(() => { listing.dispose(); cancelRenameTimer(); releaseDirectory
         {{ formattedModifiedAt }}
       </time>
     </div>
-
-    <div v-if="renaming && renameError" class="tree-state text-danger" role="alert">{{ renameError }}</div>
-
-    <template v-if="node.isDirectory">
-      <div
-        v-if="error"
-        v-show="expanded"
-        class="tree-state tree-error"
-        :style="{ paddingLeft: `${(depth + 1) * 16 + 26}px` }"
-        role="status"
-      >
-        <i class="mdi mdi-alert-outline" aria-hidden="true" />
-        {{ error.message }}
-      </div>
-      <div
-        v-if="loaded && !error && displayedChildren.length === 0"
-        v-show="expanded"
-        class="tree-state"
-        :style="{ paddingLeft: `${(depth + 1) * 16 + 26}px` }"
-      >
-        {{ listingState.sourceEntryCount > 0 ? 'No items match the current filters' : 'Empty folder' }}
-      </div>
-      <ul
-        v-if="expanded && displayedChildren.length"
-        class="tree-children"
-        role="group"
-      >
-        <FileTreeNode
-          v-for="child in displayedChildren"
-          :key="child.path"
-          :node="child"
-          :home-path="homePath"
-          :panel-side="panelSide"
-          :provider-id="providerId"
-          :depth="depth + 1"
-          :selected-path="selectedPath"
-          :selected-paths="selectedPaths"
-          :selected-entries="selectedEntries"
-          :expanded-paths="expandedPaths"
-          :default-expanded="expandedPaths.includes(child.path)"
-          :rename-request="renameRequest"
-          :list-directory="listDirectory"
-          :compact="compact"
-          :scroll-selected-into-view="scrollSelectedIntoView"
-          :watch-active="watchActive"
-          :refresh-revision="refreshRevision"
-          :transform-children="transformChildren"
-          @select="$emit('select', $event)"
-          @open="forwardOpen"
-          @drop-request="$emit('drop-request', $event)"
-          @context-menu="forwardContextMenu"
-          @expanded-change="$emit('expanded-change', $event)"
-          @children-loaded="$emit('children-loaded', $event)"
-        />
-      </ul>
-    </template>
   </li>
 </template>

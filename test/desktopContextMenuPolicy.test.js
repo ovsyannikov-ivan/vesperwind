@@ -129,7 +129,8 @@ test('FileTree and SearchResults right-click still open the FileEntryContextMenu
       }
     }
     assert.match(await component('FileTreeNode'), /@contextmenu="handleContextMenu"/)
-    assert.match(await component('FileTree'), /@context-menu="\$emit\('context-menu', \$event\)"/)
+    assert.match(await component('FileTree'), /@context-menu="contextMenuRow\(row, \$event\)"/)
+    assert.match(await component('FileTree'), /emit\('context-menu', \{ \.\.\.payload, siblings: tree\.childrenOf\(row\.parentPath\) \}\)/)
     assert.match(await component('SearchResults'), /@contextmenu="showContext\(\$event, entry\)"/)
     assert.match(await component('FilePanel'), /@context-menu="openEntryContextMenu"/)
     assert.match(await component('FileManager'), /<FileEntryContextMenu\s+v-if="entryContextRequest"/)

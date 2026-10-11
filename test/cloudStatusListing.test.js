@@ -276,3 +276,64 @@ test('a window without animation frames still proceeds to the next batch', async
     else delete globalThis.requestAnimationFrame
   }
 })
+
+test('each batch follows the rows in view when it is sent, without restarting or repeating', async () => {
+  const sent = []
+  let inView = ['/a/f0.txt', '/a/f1.txt']
+  const inspector = createCloudStatusInspector({
+    request: async (event, payload) => {
+      if (event !== 'filesystem:cloud-status') return { ok: true }
+      sent.push(payload.paths)
+      // The user scrolls to the end while the first batch is inspected.
+      if (sent.length === 1) inView = ['/a/f6.txt', '/a/f7.txt']
+      return { ok: true, statuses: [] }
+    },
+    batchSize: 2, pause: () => Promise.resolve(), newId: () => 'id',
+  })
+  const entries = { '/a': Array.from({ length: 8 }, (_, index) => file('/a', `f${index}.txt`)) }
+  let h
+  h = harness({ entries, cloudStatus: inspector,
+    statusOrder: () => inView.map((path) => h.state.children.find((entry) => entry.path === path)) })
+  await h.listing.load()
+  for (let index = 0; index < 20 && sent.length < 4; index++) await settle()
+  assert.deepEqual(sent[0], ['/a/f0.txt', '/a/f1.txt'])
+  assert.deepEqual(sent[1], ['/a/f6.txt', '/a/f7.txt'], 'the next batch is the rows now in view')
+  assert.deepEqual(sent.flat().sort(), entries['/a'].map((entry) => entry.path).sort(), 'every file exactly once')
+  assert.equal(sent.length, 4)
+  h.listing.dispose()
+})
+
+test('a scan waiting for a busy slot sends the rows in view when the slot frees, not when it queued', async () => {
+  const sent = []
+  const replies = []
+  const inspector = createCloudStatusInspector({
+    concurrency: 1, batchSize: 2, pause: () => Promise.resolve(), newId: () => 'id',
+    request: async (event, payload) => {
+      if (event !== 'filesystem:cloud-status') return { ok: true }
+      sent.push(payload.paths)
+      return new Promise((resolve) => replies.push(resolve))
+    },
+  })
+  const other = inspector.inspect({ providerId: 'local', path: '/other', paths: ['/other/x'], signal: new AbortController().signal, onBatch: () => {} })
+  await settle()
+  let inView = ['/a/f0.txt', '/a/f1.txt']
+  const queue = ['/a/f0.txt', '/a/f1.txt', '/a/f8.txt', '/a/f9.txt']
+  const next = (size) => {
+    const picked = inView.filter((path) => queue.includes(path)).slice(0, size)
+    for (const path of picked) queue.splice(queue.indexOf(path), 1)
+    while (picked.length < size && queue.length) picked.push(queue.shift())
+    return picked
+  }
+  const scan = inspector.inspect({ providerId: 'local', path: '/a', next, signal: new AbortController().signal, onBatch: () => {} })
+  await settle()
+  assert.equal(sent.length, 1, 'the second folder waits for the only slot')
+  inView = ['/a/f8.txt', '/a/f9.txt']
+  replies.shift()({ ok: true, statuses: [] })
+  await settle()
+  assert.deepEqual(sent[1], ['/a/f8.txt', '/a/f9.txt'])
+  replies.shift()({ ok: true, statuses: [] })
+  await settle()
+  replies.shift()?.({ ok: true, statuses: [] })
+  await Promise.all([other, scan])
+  assert.deepEqual(sent.flat().sort(), ['/a/f0.txt', '/a/f1.txt', '/a/f8.txt', '/a/f9.txt', '/other/x'])
+})

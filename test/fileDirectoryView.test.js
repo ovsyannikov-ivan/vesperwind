@@ -40,3 +40,12 @@ test('hidden selection and Shift anchor are removed when a filter hides entries'
   assert.deepEqual(next.selectedEntries.map((item) => item.name), ['photo.JPG'])
   assert.equal(next.anchorPath, entries[3].path)
 })
+
+test('name sorting keeps the localeCompare order for mixed names', async () => {
+  const { sortAndFilterEntries } = await import('../src/utils/fileDirectoryView.js')
+  const names = ['file10.txt', 'File2.txt', 'file1.txt', 'Äpfel.txt', 'apple.txt', 'zeta', 'Zeta', 'ёлка', 'Елена', '10', '9', 'a b', 'a-b', 'a_b', '']
+  const entries = names.map((name) => ({ name, isDirectory: false }))
+  const expected = [...names].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }) ||
+    a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
+  assert.deepEqual(sortAndFilterEntries(entries, { sort: 'name' }).map((entry) => entry.name), expected)
+})
