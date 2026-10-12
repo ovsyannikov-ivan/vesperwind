@@ -86,3 +86,10 @@ test('targeted neutral actions share one compact btn-neutral style', async () =>
   assert.match(compactCss, /\.tree-filter-actions \{ display: flex; gap: [^;]+; margin-top: [^;]+; \}/u)
   assert.match(compactCss, /\.tree-filter-actions > \.btn \{ flex: 1 1 0; min-width: 0;[^}]*white-space: nowrap; \}/u)
 })
+
+test('a dialog opened from the keyboard does not outline the whole window', () => {
+  const css = compiledStyles('src/styles/main.scss')
+  assert.match(css, /\.modal:focus-visible\s*\{\s*outline: 0;\s*\}/)
+  // The generic focus ring still marks focusable controls.
+  assert.match(css, /button:focus-visible,\s*\[tabindex\]:focus-visible\s*\{\s*outline: 1px solid var\(--accent\);/)
+})
