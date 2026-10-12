@@ -23,7 +23,7 @@ const props = defineProps({
   watchActive: { type: Boolean, default: true },
 })
 
-const emit = defineEmits(['open-file'])
+const emit = defineEmits(['open-file', 'open-git'])
 const { listDirectory } = useFilesystem(props.context.filesystemId)
 const selectedPath = ref(
   props.activeFilePath || props.context.sourceRootPath,
@@ -90,6 +90,9 @@ const openFolderMenu = (event, crumb, index) => {
   }
 }
 
+const rootRepository = ref(null)
+watch(browsedPath, () => { rootRepository.value = null })
+const openGit = repository => emit('open-git', { ...props.context, repository })
 const openNode = (payload) => {
   const node = payload?.node || payload
 
@@ -164,6 +167,7 @@ watch(
           >{{ crumb.name }}</button>
         </template>
       </nav>
+      <button v-if="rootRepository && context.filesystemId === 'local'" class="compact-icon-button git-repository-button" type="button" title="Open repository Git" aria-label="Open repository Git" @pointerdown.stop @click.stop="openGit(rootRepository)"><i class="mdi mdi-git" aria-hidden="true" /></button>
       <FolderPathMenu
         v-if="folderMenu"
         :key="folderMenu.id"
@@ -197,6 +201,8 @@ watch(
         compact
         @select="selectedPath = $event.node?.path || $event.path"
         @open="openNode"
+        @open-git="openGit"
+        @repository-root="rootRepository = $event"
         @expanded-change="updateExpanded"
       />
     </div>

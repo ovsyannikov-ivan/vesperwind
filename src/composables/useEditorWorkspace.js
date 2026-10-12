@@ -1,4 +1,5 @@
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, markRaw, reactive, ref, watch } from 'vue'
+import { createGitViewer } from './useGitViewer.js'
 import { entryChange, relocatePath } from './useEntryChanges.js'
 import { getEditorLanguage } from '../utils/editorLanguages.js'
 import { useTextFiles } from './useTextFiles.js'
@@ -16,7 +17,7 @@ const preparationControllers = new Map()
 watch(entryChange, (change) => {
   if (change?.action !== 'rename') return
   for (const tab of tabs.value) {
-    if (tab.filesystemId !== change.providerId) continue
+    if (tab.filesystemId !== change.providerId || tab.type === 'git') continue
     tab.filePath = relocatePath(tab.filePath, change)
     tab.fileName = tab.filePath.split('/').at(-1)
     tab.sourceRootPath = relocatePath(tab.sourceRootPath, change)
@@ -111,10 +112,22 @@ export const useEditorWorkspace = () => {
     return preparePdfTab(tab)
   }
 
+  const openGit = (context) => {
+    if (context.filesystemId !== 'local' || !context.repository?.id) return null
+    const repository = context.repository
+    const existing = tabs.value.find(tab => tab.type === 'git' && tab.repository.id === repository.id)
+    if (existing) { activeTabId.value = existing.id; return existing }
+    const id = `git:${repository.id}`
+    const tab = reactive({ ...createCommonTab(id, 'local', { ...context, type: 'git', node: { path: repository.path, name: repository.name } }),
+      repository, gitViewer: markRaw(createGitViewer(repository)) })
+    tabs.value.push(tab); activeTabId.value = id
+    return tab
+  }
+
   const openFile = async (context) => {
     const filesystemId = context.filesystemId || 'local'
     const id = createTabId(filesystemId, context.node.path)
-    const existingTab = tabs.value.find((tab) => tab.filesystemId === filesystemId && tab.filePath === context.node.path)
+    const existingTab = tabs.value.find((tab) => tab.type !== 'git' && tab.filesystemId === filesystemId && tab.filePath === context.node.path)
 
     if (existingTab) {
       activeTabId.value = existingTab.id
@@ -273,6 +286,7 @@ export const useEditorWorkspace = () => {
     preparationControllers.get(tabId)?.abort()
     preparationControllers.delete(tabId)
 
+    tabs.value[index].gitViewer?.dispose()
     tabs.value.splice(index, 1)
 
     if (activeTabId.value === tabId) {
@@ -287,6 +301,7 @@ export const useEditorWorkspace = () => {
     activeTab,
     activateTab,
     openFile,
+    openGit,
     updateContent,
     updatePdfState,
     retryPdfTab,

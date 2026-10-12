@@ -118,3 +118,15 @@ licenses and notices are recorded in `src/editor/themes/THIRD-PARTY-NOTICES.md`,
 `SOURCES.json` and `licenses/`. Vite includes these texts in `editor-notices/`
 in every frontend distribution. Prettier 3.9.9 uses MIT and ships its standard
 plugins offline; users do not need a global or project installation.
+
+## Git viewer and native Git service
+
+The Git viewer uses `@git-diff-view/vue` 0.1.7 (MIT) and its bundled
+highlight.js/lowlight highlighters (BSD-3-Clause/MIT). Node's Git ignore parser
+uses `ignore` (MIT). Upstream: <https://github.com/MrWangJustToDo/git-diff-view>.
+Native builds statically link vendored libgit2 1.9.7 through `git2` 0.20.4
+(MIT or Apache-2.0). libgit2 is GPL-2.0 with its explicit linking exception;
+the exception permits distribution of the linked application without extending
+libgit2's license to the application's code. Complete git2 and libgit2 license
+texts are included in `public/git-notices/` and the built frontend assets.
+Upstream source pins are in `src-tauri/Cargo.lock` and `package-lock.json`.

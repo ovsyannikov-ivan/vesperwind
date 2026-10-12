@@ -5,6 +5,7 @@ let treeSequence = 0
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import FileTreeNode from './FileTreeNode.vue'
+import { discoverListedRepositories } from '../api/git.js'
 import { LOCAL_FILESYSTEM_PROVIDER } from '../api/filesystemLocation.js'
 import { cloudStatus } from '../api/cloudStatus.js'
 import { createDirectoryTree } from '../composables/useDirectoryTree.js'
@@ -72,7 +73,7 @@ const props = defineProps({
   transformChildren: { type: Function, default: null },
 })
 
-const emit = defineEmits(['select', 'open', 'drop-request', 'context-menu', 'expanded-change', 'children-loaded', 'listing-failed'])
+const emit = defineEmits(['select', 'open', 'drop-request', 'context-menu', 'expanded-change', 'children-loaded', 'listing-failed', 'open-git', 'repository-root'])
 
 const listRef = ref(null)
 const { viewport, attach, detach, measure, scrollToIndex } = createVirtualViewport()
@@ -84,8 +85,30 @@ const range = computed(() => computeVirtualRange({ count: tree.rows.value.length
 const statusPriority = (directoryPath) => viewportPriority({ rows: tree.rows.value,
   first: range.value.first, last: range.value.last, directoryPath })
 
+const discoveredRoot = ref(null)
+const displayRoot = computed(() => ({ ...props.root, gitRepository: discoveredRoot.value }))
+const detectionRequests = new Map()
+let detectionStopped = false
+const discoverRepositories = async payload => {
+  if (props.providerId !== 'local' || !props.watchActive || detectionStopped) return
+  detectionRequests.get(payload.path)?.abort()
+  const controller = new AbortController()
+  detectionRequests.set(payload.path, controller)
+  const record = tree.recordOf(payload.path)
+  const children = record?.state.children
+  try {
+    const result = await discoverListedRepositories({ providerId: props.providerId, path: payload.path,
+      response: { ok: true, entries: payload.entries }, signal: controller.signal })
+    if (detectionStopped || controller.signal.aborted || record !== tree.recordOf(payload.path) || children !== record?.state.children || !tree.isExpanded(payload.path)) return
+    const byPath = new Map(result.response.entries.map(entry => [entry.path, entry.gitRepository]))
+    for (const entry of children) entry.gitRepository = byPath.get(entry.path) || null
+    if (payload.path === props.root.path) { discoveredRoot.value = result.repository; emit('repository-root', result.repository) }
+  } finally { if (detectionRequests.get(payload.path) === controller) detectionRequests.delete(payload.path) }
+}
+onBeforeUnmount(() => { detectionStopped = true; for (const request of detectionRequests.values()) request.abort(); detectionRequests.clear() })
+
 const tree = createDirectoryTree({
-  getRoot: () => props.root,
+  getRoot: () => displayRoot.value,
   getProviderId: () => props.providerId,
   listDirectory: (path, options) => props.listDirectory(path, options),
   transformChildren: (entries, depth) => (props.transformChildren ? props.transformChildren(entries, depth) : entries),
@@ -94,7 +117,7 @@ const tree = createDirectoryTree({
   cloudStatus,
   statusPriority,
   consumer: props.panelSide,
-  onChildrenLoaded: (payload) => emit('children-loaded', payload),
+  onChildrenLoaded: (payload) => { emit('children-loaded', payload); void discoverRepositories(payload).catch(() => {}) },
   onListingFailed: (payload) => emit('listing-failed', payload),
   onExpandedChange: (payload) => emit('expanded-change', payload),
 })
@@ -235,13 +258,13 @@ watch(entryChange, (change) => {
     void tree.refreshDirectory(change.targetDirectory)
   }
 })
-watch(() => props.watchActive, (active) => tree.setWatchActive(active))
+watch(() => props.watchActive, (active) => { if (!active) for (const request of detectionRequests.values()) request.abort(); tree.setWatchActive(active) })
 watch(() => props.refreshRevision, () => tree.refreshExpanded())
 watch(() => props.expandedPaths, () => tree.syncExpanded())
 watch(() => props.transformChildren, () => tree.syncExpanded())
 // Re-root only when the location changes, not when a parent re-renders the
 // same root as a new object.
-watch(() => `${props.providerId}\0${props.root?.path}`, () => tree.resetRoot())
+watch(() => `${props.providerId}\0${props.root?.path}`, () => { discoveredRoot.value = null; for (const request of detectionRequests.values()) request.abort(); tree.resetRoot() })
 // Content above the list (a loading message) can move it; re-measure once
 // the row count changes, not on scroll.
 watch(() => rows.value.length, () => nextTick(measure))
@@ -296,6 +319,7 @@ defineExpose({ visibleEntries, revealPath, tree })
         :compact="compact"
         @select="$emit('select', $event)"
         @open="openRow(row)"
+        @open-git="$emit('open-git', $event)"
         @toggle="toggleRow(row)"
         @drop-request="$emit('drop-request', $event)"
         @context-menu="contextMenuRow(row, $event)"

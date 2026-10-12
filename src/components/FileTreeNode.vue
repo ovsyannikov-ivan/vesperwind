@@ -70,7 +70,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['select', 'open', 'toggle', 'drop-request', 'context-menu'])
+const emit = defineEmits(['select', 'open', 'toggle', 'drop-request', 'context-menu', 'open-git'])
 const { tree, startRename, submitRename, cancelRename, keepFocus } = inject(FILE_TREE_KEY)
 const { settings } = useSettings()
 const dropTarget = ref(false)
@@ -407,6 +407,7 @@ onBeforeUnmount(() => { unmounting = true; cancelRenameTimer(); keepFocus(rowEle
           @blur="handleRenameBlur"
         >
         <span v-else class="tree-label" @click="handleNameClick">{{ node.name }}</span>
+
         <i
           v-if="node.isSymbolicLink"
           class="mdi mdi-arrow-top-right-thin-circle-outline tree-link-badge"
@@ -414,8 +415,13 @@ onBeforeUnmount(() => { unmounting = true; cancelRenameTimer(); keepFocus(rowEle
         />
       </div>
       <span class="tree-status-cell">
+        <button v-if="providerId === 'local' && node.gitRepository && !renaming" class="compact-icon-button git-repository-button" type="button"
+          :title="`Open Git for ${node.name}`" :aria-label="`Open Git for ${node.name}`"
+          @dragstart.prevent.stop @pointerdown.stop @click.stop="cancelRenameTimer(); $emit('open-git', node.gitRepository)" @dblclick.stop @keydown.stop>
+          <i class="mdi mdi-git" aria-hidden="true" />
+        </button>
         <i
-          v-if="statusBadge"
+          v-else-if="statusBadge"
           class="mdi tree-content-badge"
           :class="[statusBadge.icon, statusBadge.className]"
           role="img"

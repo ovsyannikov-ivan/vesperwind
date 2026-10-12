@@ -4,6 +4,7 @@ pub mod desktop;
 pub mod document;
 pub mod filesystem;
 pub mod ftp;
+pub mod git;
 pub mod media;
 pub mod permissions;
 pub mod player;

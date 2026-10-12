@@ -7,6 +7,7 @@ mod filesystem;
 mod ftp;
 #[cfg(debug_assertions)]
 mod ftp_regression;
+mod git;
 mod media;
 #[cfg(debug_assertions)]
 mod media_ui_regression;
@@ -59,6 +60,7 @@ pub struct AppState {
     thumbnails: Arc<media::thumbnail::ThumbnailManager>,
     web_history: Arc<media::history::WebHistory>,
     directory_watches: filesystem::watch::DirectoryWatches,
+    git_watches: Arc<git::GitWatches>,
     search_jobs: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
     archive_jobs: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
     shell: Arc<shell_integration::ShellIntegration>,
@@ -245,6 +247,7 @@ pub fn run() {
             thumbnails,
             web_history,
             directory_watches: filesystem::watch::DirectoryWatches::default(),
+            git_watches: Arc::new(git::GitWatches::default()),
             search_jobs: Arc::new(Mutex::new(HashMap::new())),
             archive_jobs: Arc::new(Mutex::new(HashMap::new())),
             shell: Arc::new(shell_integration::ShellIntegration::default()),
@@ -322,6 +325,14 @@ pub fn run() {
                 commands::filesystem::filesystem_search,
                 commands::filesystem::filesystem_search_cancel,
                 commands::filesystem::filesystem_watch,
+                commands::git::git_detect,
+                commands::git::git_status,
+                commands::git::git_branches,
+                commands::git::git_log,
+                commands::git::git_commit,
+                commands::git::git_diff,
+                commands::git::git_watch,
+                commands::git::git_unwatch,
                 commands::filesystem::filesystem_unwatch,
                 commands::filesystem::filesystem_read_text,
                 commands::filesystem::filesystem_write_text,

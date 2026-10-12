@@ -44,6 +44,7 @@ const startServer = async () => {
     { registerSearchHandlers },
     { registerArchiveHandlers },
     { registerPropertiesHandlers },
+    { createGitWatchRegistry, registerGitHandlers },
   ] = await Promise.all([
     import('./filesystem.js'),
     import('./fileOperations.js'),
@@ -62,6 +63,7 @@ const startServer = async () => {
     import('./search.js'),
     import('./archives.js'),
     import('./properties.js'),
+    import('./gitWatch.js'),
   ])
 
   const sshConnections = new Map()
@@ -73,6 +75,7 @@ const startServer = async () => {
   const sshLookup = new SshConnectionManager(null, sshConnections)
   const mediaProviders = new RemoteProviders({ ssh: { ensure: async (id) => sshLookup.get(id), get: (id) => sshLookup.get(id) }, ftp })
   const directoryWatches = createLocalWatchRegistry()
+  const gitWatches = createGitWatchRegistry()
 
   const handleRequest = async (request, response) => {
     if (request.url === '/health') {
@@ -119,6 +122,7 @@ const startServer = async () => {
     registerPropertiesHandlers(socket, { providers })
     registerArchiveHandlers(socket)
     registerDirectoryWatchHandlers(socket, directoryWatches)
+    registerGitHandlers(socket, gitWatches)
     registerFileOperationHandlers(socket, { providers })
     // A saved change of endpoint, protocol, TLS, identity or trust ends the
     // affected sessions.

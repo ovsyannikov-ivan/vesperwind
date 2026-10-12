@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useEditorLayout } from '../composables/useEditorLayout.js'
 import { useEditorWorkspace } from '../composables/useEditorWorkspace.js'
 import { getDocumentHandler } from '../editor/documentHandlers.js'
@@ -10,6 +10,7 @@ import {
   getDocumentFindIntent,
 } from '../utils/documentFindShortcuts.js'
 import EditorTree from './EditorTree.vue'
+const GitViewer = defineAsyncComponent(() => import('./GitViewer.vue'))
 import MonacoEditor from './MonacoEditor.vue'
 import PdfViewer from './PdfViewer.vue'
 import RevertChangesModal from './RevertChangesModal.vue'
@@ -24,7 +25,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['show-files', 'open-file', 'empty'])
+const emit = defineEmits(['show-files', 'open-file', 'open-git', 'empty'])
 const workspaceElement = ref(null)
 const monacoEditor = ref(null)
 const { settings } = useSettings()
@@ -474,6 +475,7 @@ onBeforeUnmount(() => {
           :context="context"
           :active-file-path="context.key === activeContextKey ? activeTab?.filePath : ''"
           @open-file="$emit('open-file', $event)"
+          @open-git="$emit('open-git', $event)"
         />
       </template>
     </aside>
@@ -499,7 +501,7 @@ onBeforeUnmount(() => {
             <i
               v-else
               class="mdi"
-              :class="getDocumentHandler(tab.type)?.icon"
+              :class="tab.type === 'git' ? 'mdi-git' : getDocumentHandler(tab.type)?.icon"
               aria-hidden="true"
             />
             <span class="editor-tab-name">{{ tab.fileName }}</span>
@@ -585,6 +587,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
+      <GitViewer v-for="tab in tabs.filter(tab => tab.type === 'git')" :key="tab.id" v-show="activeTab?.id === tab.id" :viewer="tab.gitViewer" />
       <div v-if="activeTab?.loading" class="editor-message">
         <span class="spinner-border spinner-border-sm" aria-hidden="true" />
         Opening {{ activeTab.fileName }}…

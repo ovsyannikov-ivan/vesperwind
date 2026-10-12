@@ -3,6 +3,14 @@ import { listen } from '@tauri-apps/api/event'
 
 const requestCommands = Object.freeze({
   'filesystem:root': 'filesystem_root',
+  'git:detect': 'git_detect',
+  'git:status': 'git_status',
+  'git:branches': 'git_branches',
+  'git:log': 'git_log',
+  'git:commit': 'git_commit',
+  'git:diff': 'git_diff',
+  'git:watch': 'git_watch',
+  'git:unwatch': 'git_unwatch',
   'filesystem:resolve-location': 'filesystem_resolve_location',
   'archive:start': 'archive_start',
   'archive:cancel': 'archive_cancel',
@@ -85,7 +93,7 @@ const sendCommands = Object.freeze({
   'terminal:close': 'terminal_close',
 })
 
-const pushEvents = new Set(['terminal:output', 'terminal:exit', 'ssh:status', 'ftp:status', 'player:state', 'filesystem:changed', 'filesystem:search-results', 'filesystem:size-progress', 'archive:progress',
+const pushEvents = new Set(['terminal:output', 'terminal:exit', 'ssh:status', 'ftp:status', 'player:state', 'filesystem:changed', 'git:changed', 'filesystem:search-results', 'filesystem:size-progress', 'archive:progress',
   'clipboard:staging', 'clipboard:consumed', 'native-drag:drop', 'native-drag:end', 'native-drag:error'])
 
 const normalizeInvokeError = (error) => ({

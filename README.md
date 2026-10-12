@@ -26,6 +26,8 @@ between applications.
   opening an editor tab.
 - **Text & code:** multi-tab Monaco editor with syntax highlighting, minimap,
   document search and indentation controls. Edit local or remote files.
+- **Git diffs:** read-only commit history and staged/unstaged changes, with live
+  updates as external tools edit files, create commits or switch branches.
 - **Documents:** edit DOCX and XLSX/XLS; import DOC and RTF with bundled LOWA in desktop builds.
   Markdown opens in a WYSIWYG editor with a Markdown source mode.
 - **PDFs & presentations:** read-only PPTX preview through bundled LOWA; thumbnails,
@@ -59,6 +61,7 @@ and the [Windows build guide](docs/build-windows.md).
 - [Word documents](docs/word-documents.md), [spreadsheets](docs/spreadsheets.md)
   and [Markdown documents](docs/markdown-documents.md)
 - [Quick Look and playback coordination](docs/quick-look.md)
+- [Git diffs and live monitoring](docs/git-live-monitoring.md)
 - [Media URLs, HLS and persistent playlists](docs/media-player.md)
 - [Video seeking and thumbnail previews](docs/video-thumbnails.md),
   [playback position history](docs/media-history.md) and

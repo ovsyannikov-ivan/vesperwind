@@ -77,7 +77,7 @@ const EditorWorkspace = defineAsyncComponent(() => import('./EditorWorkspace.vue
 const { layout, toggleLeft, toggleRight, toggleTerminal, setLeftRatio, setTerminalHeight, setAudioPlaylistHeight } =
   useLayout()
 const { settings, loadSettings } = useSettings()
-const { tabs: editorTabs, openFile: openEditorFile, closeTab: closeEditorTab } = useEditorWorkspace()
+const { tabs: editorTabs, openFile: openEditorFile, openGit: openGitTab, closeTab: closeEditorTab } = useEditorWorkspace()
 const {
   copyEntry,
   moveEntry,
@@ -504,6 +504,11 @@ const submitPlaylistCommand = async (value) => {
   } catch (error) { if (!controller.signal.aborted) playlistError.value = request.mode === 'url' ? (error.message.startsWith('Only HTTP') || error.message.startsWith('Enter a valid') ? error.message : 'Unable to open this media source') : error.message }
   finally { if (playlistController === controller) playlistBusy.value = false }
 }
+const openGit = context => {
+  const tab = openGitTab(context)
+  if (tab) workspaceMode.value = 'editor'
+}
+
 const openFile = (context) => {
   if (isPlaylistFile(context?.node?.name) && context.type !== 'text') {
     void importAudioPlaylist({ sourceType: 'provider', providerId: context.filesystemId || 'local', path: context.node.path })
@@ -1198,6 +1203,7 @@ onBeforeUnmount(() => {
           @drop-request="openFileOperationMenu"
           @context-menu="openEntryContextMenu"
           @open-file="openFile"
+          @open-git="openGit"
           @panel-drag-candidate="beginPanelDrag"
           @state-change="updatePanelState"
         />
@@ -1229,6 +1235,7 @@ onBeforeUnmount(() => {
           @drop-request="openFileOperationMenu"
           @context-menu="openEntryContextMenu"
           @open-file="openFile"
+          @open-git="openGit"
           @panel-drag-candidate="beginPanelDrag"
           @state-change="updatePanelState"
         />
@@ -1249,6 +1256,7 @@ onBeforeUnmount(() => {
         @show-files="showFiles"
         @empty="showFiles"
         @open-file="openFile"
+          @open-git="openGit"
       />
 
       <Splitter

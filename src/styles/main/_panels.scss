@@ -260,6 +260,13 @@ body.is-swapping-panels * {
 	flex: 0 0 24px;
 	padding: 0;
 	place-items: center;
+
+  &.git-repository-button {
+    width: 20px;
+    height: 20px;
+    flex-basis: 20px;
+    .mdi, .mdi::before { font-size: 13px; }
+  }
 }
 
 // Text variant with the same density, e.g. the editor sidebar's Files button.

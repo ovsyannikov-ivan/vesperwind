@@ -61,7 +61,7 @@ const props = defineProps({
 	watchActive: { type: Boolean, default: true },
 });
 
-const emit = defineEmits(["activate", "collapse", "drop-request", "open-file", "context-menu", "panel-drag-candidate", "state-change"]);
+const emit = defineEmits(["activate", "collapse", "drop-request", "open-file", "context-menu", "panel-drag-candidate", "state-change", "open-git"]);
 const { getRoot, listDirectory } = useFilesystem(() => props.providerId);
 const { revision: settingsRevision } = useSettings();
 const filesystemRoot = ref(null);
@@ -354,6 +354,14 @@ const leaveMissingDirectory = async ({ providerId, path, depth, error }) => {
 		? filesystemRoot.value
 		: { name: getFilesystemPathName(target), path: target, type: "directory", isDirectory: true, isSymbolicLink: false });
 };
+
+const rootRepository = ref(null);
+watch(() => [props.providerId, root.value?.path], () => { rootRepository.value = null; });
+const openGit = (repository) => emit('open-git', {
+  repository, filesystemId: props.providerId, sourcePane: props.side,
+  sourceRootPath: root.value?.path, sourceRootName: root.value?.name,
+  filesystemRoot: filesystemRoot.value, homePath: homePath.value,
+});
 
 const openNode = (payload) => {
 	const node = payload?.node || payload;
@@ -674,7 +682,8 @@ watch(entryChange, (change) => {
 				<button v-if="root && !address.editing" class="compact-icon-button" type="button" title="Edit path (Ctrl/Cmd+L)" :aria-label="`Edit ${side} panel path`" @click.stop="editAddress">
 					<i class="mdi mdi-form-textbox" aria-hidden="true" />
 				</button>
-				<FolderPathMenu v-if="folderMenu" :key="folderMenu.id" :request="folderMenu" :list-directory="listDirectory" @select="selectMenuFolder" @cancel="folderMenu = null" />
+				<button v-if="rootRepository && providerId === 'local'" class="compact-icon-button git-repository-button" type="button" title="Open repository Git" aria-label="Open repository Git" @pointerdown.stop @click.stop="openGit(rootRepository)"><i class="mdi mdi-git" aria-hidden="true" /></button>
+                <FolderPathMenu v-if="folderMenu" :key="folderMenu.id" :request="folderMenu" :list-directory="listDirectory" @select="selectMenuFolder" @cancel="folderMenu = null" />
 			</div>
 			<button class="panel-action compact-icon-button" type="button" :aria-label="`Search ${side} panel`" title="Search files" @click.stop="search.open ? closeSearch() : (search.open = true)">
 				<i class="mdi mdi-magnify" aria-hidden="true" />
@@ -784,6 +793,8 @@ watch(entryChange, (change) => {
 					:refresh-revision="filesystemRevision"
 					@select="selectNode"
 					@open="openNode"
+                    @open-git="openGit"
+                    @repository-root="rootRepository = $event"
 					@drop-request="$emit('drop-request', $event)"
 					@context-menu="openEntryContextMenu"
 					@expanded-change="updateExpanded"
