@@ -17,6 +17,13 @@ mod platform {
     }
 
     pub(super) fn is_alias(path: &Path) -> Result<bool, NativeError> {
+        // Only regular files can be aliases. A missing path reports ENOENT
+        // (a deleted folder) instead of a Finder Alias inspection failure.
+        let metadata = std::fs::symlink_metadata(path)
+            .map_err(|error| NativeError::from_io(&error, "The requested path is unavailable"))?;
+        if !metadata.is_file() {
+            return Ok(false);
+        }
         autoreleasepool(|_| {
             let url = file_url(path);
             let mut value: Option<objc2::rc::Retained<AnyObject>> = None;
@@ -138,6 +145,17 @@ mod tests {
 
     fn file_url(path: &std::path::Path) -> objc2::rc::Retained<NSURL> {
         NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy()))
+    }
+
+    #[test]
+    fn reports_a_missing_folder_as_enoent_and_skips_folders() {
+        let root = std::env::temp_dir().join(format!("vesperwind-missing-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        assert!(!is_finder_alias(&root).unwrap());
+        let missing = root.join("deleted folder");
+        assert_eq!(is_finder_alias(&missing).unwrap_err().code, "ENOENT");
+        assert_eq!(resolve_finder_alias(&missing).unwrap_err().code, "ENOENT");
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

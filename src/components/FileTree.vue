@@ -72,7 +72,7 @@ const props = defineProps({
   transformChildren: { type: Function, default: null },
 })
 
-const emit = defineEmits(['select', 'open', 'drop-request', 'context-menu', 'expanded-change', 'children-loaded'])
+const emit = defineEmits(['select', 'open', 'drop-request', 'context-menu', 'expanded-change', 'children-loaded', 'listing-failed'])
 
 const listRef = ref(null)
 const { viewport, attach, detach, measure, scrollToIndex } = createVirtualViewport()
@@ -95,6 +95,7 @@ const tree = createDirectoryTree({
   statusPriority,
   consumer: props.panelSide,
   onChildrenLoaded: (payload) => emit('children-loaded', payload),
+  onListingFailed: (payload) => emit('listing-failed', payload),
   onExpandedChange: (payload) => emit('expanded-change', payload),
 })
 

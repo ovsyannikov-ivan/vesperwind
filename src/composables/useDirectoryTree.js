@@ -32,6 +32,7 @@ export const createDirectoryTree = ({
   consumer = 'tree',
   watchRegistry = directoryWatch,
   onChildrenLoaded = () => {},
+  onListingFailed = () => {},
   onExpandedChange = () => {},
 } = {}) => {
   const scope = effectScope(true)
@@ -73,6 +74,7 @@ export const createDirectoryTree = ({
       isActive: () => !disposed && expanded.has(path) && records.get(key) === record,
       list: (target, options) => listDirectory(target, options),
       onLoaded: (payload) => { releaseVanished(record); onChildrenLoaded(payload); syncExpanded() },
+      onFailed: (payload) => onListingFailed({ ...payload, depth }),
       cloudStatus,
       statusOrder: () => statusPriority(path, record),
       displayOrder: () => record.displayed.value,

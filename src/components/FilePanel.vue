@@ -24,6 +24,7 @@ import { isPanelSwapHandle, restorePanelViewState } from "../utils/panelSwap.js"
 import { availableExtensions, sortAndFilterEntries } from "../utils/fileDirectoryView.js";
 import { reconcileFilteredSelection } from "../utils/reconcileFilteredSelection.js";
 import { currentChildPath } from "../utils/folderMenu.js";
+import { findExistingAncestor, isMissingDirectoryError } from "../utils/missingDirectory.js";
 
 const props = defineProps({
 	panelId: { type: String, required: true },
@@ -335,6 +336,23 @@ const openDirectory = (node) => {
 	selectedPath.value = node.path;
 	selectedEntries.value = [];
 	selectionAnchorPath.value = "";
+};
+
+// When the open folder is deleted, the panel moves up to the nearest folder
+// that still exists instead of showing the failed listing.
+let missingDirectoryGeneration = 0;
+const leaveMissingDirectory = async ({ providerId, path, depth, error }) => {
+	if (depth !== 0 || providerId !== props.providerId || path !== root.value?.path || !isMissingDirectoryError(error)) return;
+	const generation = ++missingDirectoryGeneration;
+	const target = await findExistingAncestor({
+		rootPath: filesystemRoot.value?.path,
+		path,
+		exists: async (candidate) => (await filesystem.resolveLocation({ providerId, path: candidate }).catch(() => null))?.ok === true,
+	});
+	if (panelDisposed || generation !== missingDirectoryGeneration || providerId !== props.providerId || path !== root.value?.path || !target) return;
+	openDirectory(target === filesystemRoot.value?.path
+		? filesystemRoot.value
+		: { name: getFilesystemPathName(target), path: target, type: "directory", isDirectory: true, isSymbolicLink: false });
 };
 
 const openNode = (payload) => {
@@ -770,6 +788,7 @@ watch(entryChange, (change) => {
 					@context-menu="openEntryContextMenu"
 					@expanded-change="updateExpanded"
 					@children-loaded="handleChildrenLoaded"
+					@listing-failed="leaveMissingDirectory"
 				/>
 			</div>
 		</div>

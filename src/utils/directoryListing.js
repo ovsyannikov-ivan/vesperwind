@@ -25,7 +25,7 @@ export const applyCloudStatus = (entry, status = {}) => {
 // any new load, collapse, location change or dispose aborts it, and late
 // results are checked against the generation and the entry before use.
 export const createDirectoryListing = ({ state, getLocation, isActive = () => true, list, onLoaded = () => {},
-  consumer = 'tree', cloudStatus = null, statusOrder = () => [], displayOrder = () => [] }) => {
+  onFailed = () => {}, consumer = 'tree', cloudStatus = null, statusOrder = () => [], displayOrder = () => [] }) => {
   const id = `${consumer}:${++consumerId}`
   let revision = 0
   let controller = null
@@ -138,6 +138,7 @@ export const createDirectoryListing = ({ state, getLocation, isActive = () => tr
       if (!valid()) return false
       if (!response?.ok || !Array.isArray(response.entries)) {
         state.error = response?.error || { message: 'Unable to refresh this folder' }
+        onFailed({ ...location, error: state.error })
         return false
       }
       const previous = state.children
@@ -150,7 +151,9 @@ export const createDirectoryListing = ({ state, getLocation, isActive = () => tr
       void startStatus(location, current, key)
       return true
     } catch (error) {
-      if (valid()) state.error = { code: error?.code, message: error?.message || 'Unable to refresh this folder' }
+      if (!valid()) return false
+      state.error = { code: error?.code, message: error?.message || 'Unable to refresh this folder' }
+      onFailed({ ...location, error: state.error })
       return false
     } finally {
       if (current === revision) { state.loading = false; controller = null }
