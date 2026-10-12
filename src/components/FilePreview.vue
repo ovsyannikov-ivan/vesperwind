@@ -41,7 +41,7 @@ defineExpose({ openFind: () => pdf.value?.openFind() })
   overflow: hidden;
   .file-preview-message { display: flex; gap: .5rem; padding: 1rem; margin: auto; }
   .file-preview-identity { margin: auto; padding: 1rem; text-align: center; overflow-wrap: anywhere; .mdi { font-size: 4rem; color: var(--bs-secondary-color); } }
-  .file-preview-text { flex: 1; margin: 0; padding: 1rem; overflow: auto; font-size: .85rem; }
+  .file-preview-text { flex: 1; margin: 0; padding: 1rem; overflow: auto; font-size: .85rem; &:focus-visible { outline: 0; } }
   .file-preview-poster { max-width: 100%; max-height: 300px; object-fit: contain; }
   .file-preview-image { width: 100%; height: 100%; min-height: 0; object-fit: contain; }
   :deep(.pdf-viewer) { flex: 1; min-height: 0; }

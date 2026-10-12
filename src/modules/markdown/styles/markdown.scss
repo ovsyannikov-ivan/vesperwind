@@ -140,7 +140,9 @@
 		border-radius: 0;
 		background-color: var(--toolbar-bg);
 
+		// Right-floated tabs reverse TOAST UI's order: Preview, then Markdown.
 		.tab-item {
+			float: right;
 			border-color: var(--border);
 			background: var(--surface-2);
 			color: var(--text-muted);
@@ -586,9 +588,9 @@
 	min-height: 0;
 	overflow: auto;
 
+	// Space and arrow keys scroll the preview; it is not a control to outline.
 	&:focus-visible {
-		outline: 2px solid var(--accent);
-		outline-offset: -2px;
+		outline: 0;
 	}
 
 	.markdown-preview-content {

@@ -11,6 +11,9 @@ import { markdownParserOptions, markdownRenderingOptions } from './toastOptions.
 import { installPreviewRepair, renderWholePreview } from './toastPreview.js'
 import './styles/markdown.scss'
 
+// The WYSIWYG mode is labeled Preview and listed first in the mode switch.
+Editor.setLanguage('en-US', { WYSIWYG: 'Preview' })
+
 const props = defineProps({ tab: { type: Object, required: true }, visible: Boolean })
 const emit = defineEmits(['save', 'history-state'])
 const host = ref(null)

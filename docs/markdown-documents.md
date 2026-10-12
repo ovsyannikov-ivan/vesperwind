@@ -10,8 +10,9 @@ startup entry only holds the handler descriptor and its file service.
 A tab opens in TOAST UI's WYSIWYG mode with its full default toolbar: headings,
 bold, italic, strikethrough, horizontal rule, quote, bullet/ordered/task lists,
 indent/outdent, table, image, link, inline code and code block. TOAST UI's own
-mode switch shows the Markdown source with a live preview (side by side in a
-wide window, Write/Preview tabs below 760 px). Images added from a local file are
+mode switch below the editor, **Preview | Markdown** (Preview is the WYSIWYG
+mode), shows the Markdown source with a live preview (side by side in a wide
+window, Write/Preview tabs below 760 px). Images added from a local file are
 embedded as data URLs, TOAST UI's default.
 
 Each tab owns one editor instance, its document and its ProseMirror undo history.

@@ -13,8 +13,9 @@ between applications.
   keyboard shortcuts and context menus.
 - **Archives & navigation:** create ZIP and extract ZIP/TAR/TGZ/RAR/RAR5 with a
   bundled worker; edit panel paths with Ctrl/Cmd+L or browse breadcrumbs.
-- **SSH & SFTP:** saved connection profiles, host-key verification, remote browsing,
-  and file transfers between local and remote panels.
+- **SSH, SFTP, FTP & FTPS:** saved connection profiles, SSH host-key and FTPS
+  certificate verification, remote browsing, and file transfers between local and
+  remote panels.
 - **Search & filtering:** recursive name/path search, per-panel filters and sorting,
   and automatic refresh for local folders.
 - **iCloud on macOS:** a small cloud badge identifies files whose content needs
@@ -63,6 +64,7 @@ and the [Windows build guide](docs/build-windows.md).
   [playback position history](docs/media-history.md) and
   [media content availability](docs/media-content.md)
 - [Archives, address bar and mounted network shares](docs/archives-and-navigation.md)
+- [FTP and FTPS connections](docs/ftp-ftps.md)
 - [Native playback, HDR and Dolby Vision details](docs/libmpv.md#hdr-and-color-pipeline)
   for media enthusiasts, including current limitations and verification results
 

@@ -223,6 +223,8 @@ test('the editor starts in WYSIWYG, reports only real edits and releases TOAST U
   assert.match(editor, /removeEventListener\('vesperwind:native-edit-history'/)
   // The editor follows the theme through CSS variables alone, so switching keeps text, selection and history.
   assert.doesNotMatch(editor, /theme:/)
+  // The mode switch reads Preview | Markdown.
+  assert.match(editor, /Editor\.setLanguage\('en-US', \{ WYSIWYG: 'Preview' \}\)/)
 })
 
 test('usage statistics stay off and nothing loads from a CDN', async () => {
@@ -341,4 +343,7 @@ test('TOAST UI styles are scoped to Markdown surfaces and follow the theme throu
   // Content is selectable, the editor chrome is not; WebKit needs the prefix.
   assert.match(css, /\.vw-markdown \.toastui-editor-md-preview,\s*\.vw-markdown \.toastui-editor-contents \{\s*-webkit-user-select: text;\s*user-select: text;/)
   assert.match(css, /\.vw-markdown \.toastui-editor-defaultUI-toolbar,[\s\S]*?\{\s*-webkit-user-select: none;\s*user-select: none;/)
+  assert.match(css, /\.vw-markdown \.toastui-editor-mode-switch \.tab-item \{\s*float: right;/)
+  // Scrolling the Quick Look preview with Space does not draw a focus frame.
+  assert.match(css, /\.markdown-preview:focus-visible \{\s*outline: 0;/)
 })
