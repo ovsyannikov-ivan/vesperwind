@@ -1,6 +1,7 @@
 import { reactive } from 'vue'
 import { git } from '../api/git.js'
 import { gitWatch } from '../api/gitWatch.js'
+import { createGitDiffs } from './useGitDiffs.js'
 
 // This state belongs to a Git tab, survives hiding/switching views, and never
 // becomes document content. Only closing the tab disposes it.
@@ -20,84 +21,32 @@ export const createGitViewer = (
     selectedCommit: null,
     commit: null,
     historyFiles: [],
-    selectedFile: null,
     mode: 'split',
-    expanded: {},
-    diff: null,
+    commitLoading: false,
+    commitError: null,
     loading: true,
     updating: false,
     live: false,
     watchError: null,
     error: null,
-    diffError: null,
   })
   let stopped = false,
     refreshGeneration = 0,
     selectionGeneration = 0,
-    diffGeneration = 0,
     historyGeneration = 0
   let busy = false,
     requested = false,
-    diffBusy = false,
-    diffRequested = false,
     historyReady = false,
     forceHistory = false
-  const fileKey = (file) => `${file.scope}\0${file.path}`
-  const visibleFiles = () =>
-    state.view === 'working' ? state.files : state.historyFiles
-  const loadDiff = async () => {
-    if (stopped) return
-    diffRequested = true
-    if (diffBusy) return
-    diffBusy = true
-    try {
-      while (diffRequested && !stopped) {
-        diffRequested = false
-        const file = state.selectedFile,
-          generation = ++diffGeneration,
-          sha = state.selectedCommit
-        if (!file || state.expanded[fileKey(file)] === false) {
-          state.diff = null
-          continue
-        }
-        const result = await api.diff(repository.path, {
-          file: file.path,
-          oldPath: file.oldPath,
-          scope: file.scope,
-          sha,
-        })
-        if (
-          stopped ||
-          generation !== diffGeneration ||
-          fileKey(file) !==
-            (state.selectedFile && fileKey(state.selectedFile)) ||
-          sha !== state.selectedCommit
-        )
-          continue
-        state.diffError = result?.ok ? null : result?.error
-        if (result?.ok && JSON.stringify(state.diff) !== JSON.stringify(result))
-          state.diff = result
-      }
-    } finally {
-      diffBusy = false
-    }
-  }
-  const selectFile = (file) => {
-    diffGeneration++
-    state.selectedFile = file
-    state.diff = null
-    state.diffError = null
-    if (file) state.expanded[fileKey(file)] = true
-    void loadDiff()
-  }
-  const keepFile = () => {
-    const files = visibleFiles(),
-      previous = state.selectedFile && fileKey(state.selectedFile)
-    const next =
-      files.find((file) => fileKey(file) === previous) || files[0] || null
-    if ((next && fileKey(next)) !== previous) selectFile(next)
-    else if (next && state.selectedFile) Object.assign(state.selectedFile, next)
-  }
+  const diffs = createGitDiffs({
+    load: (file, context) =>
+      api.diff(repository.path, {
+        file: file.path,
+        oldPath: file.oldPath,
+        scope: file.scope,
+        sha: context === 'working' ? null : context,
+      }),
+  })
   const readHistory = async (count) => {
     const commits = []
     let hasMore = true
@@ -119,6 +68,7 @@ export const createGitViewer = (
     if (stopped) return
     // Event arriving during IO invalidates the pending result and queues one refresh.
     refreshGeneration++
+    if (state.view === 'working') diffs.invalidate()
     requested = true
     if (busy) return
     busy = true
@@ -154,9 +104,7 @@ export const createGitViewer = (
           forceHistory = false
         }
         if (state.view === 'working') {
-          keepFile()
-          diffGeneration++
-          void loadDiff()
+          diffs.sync(state.files, 'working', { refresh: true })
         }
       }
     } finally {
@@ -169,33 +117,38 @@ export const createGitViewer = (
   }
   const showWorking = () => {
     selectionGeneration++
-    diffGeneration++
     state.view = 'working'
     state.selectedCommit = null
     state.commit = null
-    state.selectedFile = null
-    keepFile()
+    state.commitError = null
+    state.commitLoading = false
+    diffs.sync(state.files, 'working')
   }
   const selectCommit = async (sha) => {
+    if (
+      state.view === 'history' &&
+      state.selectedCommit === sha &&
+      state.commit
+    )
+      return
     const generation = ++selectionGeneration
-    diffGeneration++
     state.view = 'history'
     state.selectedCommit = sha
-    state.selectedFile = null
-    state.diff = null
     state.historyFiles = []
     state.commit = null
-    state.diffError = null
+    state.commitError = null
+    state.commitLoading = true
+    diffs.sync([], sha)
     const result = await api.commit(repository.path, sha)
     if (stopped || generation !== selectionGeneration) return
+    state.commitLoading = false
     if (!result?.ok) {
-      state.diffError = result?.error
+      state.commitError = result?.error
       return
     }
     state.commit = result.commit
     state.historyFiles = result.files
-    state.diffError = null
-    keepFile()
+    diffs.sync(state.historyFiles, sha)
   }
   const more = async () => {
     const generation = ++historyGeneration,
@@ -219,18 +172,18 @@ export const createGitViewer = (
   void refresh()
   return {
     state,
-    selectFile,
+    diffs,
     selectCommit,
     showWorking,
     more,
     refresh: () => refresh(true),
-    fileKey,
+    fileKey: diffs.fileKey,
     dispose: () => {
       stopped = true
       refreshGeneration++
       selectionGeneration++
-      diffGeneration++
       historyGeneration++
+      diffs.dispose()
       stop()
     },
   }

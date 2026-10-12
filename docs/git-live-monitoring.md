@@ -37,10 +37,18 @@ adapter uses `/usr/bin/stat` for passive cloud flags; on Windows it requires
 PowerShell for passive Offline/Recall attribute checks. No Git mutation,
 credential management or remote-provider Git operation is exposed.
 
-The viewer uses `@git-diff-view/vue` with its pure CSS stylesheet. One selected
-file's patch is loaded/rendered at a time. Split/Unified mode, syntax colors,
-light/dark theme events and per-file collapse state are retained independently
-of status refreshes. Working Changes distinguishes HEAD → Index (staged),
+The viewer uses `@git-diff-view/vue` with its pure CSS stylesheet. The selected
+commit's files form a vertical accordion beside the commit history. Working
+Changes uses the same full-width list. Every file has its own status, counts
+and collapse control; selecting each file separately is unnecessary. Small
+patches load automatically within 300px of the viewport. Diffs with at least
+400 changed lines show `Load diff`; actual patches over 128 KiB or 800 lines
+also require explicit loading. Offscreen diff tables are released, retaining
+their measured height so scrolling remains stable. Cached patches are bounded
+to 32 files / 8 MiB, excluding currently visible sections.
+Split/Unified mode, syntax colors, light/dark theme events and per-file collapse
+state are retained independently of status refreshes. Working Changes
+distinguishes HEAD → Index (staged),
 Index → Worktree (unstaged), and untracked additions. History is paginated in
 pages of at most 100 and compares commits with their first parent; initial
 commits compare with the empty tree. Merge parents remain visible in metadata.
@@ -71,11 +79,12 @@ Events are coalesced for 180ms in the backend and 120ms in the frontend; bursts
 cannot postpone an update indefinitely. Node constructor options configure the
 interval and directory budget; native constants define the same defaults.
 Async generations reject obsolete status, commit selection and patch results;
-only one refresh and one selected-file diff request run at a time, with at most
-one queued successor. Status updates refresh branch/HEAD/change lists. History
+only one metadata refresh and at most two file diff requests run at a time.
+Only expanded sections near the viewport request patches; offscreen working
+changes remain stale until revisited. Status updates refresh branch/HEAD/change lists. History
 is reloaded after HEAD changes or recovery, and historical file diffs stay
-selected while new commits appear. Replacing a patch preserves the scroll
-offset as far as the updated content permits; selection anchors are bounded.
+selected while new commits appear. Accordion refreshes preserve a logical file
+anchor and its viewport offset; saved scroll contexts are bounded.
 
 Foreground/visibility return and reconnection restore subscriptions and refresh
 current metadata. While subscribed, a 30-second recovery cycle repairs missed

@@ -1,8 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { DiffView, DiffModeEnum } from '@git-diff-view/vue'
-import '@git-diff-view/vue/styles/diff-view-pure.css'
-import { getEditorLanguage } from '../utils/editorLanguages.js'
+import GitFileDiff from './GitFileDiff.vue'
 
 const props = defineProps({ viewer: { type: Object, required: true } })
 const state = props.viewer.state
@@ -17,83 +15,85 @@ const files = computed(() =>
   state.view === 'working' ? state.files : state.historyFiles,
 )
 const diffScroll = ref(null)
+const context = computed(() =>
+  state.view === 'working' ? 'working' : state.selectedCommit || 'history',
+)
 const scrollAnchors = new Map()
-const selectionKey = computed(
-  () =>
-    `${state.selectedCommit || 'working'}\0${state.selectedFile ? props.viewer.fileKey(state.selectedFile) : ''}`,
+let renderedContext = context.value
+const records = computed(() =>
+  files.value
+    .map((file) => props.viewer.diffs.records.get(props.viewer.fileKey(file)))
+    .filter(Boolean),
 )
-const expanded = computed(
-  () =>
-    state.selectedFile &&
-    state.expanded[props.viewer.fileKey(state.selectedFile)] !== false,
-)
-const diffData = computed(() => {
-  if (
-    !state.diff?.patch ||
-    state.diff.binary ||
-    state.diff.oversized ||
-    !state.selectedFile
+const date = (timestamp) => new Date(timestamp * 1000).toLocaleString()
+const captureAnchor = () => {
+  const root = diffScroll.value
+  if (!root) return null
+  const top = root.getBoundingClientRect().top
+  const element = [...root.querySelectorAll('[data-git-anchor]')].find(
+    (element) => element.getBoundingClientRect().bottom > top,
   )
-    return null
-  return {
-    oldFile: {
-      fileName: state.selectedFile.oldPath || state.selectedFile.path,
-      fileLang: getEditorLanguage(state.selectedFile.path),
-    },
-    newFile: {
-      fileName: state.selectedFile.path,
-      fileLang: getEditorLanguage(state.selectedFile.path),
-    },
-    hunks: [state.diff.patch],
-  }
-})
-const toggleDiff = () => {
-  if (!state.selectedFile) return
-  const key = props.viewer.fileKey(state.selectedFile)
-  state.expanded[key] = !expanded.value
-  if (state.expanded[key]) props.viewer.selectFile(state.selectedFile)
+  return element
+    ? {
+        key: element.dataset.gitAnchor,
+        offset: element.getBoundingClientRect().top - top,
+        top: root.scrollTop,
+      }
+    : { top: root.scrollTop }
 }
+const restoreAnchor = (anchor) => {
+  const root = diffScroll.value
+  if (!root) return
+  const element =
+    anchor?.key &&
+    [...root.querySelectorAll('[data-git-anchor]')].find(
+      (element) => element.dataset.gitAnchor === anchor.key,
+    )
+  if (element)
+    root.scrollTop +=
+      element.getBoundingClientRect().top -
+      root.getBoundingClientRect().top -
+      anchor.offset
+  else root.scrollTop = anchor?.top || 0
+}
+watch(
+  context,
+  async (key, previous) => {
+    if (previous) scrollAnchors.set(previous, captureAnchor())
+    if (scrollAnchors.size > 32)
+      scrollAnchors.delete(scrollAnchors.keys().next().value)
+    await nextTick()
+    if (context.value !== key) return
+    renderedContext = key
+    restoreAnchor(scrollAnchors.get(key))
+  },
+  { flush: 'pre' },
+)
+watch(
+  () =>
+    records.value.map((record) => [
+      record.key,
+      record.expanded,
+      record.near,
+      record.result,
+    ]),
+  async () => {
+    const key = context.value,
+      anchor = captureAnchor()
+    if (key !== renderedContext) return
+    await nextTick()
+    if (key === context.value) restoreAnchor(anchor)
+  },
+  { flush: 'pre' },
+)
 const showHistory = () => {
-  if (state.selectedCommit) state.view = 'history'
-  else if (state.commits.length) props.viewer.selectCommit(state.commits[0].sha)
+  if (state.commits.length)
+    void props.viewer.selectCommit(state.selectedCommit || state.commits[0].sha)
   else {
     state.view = 'history'
-    state.selectedFile = null
-    state.diff = null
+    props.viewer.diffs.sync([], 'history')
   }
 }
-const statusIcon = (file) =>
-  ({
-    added: 'mdi-file-plus-outline',
-    untracked: 'mdi-file-question-outline',
-    deleted: 'mdi-file-remove-outline',
-    renamed: 'mdi-file-move-outline',
-    conflicted: 'mdi-alert-outline',
-  })[file.status] || 'mdi-file-edit-outline'
-const comparison = (file) =>
-  ({
-    staged: 'HEAD → Index',
-    unstaged: 'Index → Worktree',
-    untracked: 'Untracked',
-    commit: 'Parent → Commit',
-  })[file.scope]
-const date = (timestamp) => new Date(timestamp * 1000).toLocaleString()
-watch(selectionKey, (key, previous) => {
-  if (previous && diffScroll.value)
-    scrollAnchors.set(previous, diffScroll.value.scrollTop)
-  if (scrollAnchors.size > 128)
-    scrollAnchors.delete(scrollAnchors.keys().next().value)
-  void nextTick(() => {
-    if (diffScroll.value)
-      diffScroll.value.scrollTop = scrollAnchors.get(key) || 0
-  })
-})
-watch(diffData, async () => {
-  const top =
-    diffScroll.value?.scrollTop || scrollAnchors.get(selectionKey.value) || 0
-  await nextTick()
-  if (diffScroll.value) diffScroll.value.scrollTop = top
-})
 onMounted(() =>
   window.addEventListener('vesperwind:theme-changed', updateTheme),
 )
@@ -114,7 +114,7 @@ onBeforeUnmount(() =>
         {{
           state.branch ||
           (state.detached
-            ? `Detached ${state.head?.slice(0, 8)}`
+            ? 'Detached ' + state.head?.slice(0, 8)
             : 'No commits')
         }}</span
       >
@@ -138,11 +138,11 @@ onBeforeUnmount(() =>
       >
         <i class="mdi mdi-refresh" aria-hidden="true" />
       </button>
-      <label class="visually-hidden" :for="`git-mode-${state.repository.id}`"
+      <label class="visually-hidden" :for="'git-mode-' + state.repository.id"
         >Diff mode</label
       >
       <select
-        :id="`git-mode-${state.repository.id}`"
+        :id="'git-mode-' + state.repository.id"
         v-model="state.mode"
         class="form-select form-select-sm git-mode"
         aria-label="Diff mode"
@@ -182,15 +182,21 @@ onBeforeUnmount(() =>
       {{ state.watchError.message }}
     </div>
     <div class="git-content">
-      <aside class="git-sidebar" aria-label="Repository changes">
-        <div v-if="state.view === 'history'" class="git-history">
+      <aside
+        v-if="state.view === 'history'"
+        class="git-sidebar"
+        aria-label="Commit history"
+      >
+        <div class="git-history">
           <button
             v-for="commit in state.commits"
             :key="commit.sha"
             class="git-commit"
             :class="{ 'is-active': commit.sha === state.selectedCommit }"
             type="button"
-            :title="`${commit.sha}\n${commit.author}\n${date(commit.timestamp)}`"
+            :title="
+              commit.sha + '\n' + commit.author + '\n' + date(commit.timestamp)
+            "
             @click="viewer.selectCommit(commit.sha)"
           >
             <span>{{ commit.subject }}</span
@@ -206,50 +212,6 @@ onBeforeUnmount(() =>
           </button>
           <p v-if="!state.commits.length && !state.loading" class="git-empty">
             No commits yet.
-          </p>
-        </div>
-        <div class="git-file-list">
-          <template v-for="(file, index) in files" :key="viewer.fileKey(file)">
-            <div
-              v-if="index === 0 || files[index - 1].scope !== file.scope"
-              class="git-list-label"
-            >
-              {{ comparison(file) }}
-            </div>
-            <button
-              class="git-file"
-              :class="{
-                'is-active':
-                  state.selectedFile &&
-                  viewer.fileKey(state.selectedFile) === viewer.fileKey(file),
-              }"
-              type="button"
-              :title="`${file.status}: ${file.oldPath ? `${file.oldPath} → ` : ''}${file.path}`"
-              @click="viewer.selectFile(file)"
-            >
-              <i
-                class="mdi"
-                :class="statusIcon(file)"
-                aria-hidden="true"
-              /><span class="git-file-path">{{ file.path }}</span>
-              <span class="visually-hidden">{{ file.status }}</span
-              ><span
-                v-if="file.binary || file.oversized"
-                class="text-body-secondary"
-                >{{ file.oversized ? 'Large' : 'Binary' }}</span
-              >
-              <span v-else class="git-counts"
-                ><span class="text-success">+{{ file.additions }}</span>
-                <span class="text-danger">−{{ file.deletions }}</span></span
-              >
-            </button>
-          </template>
-          <p v-if="!files.length && !state.loading" class="git-empty">
-            {{
-              state.view === 'working'
-                ? 'Working tree is clean.'
-                : 'No changed files.'
-            }}
           </p>
         </div>
       </aside>
@@ -272,63 +234,43 @@ onBeforeUnmount(() =>
               state.commit.parents.map((sha) => sha.slice(0, 8)).join(', ')
             }}</span
           >
+          <span class="text-body-secondary"
+            >{{ files.length }} changed files</span
+          >
         </div>
-        <button
-          v-if="state.selectedFile"
-          class="git-diff-heading"
-          type="button"
-          :aria-expanded="Boolean(expanded)"
-          @click="toggleDiff"
+        <div
+          ref="diffScroll"
+          class="git-diff-scroll"
+          aria-label="Changed file diffs"
         >
-          <i
-            class="mdi"
-            :class="expanded ? 'mdi-chevron-down' : 'mdi-chevron-right'"
-            aria-hidden="true"
-          /><span>{{ state.selectedFile.path }}</span
-          ><small>{{ comparison(state.selectedFile) }}</small>
-        </button>
-        <div ref="diffScroll" class="git-diff-scroll selectable-text">
-          <template v-if="expanded">
-            <p
-              v-if="state.diffError"
-              class="git-empty text-danger"
-              role="alert"
-            >
-              {{ state.diffError.message }}
-            </p>
-            <p v-else-if="state.diff?.oversized" class="git-empty">
-              This diff exceeds the text display limit (1 MiB).
-            </p>
-            <p v-else-if="state.diff?.binary" class="git-empty">
-              Binary file changed. Text diff is unavailable.
-            </p>
-            <DiffView
-              v-else-if="diffData"
-              :data="diffData"
-              :diff-view-mode="
-                state.mode === 'split'
-                  ? DiffModeEnum.Split
-                  : DiffModeEnum.Unified
-              "
-              :diff-view-theme="theme"
-              :diff-view-highlight="true"
-              :diff-view-font-size="12"
+          <p
+            v-if="state.commitError"
+            class="git-empty text-danger"
+            role="alert"
+          >
+            {{ state.commitError.message }}
+          </p>
+          <p v-else-if="state.loading || state.commitLoading" class="git-empty">
+            Reading repository…
+          </p>
+          <template v-else>
+            <GitFileDiff
+              v-for="record in records"
+              :key="context + record.key"
+              :record="record"
+              :collection="viewer.diffs"
+              :scroll-root="diffScroll"
+              :theme="theme"
+              :mode="state.mode"
             />
-            <p v-else class="git-empty">
+            <p v-if="!files.length" class="git-empty">
               {{
-                state.diff
-                  ? 'No text changes (metadata, rename or submodule).'
-                  : 'Loading diff…'
+                state.view === 'working'
+                  ? 'Working tree is clean.'
+                  : 'No changed files.'
               }}
             </p>
           </template>
-          <p v-else-if="!state.selectedFile" class="git-empty">
-            {{
-              state.loading
-                ? 'Reading repository…'
-                : 'Select a changed file to inspect its diff.'
-            }}
-          </p>
         </div>
       </main>
     </div>
