@@ -62,6 +62,8 @@ With the browser development server running, `npm run test:smoke` checks a live
 filesystem request and a PTY round trip. Native changes also need testing in the
 real Tauri app; automated checks do not establish platform or display acceptance.
 
+### macOS app and DMG packaging
+
 On macOS, `npm run build:tauri` builds the application only by default. It avoids
 the DMG layout step that controls Finder and can leave temporary mounted images
 when interrupted. The explicit equivalent is:
@@ -78,11 +80,52 @@ created. This cleanup lives in `scripts/cleanup-tauri-dmg.js`, since Tauri
 regenerates `bundle_dmg.sh`.
 
 The release application is `src-tauri/target/release/bundle/macos/Vesperwind.app`.
-Build an installer explicitly with `npm run build:tauri -- --bundles dmg`; it is
-written under `src-tauri/target/release/bundle/dmg`. An app-only build does not
-update an existing DMG. Public macOS distribution requires Developer ID signing
-and notarization;
+Build the application and installer together:
+
+```bash
+npm run build:tauri -- --bundles app,dmg
+```
+
+For the installer only:
+
+```bash
+npm run build:tauri -- --bundles dmg
+```
+
+The standard installer is written under `src-tauri/target/release/bundle/dmg`
+as `Vesperwind_<version>_<arch>.dmg`. An app-only build does not update it.
+
+#### Packaging without Finder
+
+The standard DMG layout uses Finder/AppleScript, which can hang. Tauri's `--ci`
+does not skip this layout step. For a simple installer with the application and
+an Applications shortcut, run the following from the repository root:
+
+```bash
+npm run build:tauri
+(
+  set -e
+  dmg_source=$(mktemp -d "${TMPDIR:-/tmp}/vesperwind-dmg.XXXXXX")
+  trap 'rm -rf "$dmg_source"' EXIT
+  ditto src-tauri/target/release/bundle/macos/Vesperwind.app "$dmg_source/Vesperwind.app"
+  ln -s /Applications "$dmg_source/Applications"
+  mkdir -p src-tauri/target/release/bundle/dmg
+  hdiutil create -srcfolder "$dmg_source" -volname Vesperwind -format UDZO -ov \
+    src-tauri/target/release/bundle/dmg/Vesperwind.dmg
+  hdiutil verify src-tauri/target/release/bundle/dmg/Vesperwind.dmg
+)
+```
+
+This recipe writes `src-tauri/target/release/bundle/dmg/Vesperwind.dmg`, replacing
+any previous file with that name. It uses macOS tools directly, so it also works
+after a clean checkout without a generated `bundle_dmg.sh`. It does not apply
+custom Finder backgrounds or icon positions. Tauri's generated script offers
+the equivalent layout bypass through `--skip-jenkins`.
+
+Public macOS distribution requires Developer ID signing and notarization;
 local development signatures do not replace them.
+
+### Windows installers
 
 Windows verification and MSI/NSIS packaging:
 
@@ -94,6 +137,8 @@ npm run build:tauri -- --bundles msi,nsis
 Use the default Cargo output tree for a native x64 build. The executable is
 `src-tauri/target/release/vesperwind.exe`; installers are under `bundle/msi` and
 `bundle/nsis`. See the [Windows guide](build-windows.md) for setup and troubleshooting.
+
+### Node SEA packaging
 
 Node SEA packaging is currently limited to macOS and requires Node.js 25.5+:
 

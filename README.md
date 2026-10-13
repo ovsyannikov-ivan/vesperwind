@@ -54,6 +54,8 @@ supported.
 
 For setup and build instructions, see the [development guide](docs/development.md)
 and the [Windows build guide](docs/build-windows.md).
+The [macOS packaging section](docs/development.md#macos-app-and-dmg-packaging)
+includes app/DMG commands and a recipe that packages a DMG without Finder.
 
 ## Learn more
 
