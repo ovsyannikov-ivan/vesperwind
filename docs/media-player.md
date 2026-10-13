@@ -19,6 +19,25 @@ URL sources never read, write or delete `media_history`. Provider-backed audiobo
 in the persistent player; ordinary music does not use resume history. Quick Look
 audio is always a separate temporary session without history.
 
+## Video mouse interactions
+
+The video surface has three invisible mouse zones: the left quarter seeks back
+10 seconds, the middle half toggles Play/Pause, and the right quarter seeks
+forward 10 seconds. Exactly 25% belongs to Play/Pause; exactly 75% seeks forward.
+Mouse seeks and keyboard arrows share the existing 180 ms accumulation timer,
+feedback and duration clamping. Seeking preserves the playback state.
+
+Both HTML video and the native mpv controls WebView use the same surface, below
+visible controls, in windowed and fullscreen playback. Only primary mouse clicks
+activate it; dragging, loading/errors and native fullscreen transitions do not.
+Overlapping Play/Pause commands are ignored until the current command returns.
+An isolated middle-zone click toggles playback after a 300 ms double-click wait;
+a middle-zone double click toggles fullscreen without changing playback. Repeated
+clicks in the left/right zones seek immediately and never toggle fullscreen.
+The seek indicator fades in and out over 200 ms and keeps the completed burst
+visible for another 1.2 seconds. Its lifetime is separate from the 180 ms seek
+timer and live progress state. Audio-only playback and image viewing are unchanged.
+
 ## M3U and HLS
 
 Files opened from a file panel with `.m3u` or `.m3u8` extensions are inspected.

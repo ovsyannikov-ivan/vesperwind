@@ -19,6 +19,13 @@ mvk_commit=49b97f26ae013b9e5bfb3098ee5dea5e4f58e9e8
 # was re-verified file by file against a clone of $mvk_commit.
 download_extract moltenvk "https://codeload.github.com/KhronosGroup/MoltenVK/tar.gz/$mvk_commit" \
   f74f127e3df73e323c8c97cee2bfcf75eecd6ffb732b7fec8df21ae60da4140b "$source_root/moltenvk"
+redraw_patch="$(cd "$(dirname "$0")" && pwd)/patches/moltenvk-paused-resize.patch"
+# Sources are cached across builds. Accept only the pristine or patched pin.
+if patch --directory="$source_root/moltenvk" -p1 --dry-run --forward < "$redraw_patch" >/dev/null; then
+  patch --directory="$source_root/moltenvk" -p1 < "$redraw_patch"
+else
+  patch --directory="$source_root/moltenvk" -p1 --dry-run --reverse < "$redraw_patch" >/dev/null
+fi
 (
   cd "$source_root/moltenvk"
   # Xcode 27 no longer builds dependencies targeting macOS 10.15. Match the
@@ -80,6 +87,7 @@ notice="$source_root/moltenvk/External/SPIRV-Tools/external/spirv-headers/LICENS
 cp "$notice" "$licenses/SPIRV-Headers-LICENSE.txt"
 {
   echo "MoltenVK: 1.3.0 ($mvk_commit); dynamic direct Vulkan link"
+  echo 'MoltenVK paused resize patch: scripts/patches/moltenvk-paused-resize.patch'
   echo 'glslang: 15.1.0; static, optimizer disabled'
   for revision in "$source_root/moltenvk/ExternalRevisions/"*_repo_revision; do
     echo "$(basename "$revision"): $(cat "$revision")"

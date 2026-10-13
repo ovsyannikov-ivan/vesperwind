@@ -87,9 +87,16 @@ test('targeted neutral actions share one compact btn-neutral style', async () =>
   assert.match(compactCss, /\.tree-filter-actions > \.btn \{ flex: 1 1 0; min-width: 0;[^}]*white-space: nowrap; \}/u)
 })
 
-test('a dialog opened from the keyboard does not outline the whole window', () => {
+test('main and media overlay controls share the policy without focus halos', () => {
   const css = compiledStyles('src/styles/main.scss')
   assert.match(css, /\.modal:focus-visible\s*\{\s*outline: 0;\s*\}/)
-  // The generic focus ring still marks focusable controls.
-  assert.match(css, /button:focus-visible,\s*\[tabindex\]:focus-visible\s*\{\s*outline: 1px solid var\(--accent\);/)
+  for (const entry of ['src/styles/main.scss', 'src/media-overlay/media-overlay.scss']) {
+    const styles = compiledStyles(entry)
+    assert.match(styles, /:focus\s*\{\s*outline: 0 !important;/)
+    assert.match(styles, /--media-focus-box-shadow: none;/)
+    assert.match(styles, /--media-menu-item-focus-shadow: none;/)
+    assert.match(styles, /:where\(button,[^}]*\):focus\s*\{\s*box-shadow: none !important;/)
+    assert.match(styles, /\.form-range:focus::-webkit-slider-thumb\s*\{\s*box-shadow: none;/)
+    assert.match(styles, /\.form-range:focus::-moz-range-thumb\s*\{\s*box-shadow: none;/)
+  }
 })

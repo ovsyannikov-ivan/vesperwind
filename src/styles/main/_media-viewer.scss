@@ -29,11 +29,6 @@
 		opacity: 1;
 	}
 
-	&:focus-visible {
-		outline: 0.125rem solid var(--bs-primary);
-		outline-offset: 0.125rem;
-	}
-
 	.mdi {
 		font-size: 1.5rem;
 		line-height: 1;

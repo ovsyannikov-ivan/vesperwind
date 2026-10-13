@@ -14,7 +14,7 @@
     "buildEvidence": "macos/BUILD-INFO.txt",
     "entry": "macos/libmpv.2.dylib",
     "presentation": "experimental mpv-owned gpu-next / Vulkan / pinned MoltenVK / Metal over CAMetalLayer wid; FP16 EDR OpenGL Render API fallback",
-    "runtimeValidation": "Apple M4 after the dovi-enabled rebuild: probe-libmpv-macvk passed three lifetimes (MPEG-4 SDR software decode, HEVC Main10 PQ with hwdec-current=videotoolbox; paused resize, play/pause/seek, source switching; RGB10A2 + ITUR_2100_PQ + wantsEDR + EDR metadata). Real Dolby Vision 8.1 file: video-params/colormatrix=dolbyvision with gpu-next/macvk-embedded for VideoToolbox and software decode and both SDR and PQ targets (previous dovi-disabled bundle: bt.2020-ncl); application Info reports RPU reshaping active, OpenGL Render API fallback reports RPU not applied; native media smoke passed. FFmpeg FATE samples in the application: P8.1, P8.4 and P5 give colormatrix=dolbyvision and RPU reshaping active on gpu-next/VideoToolbox (the dovi-disabled bundle decoded P5 as bt.709); P7 FEL gives bt.2020-ncl, RPU not applied, enhancement layer FEL not decoded; the OpenGL Render API fallback reports RPU not applied for all four. Physical HDR/color accuracy, Tauri fullscreen and display moves/hotplug/sleep/wake remain unverified.",
+    "runtimeValidation": "Apple M4 after the dovi-enabled rebuild: probe-libmpv-macvk passed three lifetimes (MPEG-4 SDR software decode, HEVC Main10 PQ with hwdec-current=videotoolbox; paused resize, play/pause/seek, source switching; RGB10A2 + ITUR_2100_PQ + wantsEDR + EDR metadata). Real Dolby Vision 8.1 file: video-params/colormatrix=dolbyvision with gpu-next/macvk-embedded for VideoToolbox and software decode and both SDR and PQ targets (previous dovi-disabled bundle: bt.2020-ncl); application Info reports RPU reshaping active, OpenGL Render API fallback reports RPU not applied; native media smoke passed. FFmpeg FATE samples in the application: P8.1, P8.4 and P5 give colormatrix=dolbyvision and RPU reshaping active on gpu-next/VideoToolbox (the dovi-disabled bundle decoded P5 as bt.709); P7 FEL gives bt.2020-ncl, RPU not applied, enhancement layer FEL not decoded; the OpenGL Render API fallback reports RPU not applied for all four. Paused SDR frame rendering during repeated Tauri fullscreen entry/exit was verified on Apple M4 with the MoltenVK paused resize patch. Physical HDR/color accuracy and display moves/hotplug/sleep/wake remain unverified.",
     "requiredMesonOptions": [
       "-Dmacvk-embedded=enabled",
       "-Dvulkan=enabled",
@@ -32,6 +32,7 @@
     ],
     "gpuDependencies": {
       "MoltenVK": "1.3.0 (49b97f26ae013b9e5bfb3098ee5dea5e4f58e9e8), dynamic direct link",
+      "MoltenVKPatch": "scripts/patches/moltenvk-paused-resize.patch",
       "Vulkan-Headers": "1.4.313 (e2e53a724677f6eba8ff0ce1ccb64ee321785cbd)",
       "glslang": "15.1.0, static, optimizer disabled",
       "transitiveSourcePins": "macos/BUILD-INFO.txt (MoltenVK ExternalRevisions)"

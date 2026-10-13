@@ -1,0 +1,13 @@
+--- a/MoltenVK/MoltenVK/GPUObjects/MVKSwapchain.mm
++++ b/MoltenVK/MoltenVK/GPUObjects/MVKSwapchain.mm
+@@ -493,6 +493,10 @@
+ 	auto* oldSwapchain = (MVKSwapchain*)pCreateInfo->oldSwapchain;
+ 	if (oldSwapchain && mvkVkExtent2DsAreEqual(pCreateInfo->imageExtent, _surface->getExtent())) {
+ 		oldSwapchain->forceUnpresentedImageCompletion();
++		// The completion workaround can leave the shared layer at 1x1 after
++		// the new swapchain has already installed its correct drawable size.
++		// Restore it before acquiring any drawable for the new swapchain.
++		mtlLayer.drawableSize = mvkCGSizeFromVkExtent2D(_imageExtent);
+ 	}
+ 
+ 	if (pCreateInfo->compositeAlpha != VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR) {

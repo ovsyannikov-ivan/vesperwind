@@ -107,10 +107,14 @@ impl MetalSurface {
     }
     pub fn set_geometry(&self, geometry: PlayerGeometry) -> Result<(), String> {
         let inner = Arc::clone(&self.0);
+        let (tx, rx) = mpsc::sync_channel(1);
         self.0
             .window
             .run_on_main_thread(move || {
-                if inner.retired.load(Ordering::Acquire) { return; }
+                if inner.retired.load(Ordering::Acquire) {
+                    let _ = tx.send(());
+                    return;
+                }
                 let root = unsafe { &*(inner.root as *const NSView) };
                 let container = unsafe { &*(inner.container as *const NSView) };
                 let view = unsafe { &*(inner.view as *const NSView) };
@@ -159,7 +163,11 @@ impl MetalSurface {
                     eprintln!("[metal-host] rootLayer={:?} rootLayerBounds={:?} viewBounds={:?} layerBounds={:?}", root.layer().map(|l| l.frame()), root.layer().map(|l| l.bounds()), view.bounds(), layer.bounds());
                 }
                 refresh(&inner);
+                let _ = tx.send(());
             })
+            .map_err(|e| e.to_string())?;
+        // Geometry must be committed before the caller requests a paused redraw.
+        rx.recv_timeout(Duration::from_secs(5))
             .map_err(|e| e.to_string())
     }
     pub fn set_visible(&self, visible: bool) -> Result<(), String> {
@@ -171,7 +179,10 @@ impl MetalSurface {
             .window
             .run_on_main_thread(move || {
                 let view = unsafe { &*(inner.container as *const NSView) };
+                CATransaction::begin();
+                CATransaction::setDisableActions(true);
                 view.setHidden(!visible || inner.retired.load(Ordering::Acquire));
+                CATransaction::commit();
                 if visible && std::env::var_os("VESPERWIND_MPV_LOG").is_some() {
                     let root = unsafe { &*(inner.root as *const NSView) };
                     eprintln!(

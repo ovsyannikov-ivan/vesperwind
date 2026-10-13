@@ -74,6 +74,23 @@ defineProps({ preview: { type: Object, required: true }, controlsTarget: { type:
   color: #fff;
   pointer-events: none;
   z-index: 5;
+
+  &-enter-active,
+  &-leave-active {
+    transition: opacity 0.2s ease;
+  }
+
+  &-enter-from,
+  &-leave-to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .video-seek-feedback-enter-active,
+  .video-seek-feedback-leave-active {
+    transition: none;
+  }
 }
 
 .video-preview-track {

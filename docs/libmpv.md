@@ -21,9 +21,10 @@ is the default. Strict `macvk` returns presentation errors without falling back;
 source/decoder failures do not trigger renderer retry. Actual `current-vo` and
 `current-gpu-context` must match before video startup succeeds.
 
-The Metal backend remains experimental. Paused fullscreen composition, physical
-HDR color accuracy, display changes and concurrent close/seek/source switching
-require validation in the actual application and on the target display.
+The Metal backend remains experimental. Paused SDR fullscreen frame rendering
+was checked in the real Tauri application on Apple M4. Physical HDR color
+accuracy, display changes and concurrent close/seek/source switching still
+require validation on the target display.
 
 See [the upstream references and alternatives](macos-video-backend-research.md) for
 embedding, VideoToolbox texture import, HDR limitations, Dolby Vision and public
@@ -61,7 +62,8 @@ once, restores video beneath the opaque cover without raising its Windows HWND
 above it, and fades back in. Neither
 video-frame counters nor repeated size/readiness polling control this timing.
 Windows and macOS share this sequence; reduced motion skips fades but retains
-the fixed holds. The updated macOS transition still needs visual validation.
+the fixed holds. macOS paused SDR entry/exit was visually checked in Tauri;
+physical HDR transitions and Windows composition still need target validation.
 Transition steps have bounded waits, and the overlay has its own watchdog to
 remove an abandoned cover and restore controls. On Windows, HWND layout never
 waits for the render mutex: the graphics driver may synchronously message the
@@ -72,6 +74,19 @@ Metal host geometry uses a non-animated CA transaction. Covered WKWebView rAF
 callbacks can be suspended, so startup/presentation deadlines run independently
 of them. Do not synchronously call AppKit display or CATransaction::flush from a
 Tauri main-thread task: reentrant Tao drawing can deadlock its dispatch mutex.
+
+Metal geometry and visibility commands acknowledge the completed AppKit mutation
+before requesting a paused-frame redraw. The request updates and removes an empty
+mpv ASS overlay, invalidating the retained frame without seeking or changing
+Play/Pause. It runs only for visible, paused MacVk video sessions.
+
+The pinned MoltenVK 1.3.0 includes
+`scripts/patches/moltenvk-paused-resize.patch`: its pending-presentation completion
+workaround temporarily sets the shared CAMetalLayer to 1×1. The patch restores
+the new swapchain's extent before it acquires a drawable, preventing a paused
+resize from stretching a single pixel across the video surface. The source pin,
+decoder and HDR policy are unchanged; the bundle records the patch and updated
+library checksum.
 
 Debug macOS application fallback can be exercised with
 `VESPERWIND_MPV_TEST_MACVK_STARTUP_FAILURE=1`: an unusable MacVk host extent causes

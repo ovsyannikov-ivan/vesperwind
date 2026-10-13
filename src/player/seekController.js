@@ -14,18 +14,21 @@ export const createSeekController = ({ getTime, getDuration, seek, onChange = ()
   let timer = null
   let origin = null
   let pendingSeekDelta = 0
-  const reset = () => {
+  const clearPending = () => {
     if (timer !== null) clearTimer(timer)
     timer = null
     origin = null
     pendingSeekDelta = 0
-    onChange(null)
   }
+  const reset = () => { clearPending(); onChange(null) }
   const flush = () => {
     if (origin === null) return
     const target = clampTime(origin + pendingSeekDelta, getDuration())
     const start = origin
-    reset()
+    clearPending()
+    // Progress returns to the live clock immediately; the visual hint may hold
+    // the completed burst independently of the 180ms seek debounce.
+    onChange(null, { committed: true })
     if (target !== start) {
       try { Promise.resolve(seek(target)).catch(onError) } catch (error) { onError(error) }
     }

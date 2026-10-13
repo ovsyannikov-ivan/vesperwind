@@ -22,6 +22,7 @@ libplacebo private glslang patch: scripts/patches/libplacebo-macos-private-glsla
 mpv audio output: CoreAudio, AVFoundation fallback
 mpv macOS 27 CoreAudio patch: scripts/patches/mpv-macos27-coreaudio.patch
 MoltenVK: 1.3.0 (49b97f26ae013b9e5bfb3098ee5dea5e4f58e9e8); dynamic direct Vulkan link
+MoltenVK paused resize patch: scripts/patches/moltenvk-paused-resize.patch
 glslang: 15.1.0; static, optimizer disabled
 SPIRV-Cross_repo_revision: 7918775748c5e2f5c40d9918ce68825035b5a1e1
 SPIRV-Headers_repo_revision: bab63ff679c41eb75fc67dac76e1dc44426101e1

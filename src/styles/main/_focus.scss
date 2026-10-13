@@ -1,0 +1,69 @@
+// Shared native chrome policy for the main window and media overlay. Keep
+// keyboard focus and existing hover/selection states, without browser halos.
+:root {
+	--bs-focus-ring-width: 0;
+	--media-focus-box-shadow: none;
+	--media-menu-item-focus-shadow: none;
+}
+
+:focus {
+	// Editor styles load lazily; they must not restore the browser outline.
+	outline: 0 !important;
+	--univer-tw-ring-shadow: 0 0 #0000 !important;
+	--univer-tw-ring-offset-shadow: 0 0 #0000 !important;
+}
+
+:where(button, [role="button"], a, input[type="button"], input[type="reset"], input[type="submit"]):focus {
+	box-shadow: none !important;
+}
+
+.btn {
+	// Bootstrap's btn-check focuses a hidden input and shadows its label.
+	--bs-btn-focus-box-shadow: none;
+}
+
+.form-control,
+.form-select {
+	&:focus {
+		border-color: var(--bs-border-color);
+		box-shadow: inset 0 0 0 1px var(--bs-primary);
+	}
+
+	&.is-invalid:focus {
+		border-color: var(--bs-form-invalid-border-color);
+		box-shadow: inset 0 0 0 1px var(--bs-form-invalid-border-color);
+	}
+}
+
+.form-check-input {
+	&:focus {
+		border-color: var(--bs-border-color);
+		box-shadow: none;
+	}
+
+	&:checked:focus,
+	&[type="checkbox"]:indeterminate:focus {
+		border-color: rgb(var(--bs-primary-rgb));
+	}
+}
+
+.form-range:focus {
+	&::-webkit-slider-thumb {
+		box-shadow: none;
+	}
+
+	&::-moz-range-thumb {
+		box-shadow: none;
+	}
+}
+
+// Monaco also draws outlines on descendants of the focused list, including
+// quick input and suggestions. Override tokens, leaving theme sources intact.
+.monaco-editor,
+.monaco-diff-editor,
+.monaco-quick-input-widget {
+	--vscode-focusBorder: transparent !important;
+	--vscode-list-focusOutline: transparent !important;
+	--vscode-list-inactiveFocusOutline: transparent !important;
+	--vscode-editorSuggestWidget-focusOutline: transparent !important;
+}

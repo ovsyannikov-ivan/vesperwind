@@ -329,6 +329,8 @@ enum Control {
         reply: mpsc::SyncSender<Result<PlayerSnapshot, String>>,
     },
     SetSubtitlePosition(f64),
+    #[cfg(target_os = "macos")]
+    RedrawSurface(mpsc::SyncSender<Result<(), String>>),
     DolbyVisionSource {
         uri: String,
         probe: ProbeState,
@@ -842,7 +844,10 @@ impl MpvPlayerManager {
             running
                 .sender
                 .send(Control::SetSubtitlePosition(geometry.subtitle_position))
-                .map_err(|_| "The native player control channel is closed".to_string())
+                .map_err(|_| "The native player control channel is closed".to_string())?;
+            #[cfg(target_os = "macos")]
+            redraw_surface(&running.sender)?;
+            Ok(())
         })
     }
 
@@ -852,7 +857,12 @@ impl MpvPlayerManager {
                 .surface
                 .as_ref()
                 .ok_or("Audio playback has no video surface")?
-                .set_transition_visible(visible)
+                .set_transition_visible(visible)?;
+            #[cfg(target_os = "macos")]
+            if visible {
+                redraw_surface(&running.sender)?;
+            }
+            Ok(())
         })
     }
 
@@ -1122,6 +1132,17 @@ fn request(
         .map_err(|_| "The native player did not respond".to_string())?
 }
 
+#[cfg(target_os = "macos")]
+fn redraw_surface(sender: &mpsc::Sender<Control>) -> Result<(), String> {
+    let (reply, response) = mpsc::sync_channel(1);
+    sender
+        .send(Control::RedrawSurface(reply))
+        .map_err(|_| "The native player has stopped".to_string())?;
+    response
+        .recv_timeout(Duration::from_secs(5))
+        .map_err(|_| "The native player did not acknowledge the redraw".to_string())?
+}
+
 type PlayerEvents = Arc<dyn Fn(&str, &PlayerSnapshot) + Send + Sync>;
 
 fn control_loop(
@@ -1340,6 +1361,18 @@ fn control_loop(
             Ok(Control::SetSubtitlePosition(position)) => {
                 let _ =
                     api.set_property(handle, "sub-pos", &position.clamp(0.0, 100.0).to_string());
+            }
+            #[cfg(target_os = "macos")]
+            Ok(Control::RedrawSurface(reply)) => {
+                let result = if backend == Backend::MacVk
+                    && surface.as_ref().is_some_and(NativeSurface::is_visible)
+                    && api.get_flag(handle, "pause") == Some(true)
+                {
+                    api.redraw_current_frame(handle)
+                } else {
+                    Ok(())
+                };
+                let _ = reply.send(result);
             }
             Ok(Control::DolbyVisionSource { uri, probe }) => {
                 if current_uri.as_deref() == Some(uri.as_str()) {

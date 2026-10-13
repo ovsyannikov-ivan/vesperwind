@@ -16,6 +16,9 @@ import { createMediaOsd } from '../player/mediaOsd.js'
 import ThumbnailPreview from './ThumbnailPreview.vue'
 import { useThumbnailPreview } from '../composables/useThumbnailPreview.js'
 import { createSeekController, canHandleSeekKey } from '../player/seekController.js'
+import VideoMouseSurface from './VideoMouseSurface.vue'
+import { createSeekFeedbackDisplay } from '../player/seekFeedbackDisplay.js'
+import { createPlaybackToggle } from '../player/videoMouseInteraction.js'
 import { mediaOverlay } from '../api/mediaOverlay.js'
 import { createLayoutQueue } from '../player/layoutQueue.js'
 import { waitForNativeGeometry } from '../player/nativeGeometry.js'
@@ -77,9 +80,14 @@ const chapterStep = (direction) => {
 const osdMessage = ref(null)
 const osd = createMediaOsd({ onChange: (v) => { osdMessage.value = v } })
 const seekFeedback = ref(null)
+const seekHint = ref(null)
+const seekDisplay = createSeekFeedbackDisplay({ onChange: (value) => { seekHint.value = value } })
 const seekController = createSeekController({
   getTime: () => state.currentTime, getDuration: () => state.duration,
-  seek: (target) => player?.seek(target), onChange: (value) => { seekFeedback.value = value },
+  seek: (target) => player?.seek(target), onChange: (value, detail) => {
+    seekFeedback.value = value
+    seekDisplay.update(value, detail)
+  },
   onError: (error) => console.warn('Video seek failed', error),
 })
 const sourceLocation = () => props.sourceType === 'url' ? { sourceType: 'url', url: props.sourceUrl } : { sourceType: 'provider', providerId: props.providerId || 'local', path: props.path }
@@ -102,6 +110,15 @@ const formatTime = (seconds) => {
 }
 const isAudio = computed(() => props.kind === 'audio')
 const isNative = computed(() => backendMode.value === 'mpv')
+const mouseEnabled = computed(() => !isAudio.value && !isNative.value && !state.error
+  && [PlayerStatus.READY, PlayerStatus.PLAYING, PlayerStatus.PAUSED].includes(state.status))
+const mousePlayback = createPlaybackToggle({
+  enabled: () => mouseEnabled.value,
+  getPlayer: () => player,
+  isPlaying: () => state.status === PlayerStatus.PLAYING,
+  onError: (error) => console.warn('Playback command failed', error),
+})
+watch(mouseEnabled, (enabled) => { if (!enabled) seekController.reset() }, { flush: 'sync' })
 let player = null
 let unsubscribeState = null
 let resizeObserver = null
@@ -376,6 +393,7 @@ watch(
   () => isNative.value ? [props.sourceType, props.sourceUrl, props.providerId, props.path] : [props.src],
   () => {
     seekController.reset()
+    mousePlayback.reset()
     thumbnail.hide()
     chaptersOpen.value = false
     if (!player) return
@@ -434,6 +452,7 @@ watch(
 
 onBeforeUnmount(() => {
   osd.dispose()
+  mousePlayback.reset()
   seekController.reset()
   document.removeEventListener('keydown', handleVideoKeydown, true)
   generation += 1
@@ -483,8 +502,12 @@ defineExpose({ mediaElement, pause, play, seek, stop, coverNativeTransition, rev
   >
     <audio v-if="isAudio" ref="mediaElement" slot="media" :autoplay="autoplay" preload="metadata" @error="emit('error')" />
     <video v-else ref="mediaElement" slot="media" :autoplay="autoplay" playsinline preload="metadata" @error="emit('error')" />
+    <VideoMouseSurface v-if="!isAudio" slot="gestures-chrome" noautohide :enabled="mouseEnabled"
+      :source-key="src" @seek="seekController.add" @toggle="mousePlayback.toggle" @fullscreen="emit('fullscreen')" />
     <MediaOsd v-if="!isAudio" slot="top-chrome" :message="osdMessage" />
-    <span v-if="seekFeedback" slot="centered-chrome" class="video-seek-feedback" role="status">{{ seekFeedback.delta > 0 ? '+' : '' }}{{ Math.round(seekFeedback.delta) }} s</span>
+    <Transition name="video-seek-feedback">
+      <span v-if="seekHint" slot="centered-chrome" noautohide class="video-seek-feedback" role="status">{{ seekHint.delta > 0 ? '+' : '' }}{{ Math.round(seekHint.delta) }} s</span>
+    </Transition>
     <media-loading-indicator v-if="!isAudio" slot="centered-chrome" noautohide />
     <media-play-button v-if="!isAudio" slot="centered-chrome" class="custom-media-player-centered-play" aria-label="Play or pause video" />
     <media-control-bar class="custom-media-player-controls" :noautohide="chaptersOpen || undefined">

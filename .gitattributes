@@ -49,8 +49,8 @@
 /src-tauri/vendor/libmpv/macos/** -text
 /src-tauri/vendor/libmpv/macos/LICENSES/** whitespace=-blank-at-eol,-blank-at-eof
 
-# Unified diff patches require a space prefix on empty context lines.
-/scripts/patches/*.patch whitespace=-blank-at-eol,-blank-at-eof
+# Unified diff context prefixes precede empty lines and tab-indented source.
+/scripts/patches/*.patch whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab
 
 # LOWA runtime is verified by ASSETS.json; never normalize its pinned bytes.
 /src-tauri/vendor/lowa/** -text

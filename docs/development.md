@@ -62,16 +62,26 @@ With the browser development server running, `npm run test:smoke` checks a live
 filesystem request and a PTY round trip. Native changes also need testing in the
 real Tauri app; automated checks do not establish platform or display acceptance.
 
-On macOS, an application-only build avoids the DMG layout step that controls Finder:
+On macOS, `npm run build:tauri` builds the application only by default. It avoids
+the DMG layout step that controls Finder and can leave temporary mounted images
+when interrupted. The explicit equivalent is:
 
 ```bash
 npm run build:tauri -- --bundles app
 ```
 
+Before invoking Tauri on macOS, the wrapper detaches stale Vesperwind temporary
+DMGs and deletes their `rw.<pid>.Vesperwind_*.dmg` files from `bundle/macos`.
+Images owned by a live process, unrelated mounts, final installers and symbolic
+links are preserved. A detach failure stops the build before another image is
+created. This cleanup lives in `scripts/cleanup-tauri-dmg.js`, since Tauri
+regenerates `bundle_dmg.sh`.
+
 The release application is `src-tauri/target/release/bundle/macos/Vesperwind.app`.
-A full macOS bundle build also writes the installer under
-`src-tauri/target/release/bundle/dmg`. An app-only build does not update an existing
-DMG. Public macOS distribution requires Developer ID signing and notarization;
+Build an installer explicitly with `npm run build:tauri -- --bundles dmg`; it is
+written under `src-tauri/target/release/bundle/dmg`. An app-only build does not
+update an existing DMG. Public macOS distribution requires Developer ID signing
+and notarization;
 local development signatures do not replace them.
 
 Windows verification and MSI/NSIS packaging:

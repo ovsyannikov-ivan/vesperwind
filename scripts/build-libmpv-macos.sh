@@ -421,6 +421,7 @@ m.pop('optionalDoviProcessing', None)
 m['doviProcessing'] = f'libplacebo built-in Dolby Vision RPU reshaping: {dovi}; libdovi: disabled; system Dolby Vision output: not used'
 m['runtimeValidation'] = 'Not validated after this source rebuild; run the native probe and application/display acceptance in docs/macos-video-backend-research.md'
 m['gpuDependencies'] = {'MoltenVK': '1.3.0 (49b97f26ae013b9e5bfb3098ee5dea5e4f58e9e8), dynamic direct link', 'Vulkan-Headers': '1.4.313 (e2e53a724677f6eba8ff0ce1ccb64ee321785cbd)', 'glslang': '15.1.0, static, optimizer disabled', 'transitiveSourcePins': 'macos/BUILD-INFO.txt (MoltenVK ExternalRevisions)'} if metal else {}
+if metal: m['gpuDependencies']['MoltenVKPatch'] = 'scripts/patches/moltenvk-paused-resize.patch'
 m['backendOverride'] = 'VESPERWIND_MPV_MACOS_BACKEND=auto|macvk|opengl'
 replacement = '  "macos": ' + json.dumps(m, indent=2).replace('\n', '\n  ') + ',\n  "windows":'
 p.write_text(re.sub(r'  "macos": \{.*?\n  \},\n  "windows":', lambda _: replacement, raw, count=1, flags=re.S))

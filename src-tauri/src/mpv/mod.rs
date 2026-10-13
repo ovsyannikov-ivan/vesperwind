@@ -434,6 +434,15 @@ impl MpvApi {
         )
     }
 
+    #[cfg(target_os = "macos")]
+    pub(crate) fn redraw_current_frame(&self, handle: *mut MpvHandle) -> Result<(), String> {
+        // mpv 0.41 has no public VO expose command. Updating an empty ASS overlay
+        // invalidates OSD and requests a redraw of the retained video frame.
+        // Removing it keeps no overlay alive and never seeks or changes pause.
+        self.command(handle, &["osd-overlay", "0", "ass-events", ""])?;
+        self.command(handle, &["osd-overlay", "0", "none", ""])
+    }
+
     pub(crate) fn get_string(&self, handle: *mut MpvHandle, name: &str) -> Option<String> {
         let name = CString::new(name).ok()?;
         let value = unsafe { (self.get_property_string)(handle, name.as_ptr()) };
@@ -625,6 +634,57 @@ mod tests {
         ] {
             api.set_property(handle, name, value)
                 .unwrap_or_else(|error| panic!("{name}={value}: {error}"));
+        }
+        api.destroy(handle);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn paused_frame_redraw_preserves_position_without_seeking() {
+        let api = MpvApi::load_bundled().expect("bundled libmpv");
+        let handle = unsafe { (api.create)() };
+        assert!(!handle.is_null());
+        // Headless decoding verifies command semantics; actual Metal presentation
+        // requires the separate Tauri fullscreen visual check.
+        for (name, value) in [
+            ("terminal", "no"),
+            ("config", "no"),
+            ("idle", "yes"),
+            ("vo", "null"),
+            ("ao", "null"),
+            ("pause", "yes"),
+            ("keep-open", "yes"),
+        ] {
+            api.set_option(handle, name, value).expect(name);
+        }
+        assert!(unsafe { (api.initialize)(handle) } >= 0);
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../test/fixtures/media/native-h264.mp4");
+        api.command(handle, &["loadfile", path.to_str().unwrap(), "replace"])
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut frame_ready = false;
+        while Instant::now() < deadline {
+            // MPV_EVENT_PLAYBACK_RESTART = 21, emitted after the first frame.
+            if api.wait_event_details(handle, 0.01).event_id == 21 {
+                frame_ready = true;
+                break;
+            }
+        }
+        assert!(frame_ready, "first paused frame was not presented");
+        let before = api
+            .get_double(handle, "time-pos")
+            .expect("decoded paused frame");
+        assert_eq!(api.get_flag(handle, "pause"), Some(true));
+        for _ in 0..10 {
+            api.redraw_current_frame(handle).unwrap();
+            let until = Instant::now() + Duration::from_millis(50);
+            while Instant::now() < until {
+                // MPV_EVENT_SEEK = 20. Redraw must not reset the decoder timeline.
+                assert_ne!(api.wait_event_details(handle, 0.01).event_id, 20);
+            }
+            assert_eq!(api.get_flag(handle, "pause"), Some(true));
+            assert_eq!(api.get_double(handle, "time-pos"), Some(before));
         }
         api.destroy(handle);
     }

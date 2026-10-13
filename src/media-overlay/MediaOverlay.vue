@@ -6,6 +6,9 @@ import { createMediaOsd } from '../player/mediaOsd.js'
 import VideoProgressRange from '../components/VideoProgressRange.vue'
 import { createControlsVisibility } from '../player/controlsVisibility.js'
 import { createSeekController, canHandleSeekKey } from '../player/seekController.js'
+import VideoMouseSurface from '../components/VideoMouseSurface.vue'
+import { createSeekFeedbackDisplay } from '../player/seekFeedbackDisplay.js'
+import { createPlaybackToggle } from '../player/videoMouseInteraction.js'
 import { mediaOverlay } from '../api/mediaOverlay.js'
 import { waitForOverlayPresentation } from '../player/overlayPresentation.js'
 import { createOverlayTransitionHandler } from '../player/overlayTransition.js'
@@ -38,9 +41,14 @@ const state = reactive({
 const osdMessage = ref(null)
 const osd = createMediaOsd({ onChange: (message) => { osdMessage.value = message } })
 const seekFeedback = ref(null)
+const seekHint = ref(null)
+const seekDisplay = createSeekFeedbackDisplay({ onChange: (value) => { seekHint.value = value } })
 const seekController = createSeekController({
   getTime: () => state.currentTime, getDuration: () => state.duration,
-  seek: (target) => player?.seek(target), onChange: (value) => { seekFeedback.value = value },
+  seek: (target) => player?.seek(target), onChange: (value, detail) => {
+    seekFeedback.value = value
+    seekDisplay.update(value, detail)
+  },
   onError: (error) => console.warn('Video seek failed', error),
 })
 const progressRange = ref(null)
@@ -84,6 +92,14 @@ const transitionHandler = createOverlayTransitionHandler({
 const controlsState = reactive({ visible: true, pointerInsideControls: false })
 const controlsVisible = computed(() => controlsState.visible)
 const isPlaying = computed(() => state.status === PlayerStatus.PLAYING)
+const mouseEnabled = computed(() => !transitioning.value && !context.transitioning && !state.error
+  && [PlayerStatus.READY, PlayerStatus.PLAYING, PlayerStatus.PAUSED].includes(state.status))
+const playbackToggle = createPlaybackToggle({
+  enabled: () => mouseEnabled.value,
+  getPlayer: () => player,
+  isPlaying: () => isPlaying.value,
+  onError: (error) => console.warn('Playback command failed', error),
+})
 const controls = createControlsVisibility({ state: controlsState,
   getPlayback: () => ({ playing: isPlaying.value, menu: activeMenu.value, error: state.error, transitioning: transitioning.value }) })
 const isCursorHidden = computed(() => controls.cursorHidden())
@@ -106,6 +122,7 @@ const attachToSession = async (sessionId) => {
   osd.reset()
   activeMenu.value = ''
   seekController.reset()
+  playbackToggle.reset()
   progressRange.value?.hidePreview()
   unsubscribeState?.()
   player?.dispose()
@@ -130,7 +147,12 @@ const toggleMenu = (menu) => {
   activeMenu.value = activeMenu.value === menu ? '' : menu
 }
 const closeMenu = () => { activeMenu.value = '' }
-const togglePlay = () => (isPlaying.value ? player?.pause() : player?.play())?.catch((error) => console.warn('Playback command failed', error))
+const togglePlay = playbackToggle.toggle
+watch(mouseEnabled, (enabled) => { if (!enabled) seekController.reset() }, { flush: 'sync' })
+watch(() => [context.sessionId, context.path, context.url], () => {
+  seekController.reset()
+  playbackToggle.reset()
+}, { flush: 'sync' })
 const selectTrack = async (kind, id) => {
   await player?.selectTrack(kind, id).catch(() => {})
   closeMenu()
@@ -192,6 +214,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   osd.dispose()
+  playbackToggle.reset()
   controls.dispose()
   document.removeEventListener('pointerdown', handlePointerDown, true)
   document.removeEventListener('keydown', handleKeydown, true)
@@ -227,9 +250,13 @@ onBeforeUnmount(() => {
       <button class="btn-close btn-close-white" type="button" aria-label="Close" @click="sendAction('close')" />
     </header>
 
-    <section class="media-overlay-stage" @dblclick="sendAction('fullscreen')">
+    <section class="media-overlay-stage">
+      <VideoMouseSurface :enabled="mouseEnabled" :source-key="(context.sessionId || '') + (context.path || context.url || '')"
+        @seek="seekController.add" @toggle="togglePlay" @fullscreen="sendAction('fullscreen')" />
       <MediaOsd :message="osdMessage" />
-      <span v-if="seekFeedback" class="video-seek-feedback" role="status">{{ seekFeedback.delta > 0 ? '+' : '' }}{{ Math.round(seekFeedback.delta) }} s</span>
+      <Transition name="video-seek-feedback">
+        <span v-if="seekHint" class="video-seek-feedback" role="status">{{ seekHint.delta > 0 ? '+' : '' }}{{ Math.round(seekHint.delta) }} s</span>
+      </Transition>
       <div v-if="state.error" class="alert alert-danger media-overlay-error" role="alert">
         {{ state.error.message || state.error }}
       </div>

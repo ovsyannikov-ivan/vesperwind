@@ -55,9 +55,9 @@ test('long breadcrumbs cannot shrink the provider badge; longer remote labels re
   assert.match(panel, /class="badge text-bg-secondary panel-provider-label" :title="providerLabel"/u)
 })
 
-test('every text field and select draws its focus inside the border', async () => {
+test('text fields and selects show focus only as an inset shadow', async () => {
   const { compiledStyles } = await import('./support/styles.js')
   const css = compiledStyles('src/styles/main.scss')
-  assert.match(css, /\.form-control:focus,\s*\.form-select:focus \{\s*border-color: var\(--bs-primary\);\s*box-shadow: inset 0 0 0 1px var\(--bs-primary\);/u)
+  assert.match(css, /\.form-control:focus,\s*\.form-select:focus \{\s*border-color: var\(--bs-border-color\);\s*box-shadow: inset 0 0 0 1px var\(--bs-primary\);/u)
   assert.match(css, /\.form-control\.is-invalid:focus,\s*\.form-select\.is-invalid:focus \{[^}]*box-shadow: inset 0 0 0 1px/u)
 })

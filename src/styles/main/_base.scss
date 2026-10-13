@@ -19,12 +19,6 @@ body {
 	color: var(--text);
 }
 
-button:focus-visible,
-[tabindex]:focus-visible {
-	outline: 1px solid var(--accent);
-	outline-offset: -1px;
-}
-
 // Bootstrap focuses the full-window .modal container itself when a dialog opens.
 // After a keyboard shortcut (Space for Quick Look) WebKit treats that as
 // keyboard focus, which would outline the whole window.
