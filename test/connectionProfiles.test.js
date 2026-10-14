@@ -17,11 +17,11 @@ test('connection profile normalization matches the shared JavaScript/Rust fixtur
   }
 })
 
-test('settings v8 SFTP profiles migrate to v9 without any change', () => {
+test('settings v8 SFTP profiles migrate without any change', () => {
   const v8 = fixtures.normalize.find(item => item.name === 'v8 SFTP profiles are unchanged')
   const settings = normalizeSettings({ version: 8, connections: v8.input })
-  assert.equal(settings.version, 9)
-  assert.equal(SETTINGS_VERSION, 9)
+  assert.equal(settings.version, 10)
+  assert.equal(SETTINGS_VERSION, 10)
   assert.deepEqual(settings.connections, v8.input)
 })
 

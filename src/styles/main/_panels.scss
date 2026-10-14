@@ -25,9 +25,8 @@
 
 	&.is-root-drop-target {
 		box-shadow:
-
-		inset 0 0 0 2px var(--bs-primary),
-		inset 0 0 16px rgba(var(--bs-primary-rgb), 0.22);
+			inset 0 0 0 2px var(--bs-primary),
+			inset 0 0 16px rgba(var(--bs-primary-rgb), 0.22);
 	}
 
 	&.is-panel-swap-target .panel-header {
@@ -49,7 +48,7 @@
 	min-width: 0;
 	padding: 0 5px 0 9px;
 	border-bottom: 1px solid var(--border);
-	background: var(--surface-2);
+	background: var(--bs-body-bg);
 }
 
 .file-panel {
@@ -261,12 +260,15 @@ body.is-swapping-panels * {
 	padding: 0;
 	place-items: center;
 
-  &.git-repository-button {
-    width: 20px;
-    height: 20px;
-    flex-basis: 20px;
-    .mdi, .mdi::before { font-size: 13px; }
-  }
+	&.git-repository-button {
+		width: 20px;
+		height: 20px;
+		flex-basis: 20px;
+		.mdi,
+		.mdi::before {
+			font-size: 13px;
+		}
+	}
 }
 
 // Text variant with the same density, e.g. the editor sidebar's Files button.
@@ -283,8 +285,8 @@ body.is-swapping-panels * {
 .compact-icon-button:focus-visible,
 .compact-button:hover,
 .compact-button:focus-visible {
-	border-color: var(--border-strong);
-	color: var(--text);
+	border-color: rgba(var(--border-strong-rgb), 0.5);
+	color: var(--bs-body-color);
 	background: transparent;
 }
 

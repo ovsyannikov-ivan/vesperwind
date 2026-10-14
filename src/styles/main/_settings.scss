@@ -5,7 +5,7 @@
 	flex: 0 0 9rem;
 	padding: 0;
 	border-right: var(--bs-border-width) solid var(--bs-border-color);
-	background: var(--bs-tertiary-bg);
+	background: var(--bs-modal-bg);
 
 	.nav-link {
 		padding: 0.4rem 0.65rem;
@@ -92,25 +92,6 @@
 	.modal-content {
 		min-height: min(32rem, calc(100vh - 3.5rem));
 	}
-
-	.modal-content,
-	.modal-header,
-	.modal-footer {
-		background: var(--modal-bg);
-	}
-
-	.btn-primary {
-		--bs-btn-bg: var(--accent);
-		--bs-btn-border-color: var(--accent);
-		--bs-btn-hover-bg: #409cff;
-		--bs-btn-hover-border-color: #409cff;
-		--bs-btn-active-bg: #0071e3;
-		--bs-btn-active-border-color: #0071e3;
-	}
-}
-
-.settings-navigation.nav-pills {
-	--bs-nav-pills-link-active-bg: var(--accent);
 }
 
 .min-w-0 {

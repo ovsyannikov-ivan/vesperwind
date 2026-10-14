@@ -47,10 +47,11 @@
 	}
 
 	&:hover,
+	&:active,
 	&:focus-visible {
-		border-color: var(--border-strong);
+		border-color: var(--toolbar-control-border) !important;
 		color: var(--text);
-		background: var(--surface-2);
+		background: var(--surface-2) !important;
 	}
 }
 
@@ -64,7 +65,7 @@
 .compact-icon-button.is-active,
 .compact-button.is-active,
 .toolbar-command:not(:disabled) {
-	border-color: var(--toolbar-control-border);
+	border-color: var(--toolbar-control-border) !important;
 	color: var(--text);
 	background: var(--toolbar-control-active-bg);
 }

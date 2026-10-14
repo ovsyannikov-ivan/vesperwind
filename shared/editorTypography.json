@@ -1,0 +1,14 @@
+{
+  "defaultFontFamily": "default",
+  "defaultFontSize": 12,
+  "minFontSize": 8,
+  "maxFontSize": 48,
+  "fonts": [
+    { "id": "default", "name": "System monospace", "family": "'SFMono-Regular', Consolas, 'Liberation Mono', monospace" },
+    { "id": "menlo", "name": "Menlo", "family": "Menlo" },
+    { "id": "consolas", "name": "Consolas", "family": "Consolas" },
+    { "id": "cascadia-code", "name": "Cascadia Code", "family": "'Cascadia Code'" },
+    { "id": "jetbrains-mono", "name": "JetBrains Mono", "family": "'JetBrains Mono'" },
+    { "id": "fira-code", "name": "Fira Code", "family": "'Fira Code'" }
+  ]
+}

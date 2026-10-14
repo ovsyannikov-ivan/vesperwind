@@ -67,9 +67,8 @@ onBeforeUnmount(() => {
             <button type="button" class="btn-close" aria-label="Close" :disabled="busy" @click="cancel" />
           </div>
           <div class="modal-body">
-            <p id="create-entry-description" class="small text-break text-body-secondary">In: {{ displayed?.directory }}</p>
-            <label for="create-entry-name" class="form-label">Name</label>
-            <input id="create-entry-name" ref="input" v-model="name" class="form-control form-control-sm" autocomplete="off" :disabled="busy" :aria-describedby="validationError || error ? 'create-entry-error' : undefined" @input="validationError = ''">
+            <p id="create-entry-description" class="text-break">In: <span class="selectable-text">{{ displayed?.directory?.path }}</span></p>
+            <input id="create-entry-name" ref="input" v-model="name" class="form-control form-control-sm" placeholder="Name" aria-label="Name" autocomplete="off" :disabled="busy" :aria-describedby="validationError || error ? 'create-entry-error' : undefined" @input="validationError = ''">
             <div v-if="validationError || error" id="create-entry-error" class="text-danger mt-2" role="alert">{{ validationError || error }}</div>
           </div>
           <div class="modal-footer">

@@ -24,7 +24,7 @@ test('creates a versioned JSON settings file with defaults', async () => {
   const storedSettings = JSON.parse(await fs.readFile(fixturePath, 'utf8'))
 
   assert.equal(settingsFilePath, fixturePath)
-  assert.equal(settings.version, 9)
+  assert.equal(settings.version, 10)
   assert.equal(settings.appearance.theme, 'system')
   assert.equal(settings.appearance.locale, '')
   assert.deepEqual(settings.filesystem.hiddenNameSuffixes, ['.localized'])
@@ -65,15 +65,26 @@ test('falls back to the system theme for unknown values', async () => {
 })
 
 test('can restore default settings', async () => {
-  await saveSettings({ editor: { theme: 'one-dark-pro', formatting: { enabled: false, formatOnSave: true } } })
+  await saveSettings({ editor: { theme: 'one-dark-pro', fontFamily: 'menlo', fontSize: 14, formatting: { enabled: false, formatOnSave: true } } })
   const settings = await resetSettings()
 
   assert.equal(settings.appearance.theme, 'system')
   assert.equal(settings.appearance.locale, '')
   assert.deepEqual(settings.filesystem.hiddenNameSuffixes, ['.localized'])
   assert.equal(settings.editor.theme, 'auto')
+  assert.equal(settings.editor.fontFamily, 'default')
+  assert.equal(settings.editor.fontSize, 12)
   assert.equal(settings.editor.formatting.formatOnSave, false)
   assert.equal(settings.editor.formatting.enabled, true)
+})
+
+test('persists editor font and point size across an independent settings store load', async () => {
+  await saveSettings({ editor: { fontFamily: 'jetbrains-mono', fontSize: 14 } })
+  const reopened = await import(`../server/settings.js?typography-reopen=${Date.now()}`)
+  const loaded = await reopened.loadSettings()
+  assert.equal(loaded.editor.fontFamily, 'jetbrains-mono')
+  assert.equal(loaded.editor.fontSize, 14)
+  assert.deepEqual(JSON.parse(await fs.readFile(fixturePath, 'utf8')), loaded)
 })
 
 test('persists disabled Prettier and retains its options across settings loads', async () => {

@@ -17,7 +17,7 @@
 .splitter:hover::after,
 .splitter:focus-visible::after,
 .is-resizing .splitter::after {
-	background: var(--accent);
+	background: var(--bs-primary);
 }
 
 .splitter-vertical {
@@ -49,7 +49,6 @@
 		&::after {
 			left: 0;
 			width: var(--panel-seam-width);
-			background: var(--splitter-line);
 		}
 	}
 }
@@ -63,5 +62,26 @@
 		left: 0;
 		height: 2px;
 		background: var(--splitter-line);
+	}
+
+	&.splitter-seam {
+		flex: 0 0 var(--panel-seam-width);
+		background: transparent;
+
+		// The seam takes only 1px of layout space; its hit area extends above
+		// and below so resizing does not require aiming at a single pixel.
+		&::before {
+			position: absolute;
+			top: -4px;
+			right: 0;
+			bottom: -4px;
+			left: 0;
+			content: "";
+		}
+
+		&::after {
+			bottom: 0;
+			height: var(--panel-seam-width);
+		}
 	}
 }

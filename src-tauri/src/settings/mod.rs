@@ -8,7 +8,7 @@ use std::{
 };
 use uuid::Uuid;
 
-const SETTINGS_VERSION: u64 = 9;
+const SETTINGS_VERSION: u64 = 10;
 const EDITOR_FORMATS_V6: &[&str] = &[
     ".jsx",
     ".tsx",
@@ -257,11 +257,12 @@ pub(crate) fn newer_settings_version_error() -> NativeError {
 }
 
 fn default_settings() -> Value {
+    let typography = editor_typography_catalog();
     json!({
         "version": SETTINGS_VERSION,
         "appearance": { "theme": "system", "locale": "" },
         "filesystem": { "hiddenNameSuffixes": [".localized"] },
-        "editor": { "theme": "auto", "formatting": default_formatting(), "editableFiles": DEFAULT_EDITABLE_FILES },
+        "editor": { "theme": "auto", "fontFamily": typography["defaultFontFamily"], "fontSize": typography["defaultFontSize"], "formatting": default_formatting(), "editableFiles": DEFAULT_EDITABLE_FILES },
         "connections": [],
         "permissions": {"setupCompleted":false},
     })
@@ -299,12 +300,49 @@ pub(crate) fn normalize_settings(value: &Value) -> Value {
         },
         "editor": {
             "theme": normalize_editor_theme(value.pointer("/editor/theme")),
+            "fontFamily": normalize_editor_font_family(value.pointer("/editor/fontFamily")),
+            "fontSize": normalize_editor_font_size(value.pointer("/editor/fontSize")),
             "formatting": normalize_formatting(value.pointer("/editor/formatting")),
             "editableFiles": normalize_editable_files(value)
         },
         "connections": normalize_connections(value.get("connections")),
         "permissions": {"setupCompleted":value.pointer("/permissions/setupCompleted").and_then(Value::as_bool).unwrap_or(false)},
     })
+}
+
+fn editor_typography_catalog() -> Value {
+    serde_json::from_str(include_str!("../../../shared/editorTypography.json"))
+        .expect("bundled editor typography catalog is valid JSON")
+}
+
+fn normalize_editor_font_family(value: Option<&Value>) -> String {
+    let catalog = editor_typography_catalog();
+    let fallback = catalog["defaultFontFamily"].as_str().unwrap();
+    let id = value.and_then(Value::as_str).unwrap_or(fallback);
+    if catalog["fonts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|font| font["id"] == id)
+    {
+        id.to_string()
+    } else {
+        fallback.to_string()
+    }
+}
+
+fn normalize_editor_font_size(value: Option<&Value>) -> u64 {
+    let catalog = editor_typography_catalog();
+    value
+        .and_then(Value::as_f64)
+        .filter(|size| {
+            size.is_finite()
+                && size.fract() == 0.0
+                && *size >= catalog["minFontSize"].as_f64().unwrap()
+                && *size <= catalog["maxFontSize"].as_f64().unwrap()
+        })
+        .map(|size| size as u64)
+        .unwrap_or_else(|| catalog["defaultFontSize"].as_u64().unwrap())
 }
 
 fn default_formatting() -> Value {
@@ -769,7 +807,7 @@ mod tests {
     }
 
     #[test]
-    fn settings_v8_sftp_profiles_migrate_to_v9_unchanged() {
+    fn settings_v8_sftp_profiles_migrate_unchanged() {
         let fixtures: serde_json::Value = serde_json::from_str(CONNECTION_FIXTURES).unwrap();
         let v8 = fixtures["normalize"]
             .as_array()
@@ -778,8 +816,69 @@ mod tests {
             .find(|case| case["name"] == "v8 SFTP profiles are unchanged")
             .unwrap();
         let settings = normalize_settings(&json!({"version": 8, "connections": v8["input"]}));
-        assert_eq!(settings["version"], 9);
+        assert_eq!(settings["version"], 10);
         assert_eq!(settings["connections"], v8["input"]);
+    }
+
+    #[test]
+    fn editor_typography_migrates_validates_and_persists() {
+        let migrated = normalize_settings(&json!({"version":9,"editor":{
+            "theme":"dracula","editableFiles":[".rs"],"formatting":{"useTabs":true}
+        }}));
+        assert_eq!(migrated["editor"]["fontFamily"], "default");
+        assert_eq!(migrated["editor"]["fontSize"], 12);
+        assert_eq!(migrated["editor"]["theme"], "dracula");
+        assert_eq!(migrated["editor"]["editableFiles"], json!([".rs"]));
+        assert_eq!(migrated["editor"]["formatting"]["useTabs"], true);
+        for font in super::editor_typography_catalog()["fonts"]
+            .as_array()
+            .unwrap()
+        {
+            let settings = normalize_settings(&json!({"editor":{"fontFamily":font["id"]}}));
+            assert_eq!(settings["editor"]["fontFamily"], font["id"]);
+        }
+        for size in [8, 12, 14, 24, 48] {
+            assert_eq!(
+                normalize_settings(&json!({"editor":{"fontSize":size}}))["editor"]["fontSize"],
+                size
+            );
+        }
+        for size in [
+            json!(null),
+            json!(true),
+            json!("14"),
+            json!(7),
+            json!(49),
+            json!(14.5),
+        ] {
+            assert_eq!(
+                normalize_settings(&json!({"editor":{"fontSize":size,"fontFamily":"Arial"}}))
+                    ["editor"]["fontSize"],
+                12
+            );
+        }
+        assert_eq!(
+            normalize_settings(&json!({"editor":{"fontSize":14.0}}))["editor"]["fontSize"],
+            14
+        );
+        assert_eq!(
+            normalize_settings(&json!({"editor":{"fontFamily":"Arial"}}))["editor"]["fontFamily"],
+            "default"
+        );
+        let path = std::env::temp_dir()
+            .join(format!("vesper-font-settings-{}", uuid::Uuid::new_v4()))
+            .join("settings.json");
+        let store = SettingsStore::at_path(path.clone());
+        store
+            .save(&json!({"editor":{"fontFamily":"menlo","fontSize":14}}))
+            .unwrap();
+        let reopened = SettingsStore::at_path(path.clone()).load().unwrap();
+        assert_eq!(reopened["editor"]["fontFamily"], "menlo");
+        assert_eq!(reopened["editor"]["fontSize"], 14);
+        let reset = store.reset().unwrap();
+        assert_eq!(reset["editor"]["fontFamily"], "default");
+        assert_eq!(reset["editor"]["fontSize"], 12);
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]

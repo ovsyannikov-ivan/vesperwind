@@ -2,13 +2,14 @@
 
 :root {
 	color-scheme: dark;
-	--app-bg: #1c1c1e;
+	--app-bg: #161616;
 	--surface-1: #1f1f1f;
-	--surface-2: #292929;
+	--surface-2: #2b2b2d;
 	--surface-3: #343434;
 	--terminal-bg: #161616;
-	--border: #3a3a3c;
+	--border: rgba(58, 58, 60, 0.5);
 	--border-strong: #545458;
+	--border-strong-rgb: 82, 84, 88;
 	--text: #e5e5ea;
 	--text-muted: #98989d;
 	--accent: #0a84ff;
@@ -16,11 +17,11 @@
 	--selection: #0a84ff30;
 	--hover: #2b2b2d;
 	--danger: #ff453a;
-	--toolbar-bg: #202022;
-	--toolbar-control-inactive-bg: #252525;
-	--toolbar-control-active-bg: #3a3a3c;
-	--toolbar-control-border: #545458;
-	--active-header-bg: #303030;
+	--toolbar-bg: #262626;
+	--toolbar-control-inactive-bg: rgb(36, 36, 36, 0.75);
+	--toolbar-control-active-bg: rgb(56, 56, 56, 0.75);
+	--toolbar-control-border: rgb(86, 86, 86, 0.5);
+	--active-header-bg: #2c2d30;
 	--active-panel-border: #5a5a5e;
 	--splitter-line: #38383a;
 	--terminal-header-bg: #242424;
@@ -28,7 +29,7 @@
 	--status-ready: #b0b0b5;
 	--cloud-status-online: #66b3f5;
 	--cloud-status-local: #31a454;
-	--modal-bg: #2c2c2e;
+	--modal-bg: #1e1e1f;
 	--icon-folder: #5ac8fa;
 	--icon-javascript: #ffd60a;
 	--icon-typescript: #64d2ff;

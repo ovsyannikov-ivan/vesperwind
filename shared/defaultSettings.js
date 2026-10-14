@@ -1,7 +1,8 @@
 import { EDITOR_THEMES as editorThemes } from './editorThemeCatalog.js'
 import { DEFAULT_FORMATTING, normalizeFormatting } from './editorFormatting.js'
+import { DEFAULT_EDITOR_FONT_FAMILY, DEFAULT_EDITOR_FONT_SIZE, normalizeEditorFontFamily, normalizeEditorFontSize } from './editorTypography.js'
 
-export const SETTINGS_VERSION = 9
+export const SETTINGS_VERSION = 10
 const editorThemeIds = new Set(editorThemes.map(({ id }) => id))
 export const normalizeEditorTheme = (id) => editorThemeIds.has(id) ? id : 'auto'
 
@@ -293,6 +294,8 @@ export const createDefaultSettings = () => ({
   },
   editor: {
     theme: 'auto',
+    fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
+    fontSize: DEFAULT_EDITOR_FONT_SIZE,
     formatting: { ...DEFAULT_FORMATTING },
     editableFiles: [...DEFAULT_EDITABLE_FILES],
   },
@@ -326,6 +329,8 @@ export const normalizeSettings = (value) => ({
   },
   editor: {
     theme: normalizeEditorTheme(value?.editor?.theme),
+    fontFamily: normalizeEditorFontFamily(value?.editor?.fontFamily),
+    fontSize: normalizeEditorFontSize(value?.editor?.fontSize),
     formatting: normalizeFormatting(value?.editor?.formatting),
     editableFiles: normalizeConfiguredEditableFiles(value),
   },

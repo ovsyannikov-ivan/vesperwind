@@ -71,8 +71,11 @@ test('every dropdown, including the media overlay window, uses the context menu 
     Promise.resolve(compiledStyles('src/media-overlay/media-overlay.scss')), read('src/media-overlay/MediaOverlay.vue'),
   ])
   const menu = styles.match(/^\.dropdown-menu \{([^}]*)\}/mu)[1]
+  const backgroundOf = (css) => css.match(/^:root \{[^}]*--app-bg: ([^;]+);/mu)?.[1]
+  const background = backgroundOf(mainCss)
+  assert.ok(background, 'main window defines its application background')
+  assert.equal(backgroundOf(overlayCss), background, 'media overlay shares the application background')
   for (const css of [mainCss, overlayCss]) {
-    assert.match(css, /^:root \{[^}]*--app-bg: #1c1c1e;/mu)
     assert.match(css, /^:root \{[^}]*--bs-body-bg: var\(--app-bg\);/mu)
     assert.match(css, /^:root \{[^}]*--bs-border-color: var\(--border\);/mu)
   }

@@ -15,6 +15,7 @@ import { configureLanguageServices, INTELLIGENT_EDITOR_OPTIONS, syncLanguageMode
 import { editorModelUri } from '../editor/modelUri.js'
 import { moveModelHistory } from '../editor/modelHistory.js'
 import { installEditorNavigation } from '../editor/navigation.js'
+import { monacoTypographyOptions } from '../../shared/editorTypography.js'
 
 registerEditorLanguages(monaco)
 registerEnrichedLanguages(monaco)
@@ -174,6 +175,11 @@ const handleThemeChange = async () => {
   const sequence = ++themeSequence
   await applyEditorTheme(monaco, settings.value.editor.theme,
     document.documentElement.dataset.bsTheme, () => sequence === themeSequence && Boolean(editor))
+}
+
+const updateTypography = () => {
+  editor?.updateOptions(monacoTypographyOptions(settings.value.editor))
+  editor?.layout()
 }
 
 const emitHistoryState = () => {
@@ -374,9 +380,7 @@ onMounted(() => {
   editor = monaco.editor.create(container.value, {
     ...INTELLIGENT_EDITOR_OPTIONS,
     automaticLayout: false,
-    fontFamily: "'SFMono-Regular', Consolas, 'Liberation Mono', monospace",
-    fontSize: 13,
-    lineHeight: 20,
+    ...monacoTypographyOptions(settings.value.editor),
     minimap: { enabled: true, side: 'right', showSlider: 'mouseover', maxColumn: 80 },
     padding: { top: 6 },
     scrollBeyondLastLine: false,
@@ -423,6 +427,7 @@ watch(
 )
 
 watch(() => settings.value.editor.theme, handleThemeChange)
+watch(() => [settings.value.editor.fontFamily, settings.value.editor.fontSize], updateTypography)
 watch(isFormattingEnabled, syncFormattingProviders, { flush: 'sync' })
 
 onBeforeUnmount(() => {

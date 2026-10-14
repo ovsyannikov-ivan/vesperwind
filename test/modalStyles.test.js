@@ -7,6 +7,17 @@ import { compiledStyles } from './support/styles.js'
 
 const components = new URL('../src/components/', import.meta.url)
 
+test('all dialogs share a theme-aware modal surface without Settings color overrides', () => {
+  const css = compiledStyles('src/styles/main.scss')
+  const modal = css.match(/^\.modal \{([^}]*)\}/mu)[1]
+  assert.match(modal, /--bs-modal-bg: var\(--modal-bg\);/u)
+  assert.match(css, /^:root \{[^}]*--modal-bg: [^;]+;/mu)
+  assert.match(css, /^\[data-bs-theme=(['"]?)light\1\] \{[^}]*--modal-bg: [^;]+;/mu)
+  assert.match(css, /^\.settings-navigation \{[^}]*background: var\(--bs-modal-bg\);/mu)
+  assert.doesNotMatch(css, /\.settings-modal-dialog \.modal-(?:content|header|footer) \{[^}]*background:/u)
+  assert.doesNotMatch(css, /\.settings-modal-dialog \.btn-primary \{/u)
+})
+
 test('all modal headings and footer buttons keep the shared compact style', async () => {
   const files = (await fs.readdir(components)).filter((name) => name.endsWith('Modal.vue'))
   assert.ok(files.length > 0)

@@ -1,10 +1,11 @@
 <script setup>
 import Modal from "bootstrap/js/dist/modal";
-import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useSettings } from "../composables/useSettings.js";
 import { useTheme } from "../composables/useTheme.js";
 import { editorThemes } from "../editor/themes/registry.js";
 import { DEFAULT_FORMATTING } from "../../shared/editorFormatting.js";
+import { EDITOR_FONTS, DEFAULT_EDITOR_FONT_FAMILY, DEFAULT_EDITOR_FONT_SIZE, MIN_EDITOR_FONT_SIZE, MAX_EDITOR_FONT_SIZE, isValidEditorFontSize, monacoTypographyOptions } from "../../shared/editorTypography.js";
 import { parseEditableFilesText } from "../utils/editableFiles.js";
 import { usePermissionSetup } from "../composables/usePermissionSetup.js";
 const permissionSetup = usePermissionSetup();
@@ -28,6 +29,12 @@ const locale = ref("");
 const suffixesText = ref("");
 const editableFilesText = ref("");
 const editorTheme = ref("auto");
+const editorFontFamily = ref(DEFAULT_EDITOR_FONT_FAMILY);
+const editorFontSize = ref(DEFAULT_EDITOR_FONT_SIZE);
+const editorFontPreview = computed(() => {
+	const { fontFamily, fontSize } = monacoTypographyOptions({ fontFamily: editorFontFamily.value, fontSize: editorFontSize.value });
+	return { fontFamily, fontSize: `${fontSize}px`, lineHeight: 1.5 };
+});
 const formatting = ref({ ...DEFAULT_FORMATTING });
 const formattingCheckboxes = [{ key: "formatOnSave", label: "Format on save" }, { key: "useTabs", label: "Use tabs" }, { key: "semi", label: "Semicolons" }, { key: "singleQuote", label: "Single quotes" }, { key: "bracketSpacing", label: "Bracket spacing" }];
 const loading = ref(false);
@@ -37,6 +44,8 @@ let modal = null;
 
 const syncDraft = () => {
 	editorTheme.value = settings.value.editor.theme;
+	editorFontFamily.value = settings.value.editor.fontFamily;
+	editorFontSize.value = settings.value.editor.fontSize;
 	formatting.value = { ...settings.value.editor.formatting };
 	theme.value = settings.value.appearance.theme;
 	locale.value = settings.value.appearance.locale;
@@ -86,6 +95,11 @@ const handleHidden = () => {
 };
 
 const save = async () => {
+	if (!isValidEditorFontSize(editorFontSize.value)) {
+		activeSection.value = "editor";
+		errorMessage.value = `Font size must be a whole number from ${MIN_EDITOR_FONT_SIZE} to ${MAX_EDITOR_FONT_SIZE} pt.`;
+		return;
+	}
 	saving.value = true;
 	errorMessage.value = "";
 	const hiddenNameSuffixes = suffixesText.value
@@ -107,6 +121,8 @@ const save = async () => {
 		editor: {
 			...settings.value.editor,
 			theme: editorTheme.value,
+			fontFamily: editorFontFamily.value,
+			fontSize: editorFontSize.value,
 			formatting: { ...formatting.value },
 			editableFiles,
 		},
@@ -259,6 +275,20 @@ onBeforeUnmount(() => {
                                             <option v-for="item in editorThemes" :key="item.id" :value="item.id">{{ item.name }}</option>
                                         </select>
                                         <div class="form-text">Applies to Monaco only. Themes are available offline.</div>
+                                        <div class="row g-2 mt-2">
+                                            <div class="col-sm-8">
+                                                <label class="form-label" for="editor-font-family">Font</label>
+                                                <select id="editor-font-family" v-model="editorFontFamily" class="form-select form-select-sm">
+                                                    <option v-for="font in EDITOR_FONTS" :key="font.id" :value="font.id">{{ font.name }}</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-sm-4">
+                                                <label class="form-label" for="editor-font-size">Font size (pt)</label>
+                                                <input id="editor-font-size" v-model.number="editorFontSize" class="form-control form-control-sm" type="number" :min="MIN_EDITOR_FONT_SIZE" :max="MAX_EDITOR_FONT_SIZE" step="1" />
+                                            </div>
+                                        </div>
+                                        <div class="form-text">Uses locally installed fonts, with a system monospace fallback. Applies after Save.</div>
+                                        <div class="border rounded p-2 mt-2" :style="editorFontPreview" aria-label="Editor font preview">const example = 42;</div>
                                         <hr class="my-3" />
                                         <h2 class="h6 mb-2">Formatting</h2>
                                         <div class="form-check mb-3">

@@ -1262,6 +1262,7 @@ onBeforeUnmount(() => {
       <Splitter
         v-if="layout.terminalVisible"
         orientation="horizontal"
+        seam
         @resize="resizeTerminal"
       />
 

@@ -22,7 +22,7 @@ body {
 	flex: 0 0 auto;
 	flex-direction: column;
 	overflow: hidden;
-	border-top: 1px solid var(--border);
+	border-top: none;
 	background: var(--terminal-bg);
 
 	&.is-collapsed {
@@ -64,15 +64,16 @@ body {
 
 .terminal-tab {
 	max-width: 220px;
-
 	&.is-active {
 		color: var(--text);
 		background: var(--terminal-bg);
+		box-shadow: inset 0px -2px 0px 0px var(--accent);
 	}
 }
 
 .terminal-panel.is-collapsed .terminal-tab.is-active {
 	background: transparent;
+	box-shadow: none;
 }
 
 .terminal-add-button {

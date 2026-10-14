@@ -1,4 +1,4 @@
-# Monaco themes and bundled Prettier
+# Monaco appearance and bundled Prettier
 
 Vesperwind adds independent Monaco appearance and an offline Prettier formatter
 without project plugins, executable configuration, Git integration or language servers.
@@ -10,13 +10,13 @@ Settings remain in the existing JSON settings file and API/transport pipeline.
   `editorThemeCatalog.js` exposes it to JavaScript without eagerly loading theme data;
   the Rust settings store includes the same JSON catalog for validation.
 - `shared/editorFormatting.js` defines the defaults and strict option normalization.
-- `shared/defaultSettings.js` and `src-tauri/src/settings/mod.rs` use settings version 7.
+- `shared/defaultSettings.js` and `src-tauri/src/settings/mod.rs` use settings version 10.
   The version-6 editable-files migration remains restricted to versions below 6;
   upgrading a customized v6 list does not silently add file types again.
 - `src/composables/settingsState.js` contains the existing shared reactive settings
   value, extracted from `useSettings.js`. There is no second settings or editor state.
 - `SettingsModal.vue` has Editor appearance, Formatting and Editable files sections.
-  Save applies editor preferences live. Reset defaults restores `auto` and disables
+  Save applies editor preferences live. Reset defaults restores `auto`, the system monospace font and 12 pt, and disables
   format-on-save. Cancel leaves the saved editor preferences unchanged.
 
 Formatting defaults are: formatOnSave false, printWidth 100, tabWidth 2,
@@ -24,6 +24,27 @@ useTabs false, semi true, singleQuote false, bracketSpacing true, trailingComma 
 arrowParens always and endOfLine auto. Widths must be integers in 40–300 and 1–8;
 booleans must be actual booleans. Invalid options fall back to their defaults.
 The three enum options accept only the values listed in Settings.
+
+## Editor font and size
+
+Settings → Editor → Editor appearance offers a font selector, a size in points
+and a sample preview. The default is System monospace at **12 pt**; sizes from
+8 to 48 pt must be whole numbers. For example, 14 pt makes the editor larger.
+Font choices are System monospace, Menlo, Consolas, Cascadia Code, JetBrains Mono
+and Fira Code. They use fonts installed on the computer; missing fonts fall back
+to the system monospace stack. Vesperwind does not download or bundle these fonts.
+
+`shared/editorTypography.json` defines the font IDs and size limits for both
+settings backends. JSON stores `editor.fontFamily` as a stable ID and
+`editor.fontSize` in points. Missing or invalid values restore the defaults;
+version-9 settings migrate without changing other preferences.
+
+The size matches native editor screen points: 12 pt uses 12 logical CSS pixels,
+14 pt uses 14. The WebView handles Retina scaling (24 and 28 backing pixels at
+@2x). The CSS print-point conversion of 96/72 is intentionally not applied.
+Line spacing is automatic. Save updates all open Monaco instances through `updateOptions` and
+layout, preserving their models, content, cursor and undo history. Cancel leaves
+saved typography unchanged; the sample previews only the settings draft.
 
 ## Themes, loading and attribution
 
