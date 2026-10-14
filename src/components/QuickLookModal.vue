@@ -6,11 +6,14 @@ import CustomMediaPlayer from './CustomMediaPlayer.vue'
 import { getFileIcon } from '../utils/fileIcons.js'
 import { getFileExtension } from '../../shared/mediaTypes.js'
 import { formatFileSize, formatModifiedAtTitle } from '../utils/fileMetadata.js'
-import { canCloseQuickLook } from '../utils/quickLookKeyboard.js'
+import { canCloseQuickLook, consumeQuickLookSpace } from '../utils/quickLookKeyboard.js'
+import { observeScrollShadows } from '../utils/scrollShadows.js'
 
 const props = defineProps({ preview: { type: Object, required: true } })
 const emit = defineEmits(['close'])
 const element = ref(null)
+const body = ref(null)
+const scrollShadows = ref({ top: false, bottom: false, style: {} })
 const pdf = ref(null)
 const playbackError = ref('')
 const preparationPercent = computed(() => Number.isFinite(props.preview.preparationProgress)
@@ -18,6 +21,8 @@ const preparationPercent = computed(() => Number.isFinite(props.preview.preparat
 const icon = computed(() => getFileIcon(props.preview.node).icon)
 let modal = null
 let previousFocus = null
+let stopScrollShadows = null
+const handleSpace = (event) => consumeQuickLookSpace(event, () => emit('close'))
 const handleKeydown = (event) => {
   if (event.defaultPrevented) return
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f' && ['pdf', 'presentation'].includes(props.preview.kind)) {
@@ -28,15 +33,18 @@ const handleKeydown = (event) => {
     event.stopPropagation()
     emit('close')
   }
-  // Space belongs to audio/PDF controls and text selection while this dialog owns focus.
 }
 onMounted(() => {
   previousFocus = document.activeElement
+  window.addEventListener('keydown', handleSpace, true)
   modal = new Modal(element.value, { keyboard: false })
   modal.show()
+  stopScrollShadows = observeScrollShadows(body.value, (value) => { scrollShadows.value = value })
   element.value.addEventListener('hidden.bs.modal', () => emit('close'), { once: true })
 })
 onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleSpace, true)
+  stopScrollShadows?.()
   modal?.hide()
   modal?.dispose()
   if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true })
@@ -54,7 +62,7 @@ onBeforeUnmount(() => {
             </h1>
             <button class="btn-close" type="button" aria-label="Close Quick Look" @click="emit('close')" />
           </div>
-          <div class="modal-body">
+          <div ref="body" class="modal-body">
             <p id="quick-look-description" class="visually-hidden">Temporary read-only file preview</p>
             <div v-if="preview.loading" class="quick-look-message" role="status"><span class="spinner-border spinner-border-sm" aria-hidden="true" />{{ preview.statusMessage }}<span v-if="preparationPercent">{{ preparationPercent }}</span></div>
             <div v-else-if="preview.error" class="quick-look-message text-danger" role="alert">{{ preview.error.message }}</div>
@@ -77,6 +85,7 @@ onBeforeUnmount(() => {
               <p v-if="playbackError" class="text-danger" role="alert">{{ playbackError }}</p>
             </div>
             <FilePreview v-else ref="pdf" :preview="preview" />
+            <div class="quick-look-scroll-shadows" :class="{ 'has-top-shadow': scrollShadows.top, 'has-bottom-shadow': scrollShadows.bottom }" :style="scrollShadows.style" aria-hidden="true" />
           </div>
         </div>
       </div>
@@ -88,6 +97,7 @@ onBeforeUnmount(() => {
 .quick-look-modal {
   .modal-content {
     height: min(82vh, 900px);
+    overflow: hidden;
   }
 
   &.is-audio {
@@ -108,6 +118,39 @@ onBeforeUnmount(() => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.quick-look-scroll-shadows {
+  position: absolute;
+  z-index: 3;
+  overflow: hidden;
+  pointer-events: none;
+
+  &::before,
+  &::after {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 32px;
+    content: '';
+    opacity: 0;
+    transition: opacity 160ms ease;
+  }
+
+  &::before {
+    top: 0;
+    box-shadow: inset 0 18px 24px -12px #0005;
+  }
+
+  &::after {
+    bottom: 0;
+    box-shadow: inset 0 -18px 24px -12px #0005;
+  }
+
+  &.has-top-shadow::before,
+  &.has-bottom-shadow::after {
+    opacity: 1;
+  }
 }
 
 .modal-title {

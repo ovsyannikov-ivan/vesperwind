@@ -478,6 +478,26 @@ for (const native of [false, true])
     await tick()
     t.mock.timers.tick(180)
     assert.deepEqual(player.seeks, [80])
+    if (native) {
+      // Quick Look owns Space in the native overlay as well.
+      mediaOverlay.context({ sessionId: 'mouse-test', quickLook: true })
+      await tick()
+      const beforeActions = overlayActions.length
+      let prevented = false, stopped = false
+      const space = { key: ' ', preventDefault() { prevented = true }, stopImmediatePropagation() { stopped = true } }
+      for (const listener of listeners.get('keydown')) listener(space)
+      assert.equal(prevented, true)
+      assert.equal(stopped, true)
+      assert.equal(overlayActions.at(-1), 'close')
+      assert.equal(overlayActions.length, beforeActions + 1)
+      for (const listener of listeners.get('keydown')) listener({ ...space, repeat: true })
+      assert.equal(overlayActions.length, beforeActions + 1)
+      mediaOverlay.context({ sessionId: 'mouse-test', quickLook: false, transitioning: false })
+      await tick()
+      for (const listener of listeners.get('keydown')) listener({ key: ' ', preventDefault() {} })
+      await tick()
+      assert.equal(player.snapshot().status, PlayerStatus.PLAYING, 'ordinary native video retains Space play/pause')
+    }
     app.unmount()
     assert.equal(listeners.get('keydown').size, 0)
   })

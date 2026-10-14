@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import test from 'node:test'
 import { useQuickLook, getQuickLookKind } from '../src/composables/useQuickLook.js'
-import { canOpenQuickLook, canCloseQuickLook } from '../src/utils/quickLookKeyboard.js'
+import { canOpenQuickLook, canCloseQuickLook, consumeQuickLookSpace } from '../src/utils/quickLookKeyboard.js'
 import { createPlaybackCoordinator } from '../src/player/playbackCoordination.js'
 import { WebMediaPlayerBackend } from '../src/player/mediaPlayerBackend.js'
 import { TEXT_PREVIEW_MAX_BYTES, decodeTextPreview } from '../shared/textPreview.js'
@@ -62,8 +62,28 @@ test('Escape closes temporary previews but yields to handled events and nested d
   const event = { key: 'Escape', target: { closest: () => null } }
   assert.equal(canCloseQuickLook(event), true)
   assert.equal(canCloseQuickLook({ ...event, defaultPrevented: true }), false)
-  assert.equal(canCloseQuickLook({ ...event, key: ' ' }), false)
+  assert.equal(canCloseQuickLook({ ...event, key: ' ' }), true)
   assert.equal(canCloseQuickLook({ ...event, target: { closest: () => ({ menu: true }) } }), false)
+})
+
+test('Quick Look owns Space before nested viewers and controls, including handled keys and repeat', () => {
+  const target = new EventTarget()
+  let closed = 0, viewerKeys = 0
+  target.addEventListener('keydown', (event) => consumeQuickLookSpace(event, () => closed++), true)
+  target.addEventListener('keydown', () => viewerKeys++)
+  const key = (patch = {}) => Object.assign(new Event('keydown', { cancelable: true }), { key: ' ', ...patch })
+  const first = key()
+  first.preventDefault()
+  assert.equal(target.dispatchEvent(first), false)
+  assert.equal(closed, 1)
+  assert.equal(viewerKeys, 0)
+  target.dispatchEvent(key({ repeat: true }))
+  assert.equal(closed, 1, 'a held opening key must not close or activate a control')
+  assert.equal(viewerKeys, 0)
+  for (const patch of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }, { isComposing: true }, { key: 'ArrowDown' }]) {
+    assert.equal(consumeQuickLookSpace(key(patch), () => closed++), false)
+  }
+  assert.equal(canCloseQuickLook({ key: ' ', target: { closest: () => ({ nestedControl: true }) } }), true)
 })
 
 test('A/B/C/E: opening normal video or media Quick Look pauses only audible foreground playback', async () => {

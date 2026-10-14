@@ -31,6 +31,7 @@ import {
 } from '../player/mediaPlayerBackend.js'
 
 const props = defineProps({
+  quickLook: { type: Boolean, default: false },
   src: { type: String, required: true },
   providerId: { type: String, default: 'local' },
   path: { type: String, default: '' },
@@ -192,6 +193,7 @@ const overlayGeometry = () => {
 }
 
 const overlayContext = () => ({
+  quickLook: props.quickLook,
   sessionId: player?.sessionId || null,
   title: props.title,
   ...sourceLocation(),
@@ -446,7 +448,7 @@ watch(
 
 
 watch(
-  () => [props.title, props.position, props.total],
+  () => [props.title, props.position, props.total, props.quickLook],
   () => syncOverlayContext(),
 )
 

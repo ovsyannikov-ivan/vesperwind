@@ -11,5 +11,17 @@ export const canOpenQuickLook = (event, { workspaceMode, selected, blocked = fal
     workspaceMode === 'files' && panelVisible && !blocked && selected && !selected.isDirectory &&
     event.target?.closest?.('.file-panel.is-active') && !event.target.closest(excludedFocus))
 
-export const canCloseQuickLook = (event) => Boolean(event.key === 'Escape' && !event.defaultPrevented &&
-  !event.target.closest?.('.dropdown-menu, [role="menu"], [role="dialog"] [role="dialog"]'))
+export const canCloseQuickLook = (event) => {
+  if (event.key === ' ') return !event.isComposing && !event.altKey && !event.ctrlKey && !event.metaKey
+  return Boolean(event.key === 'Escape' && !event.defaultPrevented &&
+    !event.target?.closest?.('.dropdown-menu, [role="menu"], [role="dialog"] [role="dialog"]'))
+}
+
+export const consumeQuickLookSpace = (event, close) => {
+  if (event.key !== ' ' || !canCloseQuickLook(event)) return false
+  event.preventDefault()
+  event.stopImmediatePropagation()
+  // Holding Space to open a preview must not close it on the first repeat.
+  if (!event.repeat) close()
+  return true
+}

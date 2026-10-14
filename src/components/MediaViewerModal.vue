@@ -5,8 +5,10 @@ import CustomMediaPlayer from './CustomMediaPlayer.vue'
 import { fullscreen } from '../api/fullscreen.js'
 import { mediaOverlay } from '../api/mediaOverlay.js'
 import { runFullscreenTransition } from '../player/fullscreenTransition.js'
+import { consumeQuickLookSpace } from '../utils/quickLookKeyboard.js'
 
 const props = defineProps({
+  quickLook: { type: Boolean, default: false },
   open: {
     type: Boolean,
     default: false,
@@ -102,6 +104,10 @@ const handleKeydown = (event) => {
   }
 }
 
+const handleQuickLookSpace = (event) => {
+  if (props.open && props.quickLook) consumeQuickLookSpace(event, () => { void requestClose() })
+}
+
 const handleHidden = () => {
   videoPlayer.value?.pause()
   if (isFullscreen.value) void fullscreen.exit()
@@ -158,6 +164,7 @@ onMounted(() => {
   modalElement.value.addEventListener('shown.bs.modal', handleShown)
   modalElement.value.addEventListener('hidden.bs.modal', handleHidden)
   window.addEventListener('keydown', handleKeydown)
+  window.addEventListener('keydown', handleQuickLookSpace, true)
   unsubscribeFullscreen = fullscreen.onChange((value) => {
     isFullscreen.value = value
   })
@@ -172,6 +179,7 @@ onBeforeUnmount(() => {
   modalElement.value?.removeEventListener('shown.bs.modal', handleShown)
   modalElement.value?.removeEventListener('hidden.bs.modal', handleHidden)
   window.removeEventListener('keydown', handleKeydown)
+  window.removeEventListener('keydown', handleQuickLookSpace, true)
   unsubscribeFullscreen?.()
   unsubscribeOverlayAction?.()
   modal?.dispose()
@@ -265,6 +273,7 @@ onBeforeUnmount(() => {
               :position="position"
               :total="total"
               :fullscreen="isFullscreen"
+              :quick-look="quickLook"
               @backend="playerBackend = $event"
               @fullscreen="toggleFullscreen"
               @error="handlePlaybackError"

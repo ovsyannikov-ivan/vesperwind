@@ -17,8 +17,10 @@ import {
   PlayerStatus,
 } from '../player/mediaPlayerBackend.js'
 import { buildMediaInfoSections, formatMediaDuration, formatMediaTrack } from '../utils/mediaInfo.js'
+import { consumeQuickLookSpace } from '../utils/quickLookKeyboard.js'
 
 const context = reactive({
+  quickLook: false,
   title: '',
   position: 0,
   total: 0,
@@ -181,6 +183,7 @@ const handlePointerDown = (event) => {
   closeMenu()
 }
 const handleKeydown = (event) => {
+  if (context.quickLook && consumeQuickLookSpace(event, () => { void sendAction('close') })) return
   if (transitioning.value) { event.preventDefault(); return }
   showControls()
   if (event.key === 'Escape') {

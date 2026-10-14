@@ -1,12 +1,20 @@
 # Quick Look
 
 Select a regular file in the active file panel and press **Space** to inspect it
-temporarily. **Escape** or the close button dismisses the preview. Normal opening
+temporarily. **Space** again, **Escape** or the close button dismisses the preview. Normal opening
 (double-click or Enter) keeps its existing behavior.
 
-Space is only handled in the file panel, outside text inputs, address editing,
-editors, terminals, menus and dialogs. Inside a preview, Space keeps its meaning
-for playback and document controls. Directories are ignored.
+Opening with Space is limited to the file panel, outside text inputs, address
+editing, editors, terminals, menus and dialogs. While Quick Look is open, Space
+belongs to the preview: it closes before PDF, spreadsheet, search-field or media
+controls can handle the key. The same rule applies to the native video overlay.
+Holding Space does not immediately close the preview on keyboard repeat.
+Normal media viewing retains its playback shortcuts. Directories are ignored.
+
+Scrollable Quick Look content shows a soft inner shadow at the top or bottom
+only while more content remains in that direction. The shadows follow the
+viewer's actual scrollport (including nested PDF and spreadsheet scrolling),
+update after loading/resizing, and are clipped by the modal's rounded corners.
 
 ## Viewers
 

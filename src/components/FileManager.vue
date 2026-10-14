@@ -1279,6 +1279,7 @@ onBeforeUnmount(() => {
     <RemoteConnectionsModal :open="remoteConnectionsOpen" :active-panel="activePanel" @close="remoteConnectionsOpen = false" @connected="handleRemoteConnected" />
     <CreateEntryModal :request="createRequest" :busy="createBusy" :error="createError" @confirm="submitCreate" @cancel="!createBusy && (createRequest = null)" />
     <MediaViewerModal
+      :quick-look="Boolean(quickLook.current.value)"
       :open="Boolean(viewer)"
       :media="currentViewerMedia"
       :kind="viewer?.kind || ''"
