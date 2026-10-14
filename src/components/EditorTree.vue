@@ -1,5 +1,6 @@
 <script setup>
 import { isPlaylistFile } from '../player/m3u.js'
+import { isComputerPath } from '../../shared/localFilesystem.js'
 import { computed, nextTick, ref, watch } from 'vue'
 import { useFilesystem } from '../composables/useFilesystem.js'
 import { buildPathBreadcrumbs } from '../utils/pathBreadcrumbs.js'
@@ -24,7 +25,17 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['open-file', 'open-git'])
-const { listDirectory } = useFilesystem(props.context.filesystemId)
+const { listDirectory: readDirectory } = useFilesystem(() => props.context.filesystemId)
+const navigationRoot = ref(props.context.filesystemRoot)
+watch(() => props.context.filesystemRoot, value => { navigationRoot.value = value })
+const listDirectory = async (path, options) => {
+  const snapshot = navigationRoot.value
+  const response = await readDirectory(path, options)
+  if (snapshot === navigationRoot.value && isComputerPath(path) && response?.ok && snapshot?.navigation) {
+    navigationRoot.value = { ...navigationRoot.value, navigation: { ...navigationRoot.value.navigation, volumes: response.entries } }
+  }
+  return response
+}
 const selectedPath = ref(
   props.activeFilePath || props.context.sourceRootPath,
 )
@@ -54,7 +65,9 @@ watch(entryChange, (change) => {
 })
 const breadcrumbsRef = ref(null)
 const root = computed(() => ({
-  name: browsedPath.value === props.context.sourceRootPath
+  name: isComputerPath(browsedPath.value) && navigationRoot.value?.navigation?.computer
+    ? navigationRoot.value.navigation.computer.name
+    : browsedPath.value === props.context.sourceRootPath
     ? props.context.sourceRootName ||
       props.context.sourceRootPath.split('/').filter(Boolean).at(-1) ||
       '/'
@@ -67,7 +80,7 @@ const root = computed(() => ({
   modifiedAt: null,
 }))
 const breadcrumbs = computed(() =>
-  buildPathBreadcrumbs(props.context.filesystemRoot, browsedPath.value),
+  buildPathBreadcrumbs(navigationRoot.value, browsedPath.value),
 )
 
 const folderMenu = ref(null)
@@ -108,7 +121,7 @@ const openNode = (payload) => {
     sourcePane: props.context.sourcePane,
     sourceRootPath: props.context.sourceRootPath,
     sourceRootName: props.context.sourceRootName,
-    filesystemRoot: props.context.filesystemRoot,
+    filesystemRoot: navigationRoot.value,
     homePath: props.context.homePath,
   })
 }

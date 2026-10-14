@@ -1,4 +1,5 @@
 import { decodeTextPreview } from '../shared/textPreview.js'
+import { remoteAddress } from '../shared/remoteAddress.js'
 import { createHash, randomUUID } from 'node:crypto'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
@@ -208,12 +209,13 @@ class RemoteConnection {
 
   rootEntry() {
     return {
-      name: posix.basename(this.rootPath) || '/', path: this.rootPath, type: 'directory',
+      name: remoteAddress(this.profile), path: this.rootPath, type: 'directory',
       isDirectory: true, isSymbolicLink: false, size: null, modifiedAt: null, metadataError: null,
     }
   }
 
   initialEntry() {
+    if (this.initialPath === this.rootPath) return this.rootEntry()
     return {
       name: posix.basename(this.initialPath) || '/', path: this.initialPath, type: 'directory',
       isDirectory: true, isSymbolicLink: false, size: null, modifiedAt: null, metadataError: null,

@@ -45,7 +45,7 @@ test('changed SSH host keys are blocked instead of offering one-click trust', as
 
 test('editor tree keeps the remote provider when it lists and mutates files', async () => {
   const tree = await read('src/components/EditorTree.vue')
-  assert.match(tree, /useFilesystem\(props\.context\.filesystemId\)/)
+  assert.match(tree, /useFilesystem\((?:\(\)\s*=>\s*)?props\.context\.filesystemId\)/)
   assert.match(tree, /:provider-id="context\.filesystemId"/)
 })
 

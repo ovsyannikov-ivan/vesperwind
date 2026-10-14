@@ -227,27 +227,41 @@ pub struct WriteTextPayload {
 }
 
 #[tauri::command]
-pub fn filesystem_root(state: State<'_, AppState>, payload: FilesystemRootPayload) -> Value {
-    let result = (|| {
+pub async fn filesystem_root(
+    state: State<'_, AppState>,
+    payload: FilesystemRootPayload,
+) -> Result<Value, String> {
+    let local = Arc::clone(&state.filesystem);
+    let remote = state.remote.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
         if let Some(provider) = payload
             .filesystem_id
             .as_deref()
             .filter(|value| *value != "local")
         {
-            let (root, initial, home) = state.remote.root(provider)?;
+            let (root, initial, home) = remote.root(provider)?;
             return Ok::<_, NativeError>(
                 json!({ "ok": true, "root": root, "initial": initial, "homePath": home }),
             );
         }
         filesystem::Filesystem::require_local(payload.filesystem_id.as_deref())?;
+        let mut root = serde_json::to_value(local.root_entry()?)
+            .map_err(|error| NativeError::new("EFILESYSTEM_ROOT", error.to_string()))?;
+        if let Some(navigation) = local.navigation() {
+            root["navigation"] = navigation;
+        }
         Ok::<_, NativeError>(json!({
             "ok": true,
-            "root": state.filesystem.root_entry()?,
-            "initial": state.filesystem.initial_entry()?,
-            "homePath": state.filesystem.home().to_string_lossy(),
+            "root": root,
+            "initial": local.initial_entry()?,
+            "homePath": local.home().to_string_lossy(),
         }))
-    })();
-    result.unwrap_or_else(failure)
+    })
+    .await;
+    Ok(match result {
+        Ok(result) => result.unwrap_or_else(failure),
+        Err(error) => failure(NativeError::new("EFILESYSTEM_ROOT", error.to_string())),
+    })
 }
 
 /// Opt-in timing for listing and lazy cloud status (`VESPERWIND_LISTING_TRACE=1`).

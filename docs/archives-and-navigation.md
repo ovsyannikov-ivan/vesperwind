@@ -13,8 +13,23 @@ Errors retain the current folder and draft; stale responses after Escape,
 provider changes or unmount cannot navigate.
 
 Local paths accept POSIX paths, Windows drives and UNC; Windows also accepts
-`computer://`. SFTP accepts absolute paths on the current server and preserves
+`computer://`; Tauri/macOS also exposes this virtual computer location. SFTP accepts absolute paths on the current server and preserves
 its provider ID. Browser access still respects `FILE_MANAGER_ROOT`.
+
+In Tauri/macOS, breadcrumbs begin with the computer name configured in macOS and
+the visible name of the containing volume: `<computer name> › <volume name> › Users`. Clicking
+the computer opens an inventory of already-mounted, visible disks and network
+shares. Each entry navigates to its actual mount point. Volume names and the
+computer name come from macOS; enumeration does not mount shares or read file
+contents. The inventory refreshes while open. Root volumes are protected from
+rename, move and delete, and the virtual computer cannot be a file-operation
+destination. Node/SEA keeps its existing local navigation.
+
+SFTP, FTP and FTPS breadcrumbs begin with the connection's host address, with a
+port when it differs from the protocol default (22, 21, or 990 for implicit
+FTPS). Labels support IPv6 and never include credentials. These labels apply
+in both Node/SEA and Tauri, including EditorTree. Editable address fields and
+provider API calls retain real filesystem paths.
 
 In Tauri, macOS `smb://server/share` uses NetFS and its system authentication UI,
 then the actual returned mount point. Windows UNC uses WNetUseConnectionW with

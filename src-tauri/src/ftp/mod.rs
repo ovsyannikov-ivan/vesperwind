@@ -519,11 +519,16 @@ impl FtpConnection {
     }
 
     pub fn root_entries(&self) -> (FileEntry, FileEntry, String) {
-        (
-            directory_entry(&self.root),
-            directory_entry(&self.initial),
-            self.home.clone(),
-        )
+        let mut root = directory_entry(&self.root);
+        root.name = crate::remote::endpoint_label(&self.profile);
+        let initial = if self.initial == self.root {
+            let mut initial = directory_entry(&self.initial);
+            initial.name = root.name.clone();
+            initial
+        } else {
+            directory_entry(&self.initial)
+        };
+        (root, initial, self.home.clone())
     }
 
     pub fn list(self: &Arc<Self>, requested: &str) -> Result<Vec<FileEntry>, NativeError> {

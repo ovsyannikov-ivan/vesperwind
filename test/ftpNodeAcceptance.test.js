@@ -116,6 +116,8 @@ for (const tls of ['explicit', 'implicit']) {
     try {
       const result = await context.ftp.connect(context.profile.id, PASSWORD)
       assert.equal(result.providerId, `ftps:${context.profile.id}`)
+      assert.equal(result.root.name, `${context.profile.host}:${context.profile.port}`)
+      assert.equal(result.root.path, '/')
       const connection = context.ftp.get(result.providerId)
       assert.deepEqual((await connection.list('/')).map((entry) => entry.name), ['dir', 'a.txt'])
       assert.equal((await connection.readText('/a.txt')).content, 'secure')

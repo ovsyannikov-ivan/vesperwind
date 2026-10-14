@@ -800,9 +800,14 @@ impl RemoteConnection {
         Ok(value)
     }
     fn root_entry(&self) -> FileEntry {
-        directory_entry(&self.root)
+        let mut entry = directory_entry(&self.root);
+        entry.name = crate::remote::endpoint_label(&self.resolved.profile);
+        entry
     }
     fn initial_entry(&self) -> FileEntry {
+        if self.initial == self.root {
+            return self.root_entry();
+        }
         directory_entry(&self.initial)
     }
     fn list(&self, requested: &str) -> Result<Vec<FileEntry>, NativeError> {

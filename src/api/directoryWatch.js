@@ -56,8 +56,8 @@ export const createDirectoryWatchRegistry = (transport, delay = 100) => {
 
   const subscribe = (providerId, path, callback) => {
     if (providerId !== 'local' || !path) return () => {}
-    // Logical drives are not an OS directory. Poll their small inventory so
-    // removable disks appear while This PC is open, without fs.watch.
+    // The computer is not an OS directory. Poll its small inventory so
+    // disks and mounted network shares appear without fs.watch.
     if (isComputerPath(path)) {
       let stopped = false
       let previous = null
@@ -68,7 +68,7 @@ export const createDirectoryWatchRegistry = (transport, delay = 100) => {
         try {
           const response = await transport.request('filesystem:list', { filesystemId: providerId, path })
           if (stopped || !response?.ok) return
-          const signature = response.entries.map((entry) => entry.path).join('\0')
+          const signature = response.entries.map((entry) => `${entry.path}\0${entry.name}`).join('\0')
           if (previous !== null && signature !== previous) callback({ providerId, directoryPath: path })
           previous = signature
         } finally { busy = false }

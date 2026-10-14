@@ -5,6 +5,7 @@ export const isWindowsVolumeRoot = (value) => typeof value === 'string' && (
   /^[A-Za-z]:[\\/]$/.test(value) || /^\\\\[^\\]+\\[^\\]+[\\/]?$/.test(value)
 )
 export const isFilesystemRootEntry = (entry) => isComputerPath(entry?.path) ||
+  entry?.type === 'volume' || entry?.type === 'network-volume' ||
   entry?.path === '/' || isWindowsVolumeRoot(entry?.path)
 
 export const localNavigation = ({ desktop, platform, home, browserRoot }) => {

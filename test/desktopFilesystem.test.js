@@ -59,7 +59,8 @@ test('This PC breadcrumbs reach other drive roots and retain panel state', () =>
     { name: 'Films', path: 'E:\\Films' },
   ])
   assert.equal(isSameOrDescendantPath(COMPUTER_PATH, 'C:\\Windows'), true)
-  assert.equal(isSameOrDescendantPath(COMPUTER_PATH, '/etc'), false)
+  assert.equal(isSameOrDescendantPath(COMPUTER_PATH, '/etc'), true, 'virtual computer also contains macOS volumes')
+  assert.equal(isSameOrDescendantPath(COMPUTER_PATH, 'relative/path'), false)
   assert.equal(restorePanelViewState({ providerId: 'local', root: initial }, 'local', root, root).root, initial)
   assert.deepEqual(buildPathBreadcrumbs(root, COMPUTER_PATH), [{ name: 'This PC', path: COMPUTER_PATH }])
   assert.deepEqual(buildPathBreadcrumbs(root, '\\\\server\\share\\Movies'), [
@@ -94,4 +95,20 @@ test('This PC refreshes on drive attachment and releases its inventory timer', a
   t.mock.timers.tick(6000)
   await new Promise(setImmediate)
   assert.equal(requests, finalRequests)
+})
+
+test('computer inventory also refreshes when a mounted volume label changes', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] })
+  let name = 'Original volume'
+  let refreshed = 0
+  const registry = createDirectoryWatchRegistry({ request: async () => ({
+    ok: true, entries: [{ path: '/Volumes/Share', name }],
+  }) })
+  const stop = registry.subscribe('local', COMPUTER_PATH, () => { refreshed += 1 })
+  await new Promise(setImmediate)
+  name = 'Renamed volume'
+  t.mock.timers.tick(3000)
+  await new Promise(setImmediate)
+  assert.equal(refreshed, 1)
+  stop()
 })

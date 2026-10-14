@@ -48,6 +48,8 @@ const getExtension = (filename) => {
 
 export const getFileIcon = (node, expanded = false) => {
   if (isComputerPath(node.path)) return { icon: 'mdi-desktop-tower-monitor', className: 'icon-folder' }
+  if (node.type === 'network-volume') return { icon: 'mdi-folder-network', className: 'icon-folder' }
+  if (node.type === 'volume') return { icon: 'mdi-harddisk', className: 'icon-folder' }
   if (node.isDirectory && isWindowsVolumeRoot(node.path)) return { icon: 'mdi-harddisk', className: 'icon-folder' }
   if (node.isDirectory) {
     return {

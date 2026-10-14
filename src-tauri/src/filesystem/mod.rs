@@ -13,6 +13,8 @@ pub mod remote_ops;
 pub mod search;
 pub mod size;
 pub mod text;
+#[cfg(target_os = "macos")]
+pub mod volumes_macos;
 pub mod watch;
 
 use crate::error::NativeError;
@@ -84,11 +86,29 @@ impl Filesystem {
     }
 
     pub fn is_computer_root(&self, requested: &str) -> bool {
-        self.desktop && cfg!(target_os = "windows") && requested == COMPUTER_PATH
+        self.desktop
+            && cfg!(any(target_os = "windows", target_os = "macos"))
+            && requested == COMPUTER_PATH
     }
 
     pub fn is_operation_root(&self, path: &Path) -> bool {
+        #[cfg(target_os = "macos")]
+        if self.desktop
+            && volumes_macos::mounted_volumes()
+                .iter()
+                .any(|entry| Path::new(&entry.path) == path)
+        {
+            return true;
+        }
         (!self.desktop && path == self.root()) || path.parent().is_none()
+    }
+
+    pub fn navigation(&self) -> Option<serde_json::Value> {
+        #[cfg(target_os = "macos")]
+        if self.desktop {
+            return Some(volumes_macos::navigation());
+        }
+        None
     }
 
     pub(crate) fn from_root(
@@ -145,6 +165,13 @@ impl Filesystem {
             if cfg!(target_os = "windows") {
                 return Ok(directory_location("This PC", COMPUTER_PATH, "computer"));
             }
+            #[cfg(target_os = "macos")]
+            return Ok(directory_location(
+                &volumes_macos::root_name(),
+                "/",
+                "volume",
+            ));
+            #[cfg(not(target_os = "macos"))]
             return self.directory_entry(Path::new("/"));
         }
         self.directory_entry(&self.root)
@@ -183,6 +210,9 @@ impl Filesystem {
 
     pub fn list_directory(&self, requested: &str) -> Result<Vec<FileEntry>, NativeError> {
         if self.is_computer_root(requested) {
+            #[cfg(target_os = "macos")]
+            return Ok(volumes_macos::mounted_volumes());
+            #[cfg(not(target_os = "macos"))]
             return logical_drives();
         }
         let resolved = paths::resolve_inside_root(self, requested)?;
@@ -264,7 +294,7 @@ fn logical_drives() -> Result<Vec<FileEntry>, NativeError> {
         .collect())
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 fn logical_drives() -> Result<Vec<FileEntry>, NativeError> {
     Err(NativeError::new(
         "EINVAL",
@@ -493,6 +523,19 @@ mod desktop_tests {
                 .code,
             "EINVAL"
         );
+        #[cfg(target_os = "macos")]
+        {
+            let volumes = desktop.list_directory(COMPUTER_PATH).unwrap();
+            assert!(!volumes.is_empty());
+            assert!(volumes
+                .iter()
+                .all(|entry| desktop.is_operation_root(Path::new(&entry.path))));
+            assert!(desktop.navigation().is_some());
+            assert!(Filesystem::from_root(&home, home.clone())
+                .unwrap()
+                .navigation()
+                .is_none());
+        }
     }
 }
 

@@ -135,7 +135,10 @@ const addressNavigation = createAddressNavigation({
 	state: address,
 	getLocation: () => ({ providerId: props.providerId, path: root.value?.path }),
 	resolve: filesystem.resolveLocation,
-	navigate: (location) => openDirectory({ name: getFilesystemPathName(location.path), path: location.path, type: "directory", isDirectory: true }),
+	navigate: (location) => openDirectory({
+		name: buildPathBreadcrumbs(filesystemRoot.value, location.path).at(-1)?.name || getFilesystemPathName(location.path),
+		path: location.path, type: "directory", isDirectory: true,
+	}),
 });
 const editAddress = async () => {
 	emit("activate");
@@ -295,6 +298,9 @@ watch(
 );
 const handleChildrenLoaded = (payload) => {
 	if (payload.providerId !== props.providerId || !isSameOrDescendantPath(root.value?.path || "", payload.path)) return;
+	if (isComputerPath(payload.path) && filesystemRoot.value?.navigation) {
+		filesystemRoot.value = { ...filesystemRoot.value, navigation: { ...filesystemRoot.value.navigation, volumes: payload.entries } };
+	}
 	if (payload.path === root.value?.path) rootEntries.value = payload.entries;
 	reconcileSelection(payload);
 	pruneHiddenSelection();
@@ -337,6 +343,20 @@ const openDirectory = (node) => {
 	selectedEntries.value = [];
 	selectionAnchorPath.value = "";
 };
+
+// Address navigation can mount a share after the initial volume snapshot.
+// Refresh only the labels, and never let a late response change the open folder.
+watch(() => root.value?.path, async (path) => {
+	const navigation = filesystemRoot.value?.navigation;
+	if (!navigation || !path?.startsWith("/Volumes/") || navigation.volumes?.some((volume) => volume.path !== "/" && isSameOrDescendantPath(volume.path, path))) return;
+	const provider = props.providerId;
+	try {
+		const response = await getRoot();
+		if (!panelDisposed && provider === props.providerId && path === root.value?.path && response?.ok && response.root?.navigation) {
+			filesystemRoot.value = response.root;
+		}
+	} catch { /* The current folder remains usable if optional labels cannot refresh. */ }
+});
 
 // When the open folder is deleted, the panel moves up to the nearest folder
 // that still exists instead of showing the failed listing.

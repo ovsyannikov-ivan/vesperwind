@@ -65,6 +65,8 @@ test('a cancelled SFTP attempt never closes the newer connection started after i
     const second = await context.ssh.connect(context.profile(context.sftp.port), { password: PASSWORD }, { attemptId: 'second' })
     assert.equal(await first, 'ECANCELLED')
     assert.equal(second.providerId, 'sftp:box')
+    assert.equal(second.root.name, `127.0.0.1:${context.sftp.port}`)
+    assert.equal(second.root.path, '/')
     assert.equal(context.ssh.cancel('first'), false, 'a late cancel of the first attempt is a no-op')
     assert.equal(context.ssh.get('sftp:box').status, 'connected')
     assert.deepEqual((await context.ssh.get('sftp:box').list('/')).map((entry) => entry.name).sort(), [])

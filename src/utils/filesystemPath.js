@@ -45,7 +45,7 @@ export const isSameOrDescendantPath = (parentPath, targetPath) => {
     return false
   }
 
-  if (isComputerPath(parentPath)) return isComputerPath(targetPath) || pathFlavor(targetPath) === 'windows'
+  if (isComputerPath(parentPath)) return isComputerPath(targetPath) || pathFlavor(targetPath) === 'windows' || targetPath.startsWith('/')
 
   const flavor = pathFlavor(parentPath)
   if (pathFlavor(targetPath) !== flavor) {
@@ -90,7 +90,9 @@ export const buildFilesystemPathLevels = (rootPath, targetPath) => {
   }
 
   if (isComputerPath(rootPath)) {
-    if (!targetPath || isComputerPath(targetPath) || pathFlavor(targetPath) !== 'windows') return [COMPUTER_PATH]
+    if (!targetPath || isComputerPath(targetPath)) return [COMPUTER_PATH]
+    if (targetPath.startsWith('/')) return [COMPUTER_PATH, ...buildFilesystemPathLevels('/', targetPath)]
+    if (pathFlavor(targetPath) !== 'windows') return [COMPUTER_PATH]
     const target = normalizeFilesystemPath(targetPath)
     const volume = target.slice(0, rootLength(target, 'windows'))
     return [COMPUTER_PATH, ...buildFilesystemPathLevels(volume, target)]

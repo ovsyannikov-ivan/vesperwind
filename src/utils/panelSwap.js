@@ -17,7 +17,7 @@ export const oppositePanelSide = (side) => (side === 'left' ? 'right' : 'left')
 export const swapPanelPair = ({ left, right }) => ({ left: right, right: left })
 
 export const restorePanelViewState = (saved, providerId, filesystemRoot, initial) => {
-  const withinRoot = (path) => isSameOrDescendantPath(filesystemRoot.path, path)
+  const withinRoot = (path) => Boolean(path && (path === filesystemRoot.navigation?.computer?.path || isSameOrDescendantPath(filesystemRoot.path, path)))
   if (saved?.providerId !== providerId || !withinRoot(saved?.root?.path)) {
     return {
       root: initial,

@@ -13,6 +13,7 @@
 // Passwords live only in memory for the life of a connection (there is no
 // secure credential store in this runtime) and never reach logs or events.
 import crypto, { X509Certificate } from 'node:crypto'
+import { remoteAddress } from '../shared/remoteAddress.js'
 import { EventEmitter } from 'node:events'
 import net from 'node:net'
 import posix from 'node:path/posix'
@@ -707,8 +708,8 @@ export class FtpConnection {
     return path
   }
 
-  rootEntry() { return directoryEntry(this.root) }
-  initialEntry() { return directoryEntry(this.initialPath) }
+  rootEntry() { return { ...directoryEntry(this.root), name: remoteAddress(this.profile) } }
+  initialEntry() { return this.initialPath === this.root ? this.rootEntry() : directoryEntry(this.initialPath) }
 
   async list(requested, { signal } = {}) {
     const directory = this.resolve(requested)

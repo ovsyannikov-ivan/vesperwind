@@ -22,6 +22,25 @@ use std::{io::Read, sync::Arc};
 
 pub const LOCAL_PROVIDER: &str = "local";
 
+/// Public breadcrumb label. Never includes usernames, secrets or trust data.
+pub fn endpoint_label(profile: &ConnectionProfile) -> String {
+    let host = if profile.host.contains(':') && !profile.host.starts_with('[') {
+        format!("[{}]", profile.host)
+    } else {
+        profile.host.clone()
+    };
+    let default_port = match profile.protocol.as_str() {
+        "sftp" => 22,
+        "ftps" if profile.ftp_tls == "implicit" => 990,
+        _ => 21,
+    };
+    if profile.port == default_port {
+        host
+    } else {
+        format!("{host}:{}", profile.port)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RemoteProtocol {
     Sftp,
@@ -375,6 +394,30 @@ impl RemoteProviders {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn endpoint_labels_use_protocol_ports_and_bracket_ipv6() {
+        for (protocol, tls, port, host, expected) in [
+            ("sftp", "", 22, "server.example", "server.example"),
+            ("sftp", "", 2222, "server.example", "server.example:2222"),
+            ("ftp", "", 21, "192.168.9.18", "192.168.9.18"),
+            ("ftps", "explicit", 21, "server.example", "server.example"),
+            ("ftps", "implicit", 990, "server.example", "server.example"),
+            (
+                "ftps",
+                "implicit",
+                9990,
+                "2001:db8::1",
+                "[2001:db8::1]:9990",
+            ),
+        ] {
+            let profile: ConnectionProfile = serde_json::from_value(serde_json::json!({
+                "id": "example", "name": "Private nickname", "protocol": protocol,
+                "host": host, "port": port, "username": "private", "authType": "password", "ftpTls": tls,
+            })).unwrap();
+            assert_eq!(endpoint_label(&profile), expected);
+        }
+    }
 
     #[test]
     fn local_and_missing_ids_route_to_the_local_provider() {
