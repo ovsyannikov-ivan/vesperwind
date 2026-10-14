@@ -2,6 +2,10 @@ import { getFileExtension, getMediaKind } from '../../shared/mediaTypes.js'
 import { isComputerPath, isWindowsVolumeRoot } from '../../shared/localFilesystem.js'
 
 const iconMap = {
+  db: ['mdi-database-outline', 'icon-file'],
+  db3: ['mdi-database-outline', 'icon-file'],
+  sqlite: ['mdi-database-outline', 'icon-file'],
+  sqlite3: ['mdi-database-outline', 'icon-file'],
   js: ['mdi-language-javascript', 'icon-javascript'],
   jsx: ['mdi-language-javascript', 'icon-javascript'],
   mjs: ['mdi-language-javascript', 'icon-javascript'],

@@ -45,6 +45,7 @@ const startServer = async () => {
     { registerArchiveHandlers },
     { registerPropertiesHandlers },
     { createGitWatchRegistry, registerGitHandlers },
+    { registerSqliteHandlers },
   ] = await Promise.all([
     import('./filesystem.js'),
     import('./fileOperations.js'),
@@ -64,6 +65,7 @@ const startServer = async () => {
     import('./archives.js'),
     import('./properties.js'),
     import('./gitWatch.js'),
+    import('./sqlite.js'),
   ])
 
   const sshConnections = new Map()
@@ -123,6 +125,7 @@ const startServer = async () => {
     registerArchiveHandlers(socket)
     registerDirectoryWatchHandlers(socket, directoryWatches)
     registerGitHandlers(socket, gitWatches)
+    registerSqliteHandlers(socket)
     registerFileOperationHandlers(socket, { providers })
     // A saved change of endpoint, protocol, TLS, identity or trust ends the
     // affected sessions.
@@ -169,7 +172,9 @@ const startServer = async () => {
   process.on('SIGTERM', shutdown)
 }
 
-startServer().catch((error) => {
+if (process.env.VESPERWIND_SQLITE_WORKER === '1') {
+  import('./sqliteWorker.js').then(({ runSqliteWorker }) => runSqliteWorker())
+} else startServer().catch((error) => {
   console.error(`Vesperwind failed to start: ${error.message}`)
 
   if (error instanceof CliArgumentError) {

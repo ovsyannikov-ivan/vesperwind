@@ -286,6 +286,7 @@ export const useEditorWorkspace = () => {
     preparationControllers.get(tabId)?.abort()
     preparationControllers.delete(tabId)
 
+    getDocumentHandler(tabs.value[index].type)?.dispose?.(tabs.value[index])
     tabs.value[index].gitViewer?.dispose()
     tabs.value.splice(index, 1)
 

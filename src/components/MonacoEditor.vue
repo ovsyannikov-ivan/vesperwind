@@ -321,7 +321,8 @@ const redo = () => runCommand('redo')
 const handleNativeHistory = (event) => {
   if (!props.visible || !editor?.hasTextFocus()) return
   event.preventDefault()
-  if (!props.activeTab?.saving && !props.activeTab?.formatting) runCommand(event.detail)
+  if (event.detail === 'selectAll') editor.setSelection(editor.getModel().getFullModelRange())
+  else if (!props.activeTab?.saving && !props.activeTab?.formatting) runCommand(event.detail)
 }
 
 const runFindAction = async (...actionIds) => {

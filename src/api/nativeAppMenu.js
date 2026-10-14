@@ -24,7 +24,7 @@ export const installNativeEditHistory = () => {
   let disposed = false, unlisten
   void listen('vesperwind:edit-history', ({ payload }) => {
     if (!document.hasFocus()) return
-    if (!['undo', 'redo'].includes(payload)) return
+    if (!['undo', 'redo', 'selectAll'].includes(payload)) return
     const event = new CustomEvent('vesperwind:native-edit-history', { detail: payload, cancelable: true })
     if (window.dispatchEvent(event)) document.execCommand(payload)
   }).then((stop) => { if (disposed) stop(); else unlisten = stop }).catch(() => {})

@@ -22,6 +22,7 @@ mod remote;
 mod remote_auth_regression;
 mod settings;
 mod shell_integration;
+mod sqlite;
 mod ssh;
 mod ssh_auth;
 mod ssh_config;
@@ -61,6 +62,7 @@ pub struct AppState {
     web_history: Arc<media::history::WebHistory>,
     directory_watches: filesystem::watch::DirectoryWatches,
     git_watches: Arc<git::GitWatches>,
+    sqlite: Arc<sqlite::SqliteSessions>,
     search_jobs: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
     archive_jobs: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
     shell: Arc<shell_integration::ShellIntegration>,
@@ -190,6 +192,21 @@ pub fn run() {
                 if let MenuItemKind::Submenu(edit_menu) = item {
                     if edit_menu.text()? == "Edit" {
                         let entries = edit_menu.items()?;
+                        // WKWebView's Select All acts on DOM selection, not Monaco's model.
+                        for entry in &entries {
+                            if let MenuItemKind::Predefined(item) = entry {
+                                if item.text()? == "Select All" {
+                                    edit_menu.remove(entry)?;
+                                    edit_menu.append(&MenuItem::with_id(
+                                        app,
+                                        "editor-select-all",
+                                        "Select All",
+                                        true,
+                                        Some("CmdOrCtrl+A"),
+                                    )?)?;
+                                }
+                            }
+                        }
                         for entry in entries.iter().take(2) {
                             edit_menu.remove(entry)?;
                         }
@@ -222,8 +239,13 @@ pub fn run() {
             if event.id() == "open-settings" {
                 let _ = app.emit("vesperwind:open-settings", ());
             }
-            if event.id() == "editor-undo" || event.id() == "editor-redo" {
-                let action = if event.id() == "editor-undo" {
+            if event.id() == "editor-undo"
+                || event.id() == "editor-redo"
+                || event.id() == "editor-select-all"
+            {
+                let action = if event.id() == "editor-select-all" {
+                    "selectAll"
+                } else if event.id() == "editor-undo" {
                     "undo"
                 } else {
                     "redo"
@@ -248,6 +270,7 @@ pub fn run() {
             web_history,
             directory_watches: filesystem::watch::DirectoryWatches::default(),
             git_watches: Arc::new(git::GitWatches::default()),
+            sqlite: Arc::new(sqlite::SqliteSessions::default()),
             search_jobs: Arc::new(Mutex::new(HashMap::new())),
             archive_jobs: Arc::new(Mutex::new(HashMap::new())),
             shell: Arc::new(shell_integration::ShellIntegration::default()),
@@ -340,6 +363,9 @@ pub fn run() {
                 commands::filesystem::filesystem_write_binary,
                 commands::document::document_convert,
                 commands::document::document_cancel,
+                commands::sqlite::sqlite_open,
+                commands::sqlite::sqlite_request,
+                commands::sqlite::sqlite_close,
                 commands::filesystem::filesystem_operate,
                 commands::filesystem::filesystem_operation_cancel,
                 commands::desktop::desktop_operate,

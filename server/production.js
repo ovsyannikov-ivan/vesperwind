@@ -1,7 +1,7 @@
 import { prepareRuntimeAssets } from './runtimeAssets.js'
 
 const start = async () => {
-  await prepareRuntimeAssets()
+  if (process.env.VESPERWIND_SQLITE_WORKER !== '1') await prepareRuntimeAssets()
   await import('./index.js')
 }
 

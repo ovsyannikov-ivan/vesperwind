@@ -595,7 +595,7 @@ onBeforeUnmount(() => {
       <div v-else-if="activeTab?.error" class="editor-message text-danger" role="alert">
         <i class="mdi mdi-alert-outline" aria-hidden="true" />
         <span>{{ activeTab.error.message }}</span>
-        <button class="btn btn-sm btn-outline-secondary" type="button" @click="requestClose(activeTab)">Close tab</button>
+        <button class="btn btn-sm btn-neutral" type="button" @click="requestClose(activeTab)">Close tab</button>
       </div>
       <div v-if="!activeTab" class="editor-message">
         <i class="mdi mdi-file-document-edit-outline" aria-hidden="true" />

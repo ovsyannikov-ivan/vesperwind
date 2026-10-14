@@ -131,6 +131,7 @@ const runHistory = (action) => {
 
 // The macOS Edit menu owns Cmd+Z; it reaches the focused document through this event.
 const handleNativeHistory = (event) => {
+  if (event.detail === 'selectAll') return
   if (!props.visible || !host.value?.contains(document.activeElement) ||
     !document.activeElement?.closest('.ProseMirror')) return
   event.preventDefault()
