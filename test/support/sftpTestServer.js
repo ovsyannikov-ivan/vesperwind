@@ -17,7 +17,8 @@ const attributes = (stat) => ({
 const longname = (name, stat) => `${stat.isDirectory() ? 'd' : stat.isSymbolicLink() ? 'l' : '-'}rw-r--r-- 1 owner group ${stat.size} Jan 01 00:00 ${name}`
 
 export const startSftpTestServer = async (root, { username = 'fixture', password = 'fixture-password', extraNames = [] } = {}) => {
-  const keys = ssh2.utils.generateKeyPairSync('ed25519')
+  // ssh2's Ed25519 generator can strip a leading zero byte from the public key.
+  const keys = ssh2.utils.generateKeyPairSync('ecdsa', { bits: 256 })
   const key = ssh2.utils.parseKey(keys.public)
   const fingerprint = `SHA256:${createHash('sha256').update(key.getPublicSSH()).digest('base64').replace(/=+$/, '')}`
   const clients = new Set()

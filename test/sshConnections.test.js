@@ -47,7 +47,8 @@ test('explicit Password auth never tries keys/agent; a multi-prompt challenge is
 })
 
 test('rejects unsupported MFA even when a server accepts empty responses', async () => {
-  const keys = ssh2.utils.generateKeyPairSync('ed25519')
+  // Keep fixture host keys independent of ssh2's leading-zero Ed25519 bug.
+  const keys = ssh2.utils.generateKeyPairSync('ecdsa', { bits: 256 })
   const key = ssh2.utils.parseKey(keys.public)
   const fingerprint = `SHA256:${createHash('sha256').update(key.getPublicSSH()).digest('base64').replace(/=+$/, '')}`
   const clients = new Set()
