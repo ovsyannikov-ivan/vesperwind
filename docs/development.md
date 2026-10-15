@@ -2,7 +2,9 @@
 
 ## Requirements
 
-- Node.js 22.13+ and npm; Node SEA packaging requires Node.js 25.5+.
+- Node.js 22.13+ and npm. Browser SQL editing and the full test suite require
+  Node.js 24.10+; Frontend CI uses Node.js 24. Node SEA packaging requires
+  Node.js 25.5+.
 - Native build tools for the Node `node-pty` and `ssh2` dependencies.
 - Rust stable for the Tauri desktop application.
 - macOS: Xcode Command Line Tools and the Apple Rust target.

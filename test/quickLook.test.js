@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import test from 'node:test'
+import vm from 'node:vm'
+import { computed, effectScope, reactive, ref, watch } from 'vue'
 import { useQuickLook, getQuickLookKind } from '../src/composables/useQuickLook.js'
 import { canOpenQuickLook, canCloseQuickLook, consumeQuickLookSpace } from '../src/utils/quickLookKeyboard.js'
 import { createPlaybackCoordinator } from '../src/player/playbackCoordination.js'
@@ -305,4 +307,29 @@ test('audio remains in loading state while backend selection is pending and clos
   assert.equal(q.current.value.loading, true)
   q.close(); select('mpv'); await pending
   assert.equal(prepared, 0); assert.equal(q.current.value, null)
+})
+
+
+test('the open media modal yields Space to video but still closes image Quick Look', async () => {
+  const code = (await source('src/components/MediaViewerModal.vue'))
+    .split('<script setup>')[1].split('</script>')[0].replace(/^import .*$/gm, '')
+  for (const kind of ['video', 'image']) {
+    const scope = effectScope()
+    const props = reactive({ open: false, quickLook: true, media: {}, kind })
+    const closed = []
+    const dependencies = { computed, ref, watch, onMounted() {}, onBeforeUnmount() {},
+      defineProps: () => props, defineEmits: () => (...args) => closed.push(args), consumeQuickLookSpace }
+    const handle = scope.run(() => vm.compileFunction(`${code}\nreturn handleQuickLookSpace`, Object.keys(dependencies))(...Object.values(dependencies)))
+    try {
+      let prevented = false
+      const key = { key: ' ', preventDefault() { prevented = true }, stopImmediatePropagation() {} }
+      handle(key)
+      assert.equal(prevented, false, 'a closed modal leaves the opening Space to the file panel')
+      props.open = true
+      handle(key)
+      await Promise.resolve()
+      assert.equal(prevented, kind === 'image')
+      assert.equal(closed.length, kind === 'image' ? 1 : 0)
+    } finally { scope.stop() }
+  }
 })

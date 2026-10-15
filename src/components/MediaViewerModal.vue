@@ -105,7 +105,9 @@ const handleKeydown = (event) => {
 }
 
 const handleQuickLookSpace = (event) => {
-  if (props.open && props.quickLook) consumeQuickLookSpace(event, () => { void requestClose() })
+  if (props.open && props.quickLook && displayedKind.value !== 'video') {
+    consumeQuickLookSpace(event, () => { void requestClose() })
+  }
 }
 
 const handleHidden = () => {

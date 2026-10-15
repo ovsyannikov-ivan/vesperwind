@@ -71,6 +71,18 @@ test('SQL preview limits do not partially execute INSERT RETURNING', async () =>
     assert.equal(executeSqlite(db, { action: 'data', table: 'many', offset: 500 }).results[0].hasMore, false)
   } finally { db.close(); await f.cleanup() }
 })
+test('SQL accepts comment-only scripts and comments around statements without changing quoted values', async () => {
+  const f = await fixture(); const db = openSqlite(f.file)
+  try {
+    for (const sql of ['-- comment', '/* comment */ ; -- end', '; ; /* unfinished comment', '-- first\r-- second\n/* third */']) {
+      assert.deepEqual(executeSqlite(db, { action: 'query', sql }).results, [])
+    }
+    const result = executeSqlite(db, { action: 'query', sql: "/* first */ ; SELECT '-- literal ; /* still literal */' AS value; -- next\r\n SELECT 2; /* end */ ;" })
+    assert.equal(result.results.length, 2)
+    assert.equal(result.results[0].rows[0][0].value, '-- literal ; /* still literal */')
+    assert.equal(result.results[1].rows[0][0].value, '2')
+  } finally { db.close(); await f.cleanup() }
+})
 test('SQL cannot attach files, export with VACUUM INTO or load extensions', async () => {
   const f = await fixture(); const db = openSqlite(f.file)
   try {

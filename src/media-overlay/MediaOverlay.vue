@@ -17,7 +17,7 @@ import {
   PlayerStatus,
 } from '../player/mediaPlayerBackend.js'
 import { buildMediaInfoSections, formatMediaDuration, formatMediaTrack } from '../utils/mediaInfo.js'
-import { consumeQuickLookSpace } from '../utils/quickLookKeyboard.js'
+import { consumeVideoSpace } from '../player/videoKeyboard.js'
 
 const context = reactive({
   quickLook: false,
@@ -183,9 +183,9 @@ const handlePointerDown = (event) => {
   closeMenu()
 }
 const handleKeydown = (event) => {
-  if (context.quickLook && consumeQuickLookSpace(event, () => { void sendAction('close') })) return
   if (transitioning.value) { event.preventDefault(); return }
   showControls()
+  if (!activeMenu.value && consumeVideoSpace(event, togglePlay)) return
   if (event.key === 'Escape') {
     event.preventDefault()
     if (activeMenu.value) closeMenu()
@@ -194,9 +194,6 @@ const handleKeydown = (event) => {
   } else if (!activeMenu.value && canHandleSeekKey(event)
     && [PlayerStatus.READY, PlayerStatus.PLAYING, PlayerStatus.PAUSED].includes(state.status)) {
     if (seekController.add(event.key === 'ArrowRight' ? 10 : -10)) event.preventDefault()
-  } else if (event.key === ' ' && !activeMenu.value) {
-    event.preventDefault()
-    void togglePlay()
   }
 }
 

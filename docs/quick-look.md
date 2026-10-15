@@ -1,13 +1,17 @@
 # Quick Look
 
 Select a regular file in the active file panel and press **Space** to inspect it
-temporarily. **Space** again, **Escape** or the close button dismisses the preview. Normal opening
+temporarily. **Space** again, **Escape** or the close button dismisses the preview.
+Video is the exception: Space opens the video player, then pauses or resumes
+playback while it is open. Use Escape or the close button to dismiss it.
+Normal opening
 (double-click or Enter) keeps its existing behavior.
 
 Opening with Space is limited to the file panel, outside text inputs, address
 editing, editors, terminals, menus and dialogs. While Quick Look is open, Space
 belongs to the preview: it closes before PDF, spreadsheet, search-field or media
-controls can handle the key. The same rule applies to the native video overlay.
+controls can handle the key. Video retains Play/Pause on Space in both the HTML
+player and the native video overlay, including when opened normally.
 Holding Space does not immediately close the preview on keyboard repeat.
 Normal media viewing retains its playback shortcuts. Directories are ignored.
 

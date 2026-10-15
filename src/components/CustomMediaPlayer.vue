@@ -19,6 +19,7 @@ import { createSeekController, canHandleSeekKey } from '../player/seekController
 import VideoMouseSurface from './VideoMouseSurface.vue'
 import { createSeekFeedbackDisplay } from '../player/seekFeedbackDisplay.js'
 import { createPlaybackToggle } from '../player/videoMouseInteraction.js'
+import { consumeVideoSpace } from '../player/videoKeyboard.js'
 import { mediaOverlay } from '../api/mediaOverlay.js'
 import { createLayoutQueue } from '../player/layoutQueue.js'
 import { waitForNativeGeometry } from '../player/nativeGeometry.js'
@@ -94,7 +95,9 @@ const seekController = createSeekController({
 const sourceLocation = () => props.sourceType === 'url' ? { sourceType: 'url', url: props.sourceUrl } : { sourceType: 'provider', providerId: props.providerId || 'local', path: props.path }
 const thumbnail = useThumbnailPreview(() => ({ ...sourceLocation(), sourceHdr: state.diagnostics?.sourceHdr }))
 const handleVideoKeydown = (event) => {
-  if (isAudio.value || isNative.value || nativeTransitioning || !canHandleSeekKey(event)) return
+  if (isAudio.value || nativeTransitioning) return
+  if (!chaptersOpen.value && consumeVideoSpace(event, playbackToggle.toggle)) return
+  if (isNative.value || !canHandleSeekKey(event)) return
   if (![PlayerStatus.READY, PlayerStatus.PLAYING, PlayerStatus.PAUSED].includes(state.status)) return
   if (seekController.add(event.key === 'ArrowRight' ? 10 : -10)) {
     event.preventDefault()
@@ -111,10 +114,11 @@ const formatTime = (seconds) => {
 }
 const isAudio = computed(() => props.kind === 'audio')
 const isNative = computed(() => backendMode.value === 'mpv')
-const mouseEnabled = computed(() => !isAudio.value && !isNative.value && !state.error
+const playbackEnabled = computed(() => !isAudio.value && !state.error
   && [PlayerStatus.READY, PlayerStatus.PLAYING, PlayerStatus.PAUSED].includes(state.status))
-const mousePlayback = createPlaybackToggle({
-  enabled: () => mouseEnabled.value,
+const mouseEnabled = computed(() => !isNative.value && playbackEnabled.value)
+const playbackToggle = createPlaybackToggle({
+  enabled: () => playbackEnabled.value,
   getPlayer: () => player,
   isPlaying: () => state.status === PlayerStatus.PLAYING,
   onError: (error) => console.warn('Playback command failed', error),
@@ -395,7 +399,7 @@ watch(
   () => isNative.value ? [props.sourceType, props.sourceUrl, props.providerId, props.path] : [props.src],
   () => {
     seekController.reset()
-    mousePlayback.reset()
+    playbackToggle.reset()
     thumbnail.hide()
     chaptersOpen.value = false
     if (!player) return
@@ -454,7 +458,7 @@ watch(
 
 onBeforeUnmount(() => {
   osd.dispose()
-  mousePlayback.reset()
+  playbackToggle.reset()
   seekController.reset()
   document.removeEventListener('keydown', handleVideoKeydown, true)
   generation += 1
@@ -505,7 +509,7 @@ defineExpose({ mediaElement, pause, play, seek, stop, coverNativeTransition, rev
     <audio v-if="isAudio" ref="mediaElement" slot="media" :autoplay="autoplay" preload="metadata" @error="emit('error')" />
     <video v-else ref="mediaElement" slot="media" :autoplay="autoplay" playsinline preload="metadata" @error="emit('error')" />
     <VideoMouseSurface v-if="!isAudio" slot="gestures-chrome" noautohide :enabled="mouseEnabled"
-      :source-key="src" @seek="seekController.add" @toggle="mousePlayback.toggle" @fullscreen="emit('fullscreen')" />
+      :source-key="src" @seek="seekController.add" @toggle="playbackToggle.toggle" @fullscreen="emit('fullscreen')" />
     <MediaOsd v-if="!isAudio" slot="top-chrome" :message="osdMessage" />
     <Transition name="video-seek-feedback">
       <span v-if="seekHint" slot="centered-chrome" noautohide class="video-seek-feedback" role="status">{{ seekHint.delta > 0 ? '+' : '' }}{{ Math.round(seekHint.delta) }} s</span>

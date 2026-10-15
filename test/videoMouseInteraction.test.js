@@ -478,25 +478,42 @@ for (const native of [false, true])
     await tick()
     t.mock.timers.tick(180)
     assert.deepEqual(player.seeks, [80])
-    if (native) {
-      // Quick Look owns Space in the native overlay as well.
-      mediaOverlay.context({ sessionId: 'mouse-test', quickLook: true })
+    // Video keeps playback shortcuts regardless of how its modal was opened.
+    if (native) mediaOverlay.context({ sessionId: 'mouse-test', transitioning: false })
+    await tick()
+    for (const quickLook of [true, false]) {
+      if (native) mediaOverlay.context({ sessionId: 'mouse-test', quickLook })
+      else props.quickLook = quickLook
       await tick()
       const beforeActions = overlayActions.length
+      player.update({ status: PlayerStatus.PLAYING })
+      await tick()
       let prevented = false, stopped = false
       const space = { key: ' ', preventDefault() { prevented = true }, stopImmediatePropagation() { stopped = true } }
-      for (const listener of listeners.get('keydown')) listener(space)
+      const press = (patch = {}) => {
+        for (const listener of listeners.get('keydown')) listener({ ...space, ...patch })
+      }
+      const beforeCommands = player.commands.length
+      press({ repeat: true })
+      await tick()
+      assert.equal(player.commands.length, beforeCommands, 'holding the opening key leaves playback unchanged')
+      press()
+      await tick()
       assert.equal(prevented, true)
-      assert.equal(stopped, true)
-      assert.equal(overlayActions.at(-1), 'close')
-      assert.equal(overlayActions.length, beforeActions + 1)
-      for (const listener of listeners.get('keydown')) listener({ ...space, repeat: true })
-      assert.equal(overlayActions.length, beforeActions + 1)
-      mediaOverlay.context({ sessionId: 'mouse-test', quickLook: false, transitioning: false })
+      assert.equal(stopped, true, 'focused controls cannot also toggle playback')
+      assert.equal(player.snapshot().status, PlayerStatus.PAUSED)
+      assert.equal(player.commands.length, beforeCommands + 1)
+      press({ repeat: true })
       await tick()
-      for (const listener of listeners.get('keydown')) listener({ key: ' ', preventDefault() {} })
+      assert.equal(player.snapshot().status, PlayerStatus.PAUSED)
+      for (const patch of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }, { shiftKey: true }, { isComposing: true }, { defaultPrevented: true }]) press(patch)
       await tick()
-      assert.equal(player.snapshot().status, PlayerStatus.PLAYING, 'ordinary native video retains Space play/pause')
+      assert.equal(player.commands.length, beforeCommands + 1)
+      press()
+      await tick()
+      assert.equal(player.snapshot().status, PlayerStatus.PLAYING)
+      assert.equal(player.commands.length, beforeCommands + 2)
+      assert.equal(overlayActions.length, beforeActions, 'Space never closes the video modal')
     }
     app.unmount()
     assert.equal(listeners.get('keydown').size, 0)

@@ -40,6 +40,10 @@ export const executeSqlite = (db, request) => {
   const results = []
   let budget = SQLITE_LIMITS.resultBytes
   while (sql.trim()) {
+    // Older node:sqlite returns a finalized statement for comments alone.
+    // Remove only leading trivia; SQLite still parses statements and triggers.
+    sql = sql.replace(/^(?:\s+|;|--[^\r\n]*(?:\r\n?|\n|$)|\/\*[\s\S]*?(?:\*\/|$))+/u, '')
+    if (!sql) break
     if (results.length >= SQLITE_LIMITS.statements) throw new Error('A script may contain at most 100 statements')
     // SQLite, rather than a hand-written splitter, parses triggers and quoted semicolons.
     let statement

@@ -73,7 +73,8 @@ The view updates as external tools edit files, create commits or switch branches
 ## 🎧 Preview, play and keep working
 
 Press **Space** for Quick Look: a temporary read-only preview of media, code,
-Markdown, PDF, Office documents and spreadsheets. Press Space again to close it.
+Markdown, PDF, Office documents and spreadsheets. Press Space again to close it;
+in the video player, Space pauses or resumes playback instead.
 
 Play local or remote audio/video, HTTP/HTTPS streams and HLS. The audio player
 keeps its queue between launches, with drag reordering, repeat, shuffle and M3U

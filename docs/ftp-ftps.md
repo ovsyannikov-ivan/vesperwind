@@ -452,5 +452,5 @@ a data connection with another certificate, final errors, stalls, throttling,
 hostile MLSD/LIST lines) and an ssh2 SFTP server
 (`test/support/sftpTestServer.js`). `scripts/ftp-runtime-smoke.js` drives a
 real backend process over Socket.IO; `--sea staging/vesperwind` runs the same
-against the SEA executable. CI runs the smoke on Linux (Node 22) and builds
+against the SEA executable. CI runs the smoke on Linux (Node 24) and builds
 and smokes the SEA executable on macOS.
