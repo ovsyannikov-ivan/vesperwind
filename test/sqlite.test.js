@@ -74,7 +74,7 @@ test('SQL preview limits do not partially execute INSERT RETURNING', async () =>
 test('SQL accepts comment-only scripts and comments around statements without changing quoted values', async () => {
   const f = await fixture(); const db = openSqlite(f.file)
   try {
-    for (const sql of ['-- comment', '/* comment */ ; -- end', '; ; /* unfinished comment', '-- first\r-- second\n/* third */']) {
+    for (const sql of ['-- comment', '-- comment\rSELECT 1', '/* comment */ ; -- end', '; ; /* unfinished comment', '-- first\r-- second\n/* third */']) {
       assert.deepEqual(executeSqlite(db, { action: 'query', sql }).results, [])
     }
     const result = executeSqlite(db, { action: 'query', sql: "/* first */ ; SELECT '-- literal ; /* still literal */' AS value; -- next\r\n SELECT 2; /* end */ ;" })
