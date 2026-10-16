@@ -1,6 +1,8 @@
 //! One data root shared by the launcher, main WebView, media and Office WebViews.
 //! Installed applications keep their existing paths when portable mode is absent.
-use std::{fs, path::PathBuf};
+#[cfg(any(target_os = "windows", test))]
+use std::fs;
+use std::path::PathBuf;
 
 pub fn data_dir() -> Option<PathBuf> {
     std::env::var_os("VESPERWIND_PORTABLE_DATA_DIR").map(PathBuf::from)
@@ -32,6 +34,7 @@ pub fn initialize() -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(any(target_os = "windows", test))]
 fn validate_root(root: &std::path::Path) -> Result<(), String> {
     if !root.is_absolute() {
         return Err("Portable data directory must be absolute".into());
