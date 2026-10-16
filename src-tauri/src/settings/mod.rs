@@ -112,10 +112,14 @@ impl SettingsStore {
         }
     }
     pub fn from_environment() -> Result<Self, NativeError> {
-        let path = std::env::var("VESPERWIND_SETTINGS_PATH")
-            .ok()
-            .filter(|value| !value.trim().is_empty())
-            .map(PathBuf::from)
+        let path = crate::portable::data_dir()
+            .map(|root| root.join("settings.json"))
+            .or_else(|| {
+                std::env::var("VESPERWIND_SETTINGS_PATH")
+                    .ok()
+                    .filter(|value| !value.trim().is_empty())
+                    .map(PathBuf::from)
+            })
             .unwrap_or_else(default_settings_path);
         let path = if path.is_absolute() {
             path

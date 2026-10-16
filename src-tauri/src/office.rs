@@ -252,7 +252,7 @@ impl ConversionBroker {
         app.run_on_main_thread(move || {
             let url = format!("/{}/{}/", view.token, view.generation);
             let allowed = format!("{}{url}", view.origin);
-            let result = WebviewWindowBuilder::new(
+            let builder = WebviewWindowBuilder::new(
                 &handle,
                 view.label(),
                 WebviewUrl::External(allowed.parse().unwrap()),
@@ -265,10 +265,13 @@ impl ConversionBroker {
             .inner_size(960.0, 540.0)
             .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
             .on_navigation(move |url| url.as_str() == allowed)
-            .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
-            .build()
-            .map(|_| ())
-            .map_err(|e| e.to_string());
+            .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny);
+            let builder = if let Some(root) = crate::portable::data_dir() {
+                builder.data_directory(root.join("webview"))
+            } else {
+                builder
+            };
+            let result = builder.build().map(|_| ()).map_err(|e| e.to_string());
             if view.closed.load(Ordering::Acquire) {
                 if let Some(window) = handle.get_webview_window(&view.label()) {
                     let _ = window.destroy();

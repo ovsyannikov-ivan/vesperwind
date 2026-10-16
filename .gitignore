@@ -1,6 +1,7 @@
 node_modules/
 dist/
 staging/
+Vesperwind.data/
 src-tauri/target/
 .DS_Store
 **/.DS_Store

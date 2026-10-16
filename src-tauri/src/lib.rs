@@ -16,6 +16,7 @@ mod mpv;
 mod native_regression;
 mod office;
 mod permissions;
+mod portable;
 mod provider_content;
 mod remote;
 #[cfg(debug_assertions)]
@@ -70,6 +71,7 @@ pub struct AppState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    portable::initialize().expect("Unable to initialize portable storage");
     eprintln!(
         "Vesperwind {} | Tauri build: {} | Git commit: {}",
         env!("CARGO_PKG_VERSION"),
@@ -116,6 +118,11 @@ pub fn run() {
         }
     });
     let mut context = tauri::generate_context!();
+    if let Some(root) = portable::data_dir() {
+        for window in &mut context.config_mut().app.windows {
+            window.data_directory = Some(root.join("webview"));
+        }
+    }
     #[cfg(debug_assertions)]
     if media_ui_regression::config().is_some() {
         // The acceptance app must never change the user's WebView storage.
@@ -146,7 +153,11 @@ pub fn run() {
         }
     }
 
-    let window_state = tauri_plugin_window_state::Builder::default()
+    let mut window_state = tauri_plugin_window_state::Builder::default();
+    if let Some(root) = portable::data_dir() {
+        window_state = window_state.with_filename(root.join("window-state.json").to_string_lossy());
+    }
+    let window_state = window_state
         .with_state_flags(
             tauri_plugin_window_state::StateFlags::SIZE
                 | tauri_plugin_window_state::StateFlags::POSITION
@@ -155,6 +166,16 @@ pub fn run() {
         .with_filter(|label| label == "main")
         .build();
     let builder = tauri::Builder::default();
+    #[cfg(target_os = "windows")]
+    let builder = builder.on_window_event(|window, event| {
+        // The hidden Office converter is a top-level WebViewWindow. It must
+        // not keep the process (and a portable launcher's cache lease) alive
+        // after the user has closed the main window. Destroyed runs after any
+        // close-request cancellation, so it cannot bypass an unsaved-work guard.
+        if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
+            window.app_handle().exit(0);
+        }
+    });
     #[cfg(debug_assertions)]
     let builder = if remote_auth_regression::fixture_root().is_some() {
         builder
@@ -276,7 +297,9 @@ pub fn run() {
             shell: Arc::new(shell_integration::ShellIntegration::default()),
         })
         .setup(move |app| {
-            let history_path = app.path().app_data_dir()?.join("media-history.sqlite3");
+            let history_path = portable::data_dir()
+                .map(|root| root.join("media-history.sqlite3"))
+                .unwrap_or(app.path().app_data_dir()?.join("media-history.sqlite3"));
             #[cfg(debug_assertions)]
             let history_path = media_ui_regression::history_path().unwrap_or(history_path);
             #[cfg(debug_assertions)]
@@ -497,6 +520,11 @@ pub(crate) fn ensure_media_overlay(app: &tauri::AppHandle) -> Result<(), String>
     )
     .transparent(true)
     .focused(false);
+    let overlay_builder = if let Some(root) = portable::data_dir() {
+        overlay_builder.data_directory(root.join("webview"))
+    } else {
+        overlay_builder
+    };
     #[cfg(debug_assertions)]
     let overlay_builder = if media_ui_regression::config().is_some() {
         overlay_builder

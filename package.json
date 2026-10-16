@@ -13,11 +13,13 @@
     "build": "node scripts/check-lowa-assets.mjs && vite build",
     "prebuild:tauri": "node scripts/check-native-prereqs.mjs && node scripts/check-thumbnail-ffmpeg.mjs && node scripts/check-archive-worker.js && node scripts/check-lowa-assets.mjs",
     "build:tauri": "node scripts/build-tauri.js",
+    "build:portable": "node scripts/build-portable.mjs",
     "build:staging": "node scripts/build-staging.js",
     "build:sea": "node scripts/build-sea.js",
     "postinstall": "node scripts/ensure-node-pty-helper.js",
     "start": "node server/index.js",
     "test": "node scripts/test.js",
+    "test:portable": "node scripts/test-portable.mjs",
     "test:smoke": "node scripts/runtime-smoke.js",
     "build:archives": "node scripts/build-archive-worker.js",
     "build:libmpv": "node scripts/build-libmpv.js"

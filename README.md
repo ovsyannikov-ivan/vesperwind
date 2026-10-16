@@ -88,7 +88,7 @@ Open multiple **local PTY and SSH terminal tabs** alongside your files and edito
 | Runtime | Platforms | Setup |
 | --- | --- | --- |
 | Desktop | macOS · Apple Silicon | [Development and builds](docs/development.md) · [App & DMG packaging](docs/development.md#macos-app-and-dmg-packaging) |
-| Desktop | Windows · x64 | [Windows build guide](docs/build-windows.md) |
+| Desktop | Windows · x64 | [Windows build guide](docs/build-windows.md) · [Single-file portable EXE](docs/build-windows.md#single-file-portable-application) |
 | Browser / SEA | Node.js backend | [Run locally or build a standalone executable](docs/development.md) |
 
 Linux desktop packaging is not yet supported.

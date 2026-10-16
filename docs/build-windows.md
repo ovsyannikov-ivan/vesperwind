@@ -86,6 +86,11 @@ to application initialization, not video overlay updates, so images and videos
 share the same fullscreen window behavior. Existing macOS and Linux menus are
 preserved.
 
+Closing the main Windows window exits the application even when a hidden Office
+converter window still exists. The normal shutdown path closes workers, flushes
+history and saves window state; hidden converter windows must not keep a portable
+launcher's runtime lease alive after the main window is destroyed.
+
 Both npm Tauri commands run `scripts/check-native-prereqs.mjs` first. On Windows,
 it checks that `perl -v` succeeds and shows the Strawberry Perl installation
 command before Cargo starts if Perl is missing. It does not verify the other
@@ -101,6 +106,109 @@ window, mpv-owned gpu-next/D3D11 with HDR10 PQ/BT.2020 policy and a WGL/OpenGL S
 Real HDR-display validation remains not verified; see [libmpv output diagnostics](libmpv.md).
 The Node SEA packaging path
 is currently macOS-only; use Tauri for a Windows native build.
+
+## Single-file portable application
+
+On Windows x64, run:
+
+```powershell
+npm ci
+npm run build:portable
+```
+
+The command verifies the pinned libmpv and LOWA assets, builds the archive worker
+if necessary, builds the release Tauri application without installers, and embeds
+the Windows resources in a Rust launcher. Both application and launcher use the
+static MSVC CRT. The output is
+`src-tauri/target/release/bundle/portable/Vesperwind_<version>_windows_x64_portable.exe`.
+The recipient needs neither Node.js nor MSYS2, developer tools or a separately
+installed WebView2 runtime. Windows 10/11 x64 is the target platform; release
+acceptance on each supported system is still required.
+
+The build downloads the Microsoft WebView2 Fixed Version CAB pinned by version,
+URL and SHA-256 in `scripts/portable-webview2.json`, verifies the CAB checksum and
+the extracted runtime's Microsoft Authenticode signature, and includes its full
+runtime and accompanying license files. Subsequent builds reuse the verified CAB
+under `src-tauri/target/portable-tools`. To update WebView2, select an official
+Microsoft x64 Fixed Version release, verify its provenance, update the pin and
+repeat portable acceptance. Fixed Runtime does not update itself.
+
+For packaging after a successful application build, use
+`npm run build:portable -- --skip-app-build`. This consumes the existing release
+EXE and must not be used after application source changes. Ordinary
+`npm run build:tauri` continues to produce the existing installer formats.
+
+### Launch, cache and portable data
+
+The outer EXE contains a compressed package and a manifest of relative paths,
+file sizes and SHA-256 checksums. The launcher verifies the embedded package on
+every launch. It verifies the exact set and contents of cached files before
+executing them. A missing or corrupt cache is rebuilt from the embedded package
+without downloading anything. Checksums detect corruption; publisher authenticity
+requires signing the final assembled EXE with Authenticode. An unsigned local build
+does not provide that publisher guarantee.
+
+Resources are extracted to
+`%LOCALAPPDATA%\Vesperwind\portable-cache\bundles\<package-sha256>`.
+Preparation is serialized by an OS file lock; extraction occurs in a fresh staging
+directory and is published only after verification. A shared lease is held while
+the application runs. A damaged active runtime is not removed; close that build
+before restarting to repair it. The launcher retains the current and two recent
+older builds, skipping any older build still in use. It does not install software,
+create shortcuts or change file associations.
+
+User data is independent of the resource cache. The default is `Vesperwind.data`
+beside the **outer launcher**, containing `settings.json`, `media-history.sqlite3`,
+`window-state.json` and the `webview` profile. Main, media-controls and isolated
+Office WebViews use that data root. If the directory is not writable, startup
+fails visibly rather than silently switching to the installed profile. Move the
+EXE alone for a fresh profile, or move it with `Vesperwind.data` to retain state.
+Saved Windows Credential Manager secrets and external SSH keys are not transferred
+by copying that directory.
+
+Launcher options (paths must be absolute):
+
+- `--portable-data-dir PATH`: choose a writable data directory.
+- `--portable-cache-dir PATH`: choose another cache, including one beside the EXE.
+- `--portable-verify`: verify/prepare the cache without starting the application.
+- `--portable-report PATH`: write a JSON receipt of the package and resolved paths.
+- `--portable-extract NEW_DIRECTORY`: extract verified resources for inspection
+  or direct execution with replaceable shared libraries. The extracted application
+  recognizes `portable.json` and uses its own adjacent `Vesperwind.data`.
+- `--`: pass subsequent arguments unchanged to the inner application.
+
+For Windows 10 Fixed Runtime support the launcher grants the two Microsoft
+application-package groups read/execute access to the extracted WebView2 directory,
+using the system `icacls.exe`. These permissions apply only to runtime resources.
+The cache must reside on a local filesystem supporting file locks and the required
+permissions. Microsoft does not support Fixed Runtime execution from UNC paths.
+See [Microsoft's Fixed Version deployment requirements](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution#the-fixed-version-runtime-distribution-mode).
+
+### Portable acceptance
+
+```powershell
+cargo test --locked --manifest-path native/portable-launcher/Cargo.toml --target-dir src-tauri/target
+npm test
+npm run test:portable -- C:\path\Vesperwind_0.1.0_windows_x64_portable.exe C:\path\new-portable-report
+```
+
+The acceptance script requires Node.js and this checkout's fixtures as test tooling;
+they are not application dependencies. It copies the distributed EXE into fresh
+locations, uses isolated APPDATA/LOCALAPPDATA and a PATH containing only standard
+Windows tools, tests cold/warm/concurrent launches and cache repair, and connects
+to an explicitly enabled loopback WebView2 debugging port for application checks.
+It exercises rendered panels, settings persistence, archive creation/extraction,
+local PTY creation, RTF-to-DOCX conversion, native video open/seek/close, and moving
+the EXE with its data to a Unicode path. Receipts and a screenshot are stored in
+the new report directory. Debugging is enabled only by the test process environment.
+
+Run the same acceptance on a separate clean Windows 10 and Windows 11 machine or
+VM without installed WebView2, developer tools or an application cache, using a
+standard user. Run once offline and test directory permission failures. Relocation
+on the build host does not establish second-machine independence. Independently
+check SFTP playback, audio/subtitles/fullscreen, target GPU/HDR output, and upgrade
+behavior with active older builds. Keep machine-specific evidence under ignored
+`src-tauri/target/local-checks` or outside the repository.
 
 ## Rebuilding the Windows libmpv runtime
 

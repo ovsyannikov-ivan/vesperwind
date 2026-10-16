@@ -1,5 +1,19 @@
 # Third-party notices
 
+## Windows portable launcher and WebView2
+
+The single-file Windows portable package includes Microsoft WebView2 Fixed Version
+Runtime, obtained from Microsoft's official distribution. Its pinned version,
+source URL and checksum are recorded in `scripts/portable-webview2.json` and the
+portable package's `BUILD-INFO.json`. Microsoft retains ownership of the runtime;
+its accompanying license and notice files are preserved under `vendor/webview2`.
+
+The Rust portable launcher's dependency license texts are included under
+`licenses/portable-launcher`, with package versions and declared licenses in
+`dependencies.json`. Existing libmpv and LOWA notices and source offers remain
+included in their respective resource directories. `--portable-extract` makes
+the runtime resources accessible for inspection and shared-library replacement.
+
 ## Visual Studio Code Dark 2026 theme data
 
 Vesperwind includes a generated Monaco Editor port of the built-in Visual

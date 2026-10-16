@@ -1,6 +1,6 @@
 // Minimal, bounds-checked PE32+ inspector: normal and delay-load imports.
 // Runs on stock Node, including a Windows machine without dumpbin/MSYS2.
-export function inspectPe(data) {
+export function inspectPe(data, { requireDll = true } = {}) {
   const check = (offset, size) => {
     if (!Number.isSafeInteger(offset) || offset < 0 || offset + size > data.length) {
       throw new Error('Truncated or invalid PE data')
@@ -15,7 +15,7 @@ export function inspectPe(data) {
   if (u16(pe + 4) !== 0x8664) throw new Error('Expected x86_64 PE machine')
   const optional = pe + 24
   if (u16(optional) !== 0x20b) throw new Error('Expected PE32+')
-  if (!(u16(pe + 22) & 0x2000)) throw new Error('Expected a DLL')
+  if (requireDll && !(u16(pe + 22) & 0x2000)) throw new Error('Expected a DLL')
   const sectionCount = u16(pe + 6)
   const optionalSize = u16(pe + 20)
   check(optional, optionalSize)
