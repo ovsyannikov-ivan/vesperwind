@@ -91,6 +91,11 @@ converter window still exists. The normal shutdown path closes workers, flushes
 history and saves window state; hidden converter windows must not keep a portable
 launcher's runtime lease alive after the main window is destroyed.
 
+The local-file context menu's **Show in Explorer** action uses the Windows Shell
+API to open the containing folder and select the chosen file or folder. It
+accepts provider paths with either slash spelling, including spaces, Unicode
+and commas in names; it does not construct an `explorer.exe /select` command line.
+
 Both npm Tauri commands run `scripts/check-native-prereqs.mjs` first. On Windows,
 it checks that `perl -v` succeeds and shows the Strawberry Perl installation
 command before Cargo starts if Perl is missing. It does not verify the other
@@ -137,6 +142,8 @@ For packaging after a successful application build, use
 `npm run build:portable -- --skip-app-build`. This consumes the existing release
 EXE and must not be used after application source changes. Ordinary
 `npm run build:tauri` continues to produce the existing installer formats.
+Use `npm run build:portable -- --output-dir C:\path\new-build` to write a separate
+portable build while a previous EXE in the default output directory is running.
 
 ### Launch, cache and portable data
 
@@ -199,7 +206,10 @@ Windows tools, tests cold/warm/concurrent launches and cache repair, and connect
 to an explicitly enabled loopback WebView2 debugging port for application checks.
 It exercises rendered panels, settings persistence, archive creation/extraction,
 local PTY creation, RTF-to-DOCX conversion, native video open/seek/close, and moving
-the EXE with its data to a Unicode path. Receipts and a screenshot are stored in
+the EXE with its data to a Unicode path. Before and after relocation it also
+checks the actual Explorer folder and selected item for files and folders with
+spaces, Unicode and commas in their names. Only Explorer windows for the test's
+unique fixture folders are closed. Receipts and a screenshot are stored in
 the new report directory. Debugging is enabled only by the test process environment.
 
 Run the same acceptance on a separate clean Windows 10 and Windows 11 machine or

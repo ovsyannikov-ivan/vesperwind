@@ -192,32 +192,59 @@ fn platform_action(action: Action, path: &Path) -> Result<(), NativeError> {
 }
 
 #[cfg(target_os = "windows")]
+fn windows_shell_path(path: &Path) -> String {
+    // Explorer's parsing names use backslashes, including paths received from
+    // the provider-neutral frontend. Keep the selected entry's logical path.
+    let path = path.to_string_lossy().replace('/', "\\");
+    if let Some(unc) = path.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{unc}")
+    } else {
+        path.strip_prefix(r"\\?\").unwrap_or(&path).to_owned()
+    }
+}
+
+#[cfg(target_os = "windows")]
 fn platform_action(action: Action, path: &Path) -> Result<(), NativeError> {
-    use std::{os::windows::ffi::OsStrExt, process::Command};
+    use std::os::windows::ffi::OsStrExt;
     use windows::{
         core::{w, PCWSTR},
         Win32::{
             System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED},
             UI::{
-                Shell::{SHOpenWithDialog, ShellExecuteW, OAIF_EXEC, OPENASINFO},
+                Shell::{
+                    Common::ITEMIDLIST, ILFree, SHOpenFolderAndSelectItems, SHOpenWithDialog,
+                    SHParseDisplayName, ShellExecuteW, OAIF_EXEC, OPENASINFO,
+                },
                 WindowsAndMessaging::SW_SHOWNORMAL,
             },
         },
     };
     // canonicalize returns verbatim paths (\\?\C:\...) on Windows. Shell
     // integration expects the ordinary Explorer path spelling.
-    let canonical = path.to_string_lossy();
-    let shell_path = if let Some(unc) = canonical.strip_prefix(r"\\?\UNC\") {
-        format!(r"\\{unc}")
-    } else if let Some(local) = canonical.strip_prefix(r"\\?\") {
-        local.to_owned()
-    } else {
-        canonical.into_owned()
-    };
+    let shell_path = windows_shell_path(path);
     let wide: Vec<u16> = std::ffi::OsStr::new(&shell_path)
         .encode_wide()
         .chain(Some(0))
         .collect();
+    struct ComGuard;
+    impl Drop for ComGuard {
+        fn drop(&mut self) {
+            unsafe { CoUninitialize() };
+        }
+    }
+    let _com = if matches!(action, Action::OpenWith | Action::Reveal) {
+        // The blocking worker owns this COM initialization for this call only.
+        unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) }
+            .ok()
+            .map_err(|error| {
+                NativeError::new("EDESKTOP", "Unable to initialize desktop integration")
+                    .with_path(path)
+                    .with_native_error(error.to_string())
+            })?;
+        Some(ComGuard)
+    } else {
+        None
+    };
     match action {
         Action::Open => {
             let result = unsafe {
@@ -237,20 +264,6 @@ fn platform_action(action: Action, path: &Path) -> Result<(), NativeError> {
             }
         }
         Action::OpenWith => {
-            unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) }
-                .ok()
-                .map_err(|error| {
-                    NativeError::new("EDESKTOP", "Unable to initialize the application chooser")
-                        .with_path(path)
-                        .with_native_error(error.to_string())
-                })?;
-            struct ComGuard;
-            impl Drop for ComGuard {
-                fn drop(&mut self) {
-                    unsafe { CoUninitialize() };
-                }
-            }
-            let _com = ComGuard;
             let info = OPENASINFO {
                 pcszFile: PCWSTR(wide.as_ptr()),
                 pcszClass: PCWSTR::null(),
@@ -271,13 +284,27 @@ fn platform_action(action: Action, path: &Path) -> Result<(), NativeError> {
             })
         }
         Action::Reveal => {
-            let mut command = Command::new("explorer.exe");
-            if path.is_file() {
-                command.arg(format!("/select,{shell_path}"));
-            } else {
-                command.arg(&shell_path);
+            let failure = |error: windows::core::Error| {
+                NativeError::new("EDESKTOP", "Unable to show this item in Explorer")
+                    .with_path(path)
+                    .with_native_error(error.to_string())
+            };
+            let mut item = std::ptr::null_mut();
+            // SAFETY: wide is NUL-terminated and lives through parsing. The
+            // resulting absolute PIDL is owned here and freed before COM exits.
+            unsafe { SHParseDisplayName(PCWSTR(wide.as_ptr()), None, &mut item, 0, None) }
+                .map_err(failure)?;
+            struct ItemIdList(*mut ITEMIDLIST);
+            impl Drop for ItemIdList {
+                fn drop(&mut self) {
+                    unsafe { ILFree(Some(self.0)) };
+                }
             }
-            run(command, path)
+            let item = ItemIdList(item);
+            // With no child array, the absolute PIDL identifies the item to
+            // select in its parent. This works for files and folders without
+            // explorer.exe's /select quoting and comma parsing ambiguities.
+            unsafe { SHOpenFolderAndSelectItems(item.0, None, 0) }.map_err(failure)
         }
     }
 }
@@ -291,7 +318,7 @@ fn platform_action(_action: Action, path: &Path) -> Result<(), NativeError> {
     .with_path(path))
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn run(mut command: std::process::Command, path: &Path) -> Result<(), NativeError> {
     let status = command.status().map_err(|error| io_error(&error, path))?;
     if status.success() {
@@ -305,7 +332,7 @@ fn run(mut command: std::process::Command, path: &Path) -> Result<(), NativeErro
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn io_error(error: &std::io::Error, path: &Path) -> NativeError {
     NativeError::from_io(error, "Unable to start the system application")
         .with_path(path)
@@ -318,6 +345,25 @@ mod tests {
     use crate::filesystem::Filesystem;
     use std::fs;
     use uuid::Uuid;
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn shell_paths_preserve_selected_names_and_normalize_windows_prefixes() {
+        use super::windows_shell_path;
+        use std::path::Path;
+        for (input, expected) in [
+            (
+                "C:/Папка with spaces/Файл, №1.txt",
+                r"C:\Папка with spaces\Файл, №1.txt",
+            ),
+            (r"\\?\C:\Folder\file.txt", r"C:\Folder\file.txt"),
+            (r"\\?\UNC\server\share\Файл.txt", r"\\server\share\Файл.txt"),
+            ("//server/share/Folder name", r"\\server\share\Folder name"),
+            (r"C:\", r"C:\"),
+        ] {
+            assert_eq!(windows_shell_path(Path::new(input)), expected);
+        }
+    }
 
     #[test]
     fn validates_local_files_folders_unicode_and_root_boundary() {

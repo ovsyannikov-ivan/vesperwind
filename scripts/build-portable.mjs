@@ -15,7 +15,13 @@ const appConfig = JSON.parse(await fs.readFile(path.join(root, 'src-tauri/tauri.
 // CNG, Cloud Files and network providers are Windows APIs, not redistributable CRTs.
 const appSystemDlls = new Set(['bcryptprimitives.dll', 'cldapi.dll', 'mpr.dll'])
 const flags = process.argv.slice(2)
-if (flags.some(flag => flag !== '--skip-app-build')) throw Error('Usage: npm run build:portable [-- --skip-app-build]')
+let skipAppBuild = false
+let outputDirectory = path.join(target, 'release/bundle/portable')
+for (let i = 0; i < flags.length; i++) {
+  if (flags[i] === '--skip-app-build') skipAppBuild = true
+  else if (flags[i] === '--output-dir' && flags[i + 1] && !flags[i + 1].startsWith('--')) outputDirectory = path.resolve(root, flags[++i])
+  else throw Error('Usage: npm run build:portable [-- --skip-app-build] [--output-dir DIRECTORY]')
+}
 if (process.platform !== 'win32' || process.arch !== 'x64') throw Error('Portable builds require Windows x64 with the MSVC Rust toolchain')
 if (process.env.CARGO_BUILD_TARGET || process.env.CARGO_TARGET_DIR) throw Error('Use the default Cargo target directory; unset CARGO_BUILD_TARGET and CARGO_TARGET_DIR')
 
@@ -41,7 +47,7 @@ try { checkArchiveWorker() } catch { node('scripts/build-archive-worker.js') }
 node('scripts/check-lowa-assets.mjs')
 node('scripts/verify-libmpv-bundle.js', ['windows'])
 const staticEnvironment = { ...process.env, RUSTFLAGS: `${process.env.RUSTFLAGS || ''} -C target-feature=+crt-static`.trim() }
-if (!flags.includes('--skip-app-build')) node('scripts/build-tauri.js', ['--no-bundle'], { env: staticEnvironment })
+if (!skipAppBuild) node('scripts/build-tauri.js', ['--no-bundle'], { env: staticEnvironment })
 
 const cab = path.join(tools, `webview2-${pins.version}-x64.cab`)
 let cabValid = false
@@ -107,7 +113,7 @@ await fs.writeFile(path.join(tools, 'manifest.json'), JSON.stringify(manifest, n
 run('cargo', ['build', '--release', '--locked', '--manifest-path', 'native/portable-launcher/Cargo.toml', '--target-dir', 'src-tauri/target'], {
   env: { ...staticEnvironment, VESPERWIND_PORTABLE_PAYLOAD: payload, VESPERWIND_PORTABLE_SHA256: manifest.sha256 },
 })
-const output = path.join(target, 'release/bundle/portable')
+const output = outputDirectory
 await fs.mkdir(output, { recursive: true })
 const binary = path.join(output, `Vesperwind_${appConfig.version}_windows_x64_portable.exe`)
 const pending = path.join(tools, 'verified-portable.exe')

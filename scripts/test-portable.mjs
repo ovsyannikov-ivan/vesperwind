@@ -123,6 +123,26 @@ async function appAcceptance(exe, expectedTheme, name, full) {
     assert.equal(normalize(settings.storagePath), normalize(path.join(path.dirname(exe), 'Vesperwind.data/settings.json')))
     const loaded = await invoke('filesystem_list', { filesystemId: 'local', path: output })
     assert.ok(loaded.entries.length > 0)
+    // Assert the actual Shell view and selection, not only a successful IPC reply.
+    const revealFolder = path.join(output, `${name}-Explorer`, 'Папка with spaces, commas')
+    await fs.mkdir(revealFolder, { recursive: true })
+    const existingExplorer = await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', '(New-Object -ComObject Shell.Application).Windows() | ForEach-Object { $_.HWND }'], { windowsHide: true })
+    const existingWindows = existingExplorer.stdout.trim().split(/\s+/).join(',')
+    const revealed = []
+    for (const [filename, directory] of [['ordinary.txt', false], ['Файл with spaces, №1.txt', false], ['report & notes [final].txt', false], ['Выбранная папка, folder', true]]) {
+      const item = path.join(revealFolder, filename)
+      if (directory) await fs.mkdir(item); else await fs.writeFile(item, 'Explorer selection fixture')
+      // Frontend paths may contain forward slashes. The native layer must accept both.
+      await invoke('desktop_operate', { action: 'reveal', filesystemId: 'local', path: item.replaceAll('\\', '/') })
+      const checked = await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', path.join(root, 'scripts/assert-explorer-selection.ps1')], {
+        env: { ...process.env, VESPERWIND_EXPLORER_TEST_ITEM: item, VESPERWIND_EXPLORER_EXISTING_WINDOWS: existingWindows }, windowsHide: true, timeout: 30_000,
+      })
+      const receipt = JSON.parse(checked.stdout)
+      assert.equal(normalize(receipt.folder), normalize(revealFolder))
+      assert.deepEqual(receipt.selected.map(normalize), [normalize(item)])
+      revealed.push(receipt)
+    }
+    await fs.writeFile(path.join(output, `${name}-explorer.json`), JSON.stringify(revealed, null, 2))
     if (full) {
       settings.settings.appearance.theme = 'dark'
       await invoke('settings_update', { settings: settings.settings })
@@ -208,5 +228,6 @@ const movedExe = await copy(moved)
 await appAcceptance(movedExe, 'dark', 'moved-app', false)
 await assert.rejects(fs.access(path.join(roaming, 'Vesperwind/settings.json')))
 results.push('relocation into a Unicode path preserves settings, WebView localStorage, history and window state')
+results.push('Explorer opens the containing folder and selects files/folders with spaces, Unicode and commas before and after relocation')
 await fs.writeFile(path.join(output, 'acceptance.json'), JSON.stringify({ schema: 1, host: 'current Windows machine; relocation is not a second-PC test', binary, results }, null, 2))
 console.log(JSON.stringify({ output, results }, null, 2))
