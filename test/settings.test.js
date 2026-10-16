@@ -78,6 +78,13 @@ test('can restore default settings', async () => {
   assert.equal(settings.editor.formatting.enabled, true)
 })
 
+test('persists the panel status bar preference and resets it to enabled', async () => {
+  await saveSettings({ filesystem: { showStatusBar: false } })
+  const reopened = await import(`../server/settings.js?status-bar-reopen=${Date.now()}`)
+  assert.equal((await reopened.loadSettings()).filesystem.showStatusBar, false)
+  assert.equal((await resetSettings()).filesystem.showStatusBar, true)
+})
+
 test('persists editor font and point size across an independent settings store load', async () => {
   await saveSettings({ editor: { fontFamily: 'jetbrains-mono', fontSize: 14 } })
   const reopened = await import(`../server/settings.js?typography-reopen=${Date.now()}`)

@@ -22,6 +22,14 @@ test('uses the system color mode by default', () => {
   assert.equal(settings.appearance.locale, '')
 })
 
+test('panel status bars default to enabled for existing settings and preserve explicit opt-out', () => {
+  assert.equal(createDefaultSettings().filesystem.showStatusBar, true)
+  for (const value of [undefined, null, 'false', 0, true]) {
+    assert.equal(normalizeSettings({ filesystem: { showStatusBar: value } }).filesystem.showStatusBar, true)
+  }
+  assert.equal(normalizeSettings({ filesystem: { showStatusBar: false } }).filesystem.showStatusBar, false)
+})
+
 test('migrates version 1 settings and preserves filesystem filters', () => {
   const settings = normalizeSettings({
     version: 1,

@@ -25,6 +25,7 @@ import { availableExtensions, sortAndFilterEntries } from "../utils/fileDirector
 import { reconcileFilteredSelection } from "../utils/reconcileFilteredSelection.js";
 import { currentChildPath } from "../utils/folderMenu.js";
 import { findExistingAncestor, isMissingDirectoryError } from "../utils/missingDirectory.js";
+import { summarizeDirectory, formatDirectorySize } from "../utils/directorySummary.js";
 
 const props = defineProps({
 	panelId: { type: String, required: true },
@@ -63,7 +64,7 @@ const props = defineProps({
 
 const emit = defineEmits(["activate", "collapse", "drop-request", "open-file", "context-menu", "panel-drag-candidate", "state-change", "open-git"]);
 const { getRoot, listDirectory } = useFilesystem(() => props.providerId);
-const { revision: settingsRevision } = useSettings();
+const { settings, revision: settingsRevision } = useSettings();
 const filesystemRoot = ref(null);
 const homePath = ref("");
 const root = ref(null);
@@ -112,6 +113,8 @@ const closeFilterOnOutsidePointer = (event) => {
 const extensionChoices = computed(() => availableExtensions(rootEntries.value));
 const filterActive = computed(() => Boolean(directoryView.value.name || directoryView.value.extensions.length));
 const transformChildren = (entries, depth) => sortAndFilterEntries(entries, directoryView.value, depth);
+const directorySummary = computed(() => summarizeDirectory(search.open ? searchResults.value : transformChildren(rootEntries.value, 0)));
+const directorySize = computed(() => formatDirectorySize(directorySummary.value));
 const toggleSort = (sort) => {
 	directoryView.value = { ...directoryView.value, sort, direction: directoryView.value.sort === sort && directoryView.value.direction === "asc" ? "desc" : "asc" };
 };
@@ -823,6 +826,11 @@ watch(entryChange, (change) => {
 				/>
 			</div>
 		</div>
+		<footer v-if="settings.filesystem.showStatusBar" class="panel-status-bar" role="status" :aria-label="`${side} panel summary`" :title="search.open ? 'Search results · known file sizes only' : 'Current folder · shown entries · known file sizes only'">
+			<span>Folders: {{ directorySummary.folders }}</span>
+			<span>Files: {{ directorySummary.files }}</span>
+			<span>Size: {{ directorySize }}</span>
+		</footer>
 	</section>
 </template>
 

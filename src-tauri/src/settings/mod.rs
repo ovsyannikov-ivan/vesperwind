@@ -265,7 +265,7 @@ fn default_settings() -> Value {
     json!({
         "version": SETTINGS_VERSION,
         "appearance": { "theme": "system", "locale": "" },
-        "filesystem": { "hiddenNameSuffixes": [".localized"] },
+        "filesystem": { "hiddenNameSuffixes": [".localized"], "showStatusBar": true },
         "editor": { "theme": "auto", "fontFamily": typography["defaultFontFamily"], "fontSize": typography["defaultFontSize"], "formatting": default_formatting(), "editableFiles": DEFAULT_EDITABLE_FILES },
         "connections": [],
         "permissions": {"setupCompleted":false},
@@ -295,6 +295,7 @@ pub(crate) fn normalize_settings(value: &Value) -> Value {
         "version": SETTINGS_VERSION,
         "appearance": { "theme": theme, "locale": locale },
         "filesystem": {
+            "showStatusBar": value.pointer("/filesystem/showStatusBar") != Some(&Value::Bool(false)),
             "hiddenNameSuffixes": normalize_string_list(
                 value.pointer("/filesystem/hiddenNameSuffixes"),
                 &[".localized"],
@@ -925,6 +926,29 @@ mod tests {
             json!([".CACHE"])
         );
         assert_eq!(result["editor"]["editableFiles"], json!([".js", ".Vue"]));
+    }
+
+    #[test]
+    fn panel_status_bar_defaults_on_and_preserves_opt_out() {
+        assert_eq!(default_settings()["filesystem"]["showStatusBar"], true);
+        for value in [json!(null), json!("false"), json!(0), json!(true)] {
+            let normalized = normalize_settings(&json!({"filesystem": {"showStatusBar": value}}));
+            assert_eq!(normalized["filesystem"]["showStatusBar"], true);
+        }
+        let path = std::env::temp_dir()
+            .join(format!("vesper-status-bar-{}", uuid::Uuid::new_v4()))
+            .join("settings.json");
+        let store = SettingsStore::at_path(path.clone());
+        assert_eq!(store.load().unwrap()["filesystem"]["showStatusBar"], true);
+        store
+            .save(&json!({"filesystem": {"showStatusBar": false}}))
+            .unwrap();
+        let reopened = SettingsStore::at_path(path.clone());
+        assert_eq!(
+            reopened.load().unwrap()["filesystem"]["showStatusBar"],
+            false
+        );
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]

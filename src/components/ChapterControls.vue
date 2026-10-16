@@ -77,7 +77,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div v-if="chapters.length" ref="root" class="media-chapter-controls media-overlay-dropdown" @keydown="handleKeydown">
+  <div v-if="chapters.length" ref="root" class="media-chapter-controls media-overlay-dropdown dropup" @keydown="handleKeydown">
     <button :class="controlClass" type="button" title="Previous chapter" aria-label="Previous chapter" :disabled="disabled || previous == null" @click="emit('previous')"><i class="mdi mdi-skip-previous-outline" aria-hidden="true" /></button>
     <button :class="controlClass" type="button" title="Next chapter" aria-label="Next chapter" :disabled="disabled || next == null" @click="emit('next')"><i class="mdi mdi-skip-next-outline" aria-hidden="true" /></button>
     <button ref="toggle" :class="[toggleClass, 'dropdown-toggle']" type="button" aria-haspopup="menu" :aria-expanded="open" :disabled="disabled" @click="emit('toggle')">Chapters</button>

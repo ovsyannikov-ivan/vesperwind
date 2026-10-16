@@ -27,6 +27,7 @@ const activeSection = ref("general");
 const theme = ref("system");
 const locale = ref("");
 const suffixesText = ref("");
+const showStatusBar = ref(true);
 const editableFilesText = ref("");
 const editorTheme = ref("auto");
 const editorFontFamily = ref(DEFAULT_EDITOR_FONT_FAMILY);
@@ -50,6 +51,7 @@ const syncDraft = () => {
 	theme.value = settings.value.appearance.theme;
 	locale.value = settings.value.appearance.locale;
 	suffixesText.value = settings.value.filesystem.hiddenNameSuffixes.join("\n");
+	showStatusBar.value = settings.value.filesystem.showStatusBar;
 	editableFilesText.value = settings.value.editor.editableFiles.join("\n");
 };
 
@@ -117,6 +119,7 @@ const save = async () => {
 		filesystem: {
 			...settings.value.filesystem,
 			hiddenNameSuffixes,
+			showStatusBar: showStatusBar.value,
 		},
 		editor: {
 			...settings.value.editor,
@@ -253,6 +256,11 @@ onBeforeUnmount(() => {
 											<button class="btn btn-sm btn-neutral" type="button" @click="openPermissionSetup">Set up access</button>
 										</div>
 
+										<h2 class="h6 mb-1">File panels</h2>
+										<div class="form-check mb-4">
+											<input id="show-panel-status-bar" v-model="showStatusBar" class="form-check-input" type="checkbox" />
+											<label class="form-check-label" for="show-panel-status-bar">Show status bar with folder count, file count and total file size</label>
+										</div>
 										<h2 class="h6 mb-1">File visibility</h2>
 										<p class="text-body-secondary mb-4">Control which entries are hidden in both file panels.</p>
 

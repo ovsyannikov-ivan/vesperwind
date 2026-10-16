@@ -291,6 +291,7 @@ export const createDefaultSettings = () => ({
   },
   filesystem: {
     hiddenNameSuffixes: ['.localized'],
+    showStatusBar: true,
   },
   editor: {
     theme: 'auto',
@@ -323,6 +324,7 @@ export const normalizeSettings = (value) => ({
     locale: normalizeLocale(value?.appearance?.locale),
   },
   filesystem: {
+    showStatusBar: value?.filesystem?.showStatusBar !== false,
     hiddenNameSuffixes: normalizeHiddenSuffixes(
       value?.filesystem?.hiddenNameSuffixes,
     ),
