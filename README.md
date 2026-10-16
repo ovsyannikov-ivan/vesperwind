@@ -15,7 +15,7 @@
   <a href="CONTRIBUTING.md">Contribute</a>
 </p>
 
-![Vesperwind file panels showing a demo project, database and documents](docs/screenshots/workspace.jpg)
+![Vesperwind file panels showing a demo project, database and documents](docs/screenshots/workspace.png)
 
 <p align="center"><sub>macOS desktop app · Demonstration files</sub></p>
 
@@ -40,7 +40,7 @@ Open local or remote source files in **Monaco** with syntax highlighting, a mini
 search, indentation controls, and your preferred editor font and size.
 Keep several files open and the project tree within reach.
 
-![Monaco editing a Vue component beside the project tree](docs/screenshots/editor.jpg)
+![Monaco editing a Vue component beside the project tree](docs/screenshots/editor.png)
 
 Edit **DOCX, XLSX and XLS**, import DOC and RTF through bundled LOWA in desktop
 builds, or write Markdown in WYSIWYG and source modes. PDFs and PPTX presentations
@@ -55,7 +55,7 @@ Write SQL in Monaco, inspect results, and run **INSERT, UPDATE, DELETE and schem
 changes** against local databases and mounted volumes. Explicit transactions,
 Commit/Rollback controls and query cancellation are available.
 
-![SQLite tab showing tables, a SQL join and its result rows](docs/screenshots/sqlite.jpg)
+![SQLite tab showing tables, a SQL query and its result rows](docs/screenshots/sqlite.png)
 
 See the [SQLite guide](docs/sqlite-editor.md) for execution limits and transaction
 behaviour. SQL editing in browser/SEA mode requires Node.js 24.10 or newer.
@@ -68,9 +68,27 @@ unified or split views. Large diffs load on demand.
 
 The view updates as external tools edit files, create commits or switch branches.
 
-![Git commit history with a unified diff of a Vue component](docs/screenshots/git.jpg)
+![Git commit history with a split diff of a Vue component](docs/screenshots/git.png)
 
-## 🎧 Preview, play and keep working
+## 🎬 MKV, HDR and Dolby Vision
+
+Play **4K HEVC MKV** files with chapters, audio tracks and subtitles. Bundled
+libmpv handles **HDR10 and Dolby Vision sources**, including Dolby Vision RPU
+reshaping and HDR-to-SDR tone mapping.
+
+![4K Dolby Vision MKV playing in Vesperwind with chapters, audio and subtitle controls](docs/screenshots/mkv-playback.png)
+
+The **Info** panel shows the source format, Dolby Vision profile, decoder,
+colour processing and actual output mode.
+
+![Playback diagnostics showing Dolby Vision 8.1, active RPU reshaping, VideoToolbox decoding and Metal presentation](docs/screenshots/dolby-vision-info.png)
+
+<p align="center"><sub>Dolby Vision 8.1 source · RPU reshaping active · HDR-to-SDR fallback shown</sub></p>
+
+See [native playback, HDR and Dolby Vision](docs/libmpv.md#hdr-and-color-pipeline)
+for format and output details.
+
+## 🎧 Quick Look and audio
 
 Press **Space** for Quick Look: a temporary read-only preview of media, code,
 Markdown, PDF, Office documents and spreadsheets. Press Space again to close it;
@@ -81,7 +99,13 @@ keeps its queue between launches, with drag reordering, repeat, shuffle and M3U
 import/export. M4B audiobooks retain playback position; Tauri uses bundled libmpv,
 including FLAC, AC-3 and E-AC-3 playback.
 
+![Audio player and playlist above the file panels](docs/screenshots/audio-playlist.png)
+
+## ⌨️ Terminal beside your files
+
 Open multiple **local PTY and SSH terminal tabs** alongside your files and editors.
+
+![An integrated terminal running Homebrew below the file panels](docs/screenshots/terminal.png)
 
 ## Get started
 
